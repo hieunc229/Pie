@@ -138,6 +138,8 @@ final class PiSessionController {
 
     private(set) var dialogs: [ExtensionDialog] = []
     private(set) var extensionStatuses: [String: String] = [:]
+    /// Pending local deadlines for dialogs Pi will resolve on its own.
+    private var dialogTimeouts: [String: Task<Void, Never>] = [:]
     private(set) var extensionWidgets: [WidgetPlacement: [String: [String]]] = [:]
     private(set) var notifications: [ExtensionNotification] = []
     private(set) var compatibilityNotices: [ExtensionCompatibilityNotice] = []
@@ -369,7 +371,7 @@ final class PiSessionController {
                     message: body,
                     images: images,
                     behavior: busy ? .steer : nil
-                ))
+                ), timeout: promptTimeout(for: body))
             }
             drafts.clear(for: draftKey)
             return true
@@ -378,6 +380,23 @@ final class PiSessionController {
             report(error, context: "Sending the prompt failed")
             return false
         }
+    }
+
+    /// Pi answers `prompt` only once the text has been handled, and an extension
+    /// command is handled *by its own handler* — which may legitimately sit there
+    /// waiting for a dialog the user has not answered yet. A normal prompt keeps
+    /// the 60s preflight budget; an extension command gets the patient budget
+    /// `bash` uses, so a long dialog cannot fake a "prompt failed" error.
+    private func promptTimeout(for text: String) -> TimeInterval {
+        let name = text
+            .drop(while: { $0 == "/" })
+            .split(whereSeparator: \.isWhitespace)
+            .first
+            .map(String.init)
+        guard let name,
+              commands.contains(where: { $0.name == name && $0.source == .extension })
+        else { return PiRPCClient.defaultTimeout }
+        return 3600
     }
 
     private func addOptimisticUserItem(text: String) {
@@ -722,7 +741,32 @@ final class PiSessionController {
     }
 
     private func dismiss(_ id: String) {
+        dialogTimeouts.removeValue(forKey: id)?.cancel()
         dialogs.removeAll { $0.id == id }
+    }
+
+    /// Pi resolves a timed dialog itself but never says so, so a dialog left on
+    /// screen would invite the user to answer a question that no longer exists —
+    /// Pi has already continued with the default. Mirror the deadline locally, a
+    /// quarter second early so the answer PiCode would send can never race Pi's
+    /// own resolution, and say in the activity timeline why it disappeared.
+    private func scheduleDialogTimeout(id: String, seconds: TimeInterval) {
+        dialogTimeouts[id]?.cancel()
+        let delay = max(0.4, seconds - 0.25)
+        dialogTimeouts[id] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.expireDialog(id: id, seconds: seconds)
+        }
+    }
+
+    private func expireDialog(id: String, seconds: TimeInterval) {
+        dialogTimeouts.removeValue(forKey: id)
+        guard dialogs.contains(where: { $0.id == id }) else { return }
+        dialogs.removeAll { $0.id == id }
+        record(kind: .extensionRequest,
+               title: "Extension request expired",
+               detail: "Nobody answered, so Pi resolved it after \(Format.duration(seconds)).")
     }
 
     func dismissNotification(_ id: UUID) {
@@ -1287,9 +1331,12 @@ final class PiSessionController {
             }
             if let last = dialogs.last { dialog.queuedBehind = last.id }
             dialogs.append(dialog)
+            if let seconds = request.timeoutSeconds, seconds > 0 {
+                scheduleDialogTimeout(id: request.id, seconds: seconds)
+            }
             record(kind: .extensionRequest,
                    title: "\(dialog.title) requested by an extension",
-                   detail: request.timeout.map { "Pi will time out after \(Format.duration($0))" })
+                   detail: request.timeoutSeconds.map { "Pi will resolve this itself after \(Format.duration($0)) if nobody answers." })
 
         case .notify:
             let level = ExtensionNotification.Level(rawValue: request.notifyType ?? "info") ?? .info
@@ -1499,6 +1546,8 @@ final class PiSessionController {
         summarizationNote = nil
         extensionWidgets = [:]
         extensionStatuses = [:]
+        for task in dialogTimeouts.values { task.cancel() }
+        dialogTimeouts = [:]
         dialogs = []
         runtime = .idle
         items = []

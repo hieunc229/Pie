@@ -769,6 +769,13 @@ struct ExtensionUIRequest: Identifiable, Equatable {
         }
     }
 
+    /// Pi sends this in **milliseconds** (`docs/rpc.md`); everything in PiCode
+    /// measures time in seconds, so convert once here rather than at each use.
+    var timeoutSeconds: TimeInterval? {
+        guard let timeout else { return nil }
+        return timeout / 1000
+    }
+
     init(json: JSONValue) {
         id = json.string("id") ?? UUID().uuidString
         raw = json

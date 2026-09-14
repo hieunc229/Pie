@@ -79,8 +79,8 @@ struct ExtensionDialogView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let timeout = dialog.request.timeout {
-                Text("Pi will resolve this request itself after \(Format.duration(timeout)) if you do not answer.")
+            if let timeout = dialog.request.timeoutSeconds {
+                Text("Nobody has answered, so Pi will resolve this itself after \(Format.duration(timeout)); this card will close.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

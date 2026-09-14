@@ -66,11 +66,11 @@ PiCode's own preferences.
 | Session replay over all real sessions | ✅ `./Tools/SmokeTest/run-replay.sh` — 7.4k lines, no bad rows/ids/roles |
 | Resuming a real session (`--session`) | ✅ `./Tools/SmokeTest/run-open.sh` — read-only verified byte-for-byte |
 | Pi config locations (relocated `PI_CODING_AGENT_DIR` etc.) | ✅ `./Tools/SmokeTest/run-paths.sh` — PiCode and Pi agree, proven against a live `pi` |
+| Extension UI round trip against a live extension | ✅ `./Tools/SmokeTest/run-extension.sh` — all 35 checks pass, no model call |
 | Discovery / launch / trust / session index / git | ✅ implemented |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
 | Transcript row polish, per-row affordances | ⚠️ functional, not yet audited against the spec |
-| Extension UI dialog round trip against a live extension | ⚠️ encode/decode verified; no live extension tested (§11) |
 | PROCESS.md | ✅ this file |
 
 Nothing in the repo is generated or checked in from `/tmp`; the smoke test lives
@@ -99,6 +99,7 @@ open /tmp/picode-dd/Build/Products/Debug/PiCode.app
 ./Tools/SmokeTest/run-open.sh     # resume the biggest real session (copy) and re-read it
 ./Tools/SmokeTest/run-open.sh --small   # smallest session; also diffs the tree vs get_tree
 ./Tools/SmokeTest/run-paths.sh    # Pi's config/session locations, checked against a live pi
+./Tools/SmokeTest/run-extension.sh     # the whole extension UI round trip (dialogs, status, widget)
 ```
 
 The smoke test is the **acceptance gate for any change to `Models/`,
@@ -148,6 +149,20 @@ The other four harnesses exist because they each caught a real bug:
   that a relative path is ignored rather than guessed. It exists because
   `PiPaths` was hardcoded to `~/.pi/agent` (§7), which would have made PiCode
   write trust decisions to a file Pi never reads.
+- **`run-extension.sh`** drives the real `PiSessionController` against a real
+  `pi --mode rpc` with a throwaway extension
+  (`Fixtures/ExtensionUI/picode-ui-test.ts`) installed in a temp agent directory,
+  and answers the dialogs the way a user would. It covers `select` (picking a
+  non-default option), `confirm`, `input`, `editor` (prefill → draft → answer),
+  client cancellation, **Pi's own dialog timeout**, `notify` (all three levels),
+  `setStatus`/`setWidget` set *and* clear, `setTitle`, `setEditorText`, and the
+  `unsupported` method path — then asserts `stats.assistantMessages == 0`,
+  no transcript rows, no tokens, no protocol warnings, and no `trust.json`.
+  **It never sends a model request**: Pi executes extension commands locally, and
+  the harness refuses to send the slash command unless `get_commands` lists it
+  (a `source: extension` entry) first. Note the shape of the protocol: the
+  `prompt` response arrives only after the extension's handler returns, so the
+  harness fires the send concurrently with the loop that answers dialogs.
 
 Nothing above sends a model prompt. Keep it that way: PiCode's budget belongs to
 the user.
@@ -212,7 +227,7 @@ PiCode/
 │   ├── Palette/         CommandPaletteView, Sheets (rename/compact/fork/delete)
 │   ├── Settings/        SettingsView (General/Composer/Sessions/Pi)
 │   └── Shared/          UIComponents (BannerView, StatusPill, DiffStatView, …)
-└── Tools/SmokeTest/     run.sh + RPCSmokeTest.swift (see §3)
+└── Tools/SmokeTest/     run*.sh + *Test.swift + Fixtures/ (see §3)
 ```
 
 **`PiSessionController` is the heart.** If you are adding behaviour, the order is
@@ -262,6 +277,8 @@ protocol logic in views.
 | **Entries are read once, then followed with a cursor** | A full `get_entries` costs ~20 s and Pi does not cache it, while `get_entries(since:lastId)` costs ~0.01 s. One full read per session, incremental appends after every turn — nothing on the hot path stalls the next prompt. |
 | **Hand-written iterative JSON scanner** | `JSONDecoder` + recursive `JSONValue` crashed (SIGBUS) on Pi's nested `get_tree` payload. The scanner is stack-safe at any depth and faster than the `try?`-chain decoder; it also makes outgoing payloads deterministic (sorted keys). |
 | **`PiPaths` resolves Pi's own relocation rules** | Pi can be moved with `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR` or `settings.json` `sessionDir`, and PiCode launches `pi` with the inherited environment, so both must agree on where the config lives. This is a correctness issue, not cosmetics: PiCode writes `trust.json`, and if Pi reads a different file the user's answer is ignored while PiCode reports the project as trusted. |
+| **Timed extension dialogs are dismissed locally** | Pi self-resolves a dialog with a `timeout` and never tells the client, so a card left on screen invites the user to answer a question that no longer exists. PiCode mirrors the deadline (a quarter second early, so an answer can never race Pi's) and explains it in the activity timeline. There is no "expired" card state on purpose — a dead question should not look answerable. |
+| **Extension commands get the patient `prompt` timeout** | Pi answers `prompt` only once the text has been handled, and an extension command is handled by its own handler, which may sit on a dialog for minutes. A normal prompt keeps the 60 s preflight budget; a slash command Pi reported as an extension command gets the same patient budget as `bash`. |
 
 ---
 
@@ -414,13 +431,33 @@ partial content is assembled from `message_start` + deltas and reconciled on
 
 ### Extension UI
 
+> **Verified end to end** by `./Tools/SmokeTest/run-extension.sh` against a live
+> `pi` and a throwaway extension. Two real bugs came out of it — read these
+> before touching the extension path:
+>
+> 1. **`timeout` is in milliseconds.** It is the only duration on the wire that
+>    is, and `Format.duration` takes seconds, so passing it through printed
+>    "25m 0s" for a 1.5 s timeout. Use `ExtensionUIRequest.timeoutSeconds` and
+>    never the raw field.
+> 2. **Pi resolves a timed dialog without telling us.** The client had no timer
+>    of its own, so the card stayed on screen after Pi had already continued with
+>    the default answer — inviting the user to answer a question that no longer
+>    existed. `PiSessionController.scheduleDialogTimeout` now mirrors the deadline
+>    (a quarter second early, so an answer can never race Pi's own) and records
+>    "Extension request expired" in the activity timeline. There is deliberately
+>    no "expired" dialog state: the card is gone, and the timeline explains why.
+>
+> Also: the **`prompt` response arrives only after an extension command's handler
+> returns**, which can be as long as its slowest dialog. `promptTimeout(for:)`
+> therefore gives extension commands the patient budget `bash` uses, so a long
+> dialog cannot fake a "prompt failed" error.
+
 - **Dialogs** (`select`, `confirm`, `input`, `editor`): Pi blocks until the client
   answers with `extension_ui_response` carrying the same `id` — `value` for
   `select`/`input`/`editor`, `confirmed` for `confirm`, or `cancelled: true`.
   Only **one** dialog is presented at a time; the rest queue and the dialog shows
   "N more waiting". The dim overlay is deliberately **not** click-dismissable: an
-  extension question is a decision, not a tooltip. If the request carries
-  `timeout`, Pi self-resolves; the client shows the note and does not track it.
+  extension question is a decision, not a tooltip.
 - **Fire-and-forget** (`notify`, `setStatus`, `setWidget`, `setTitle`,
   `set_editor_text`): displayed (notifications / status bar / widget strips / window
   title / composer prefill) or logged, never answered.
@@ -523,12 +560,14 @@ Consequences baked into the controller:
    cards update in place, `agent_settled` reconcile is flicker-free, queued
    steer/follow-up appear, token usage bar moves. Expect to fix unknown event
    shapes here — that is the point of the exercise.
-2. **Extension UI round trip.** Write a throwaway extension in a scratch project
-   that calls `select`/`confirm`/`input`/`editor`, `notify`, `setStatus`,
-   `setWidget`, `setTitle`, and an unsupported method (e.g. `setFooter`) to see
-   the compatibility card. Verify only one dialog shows at a time, the queue
-   count is right, Escape is a real cancel, and the overlay never dismisses on a
-   stray click.
+2. ~~**Extension UI round trip.**~~ **Done** —
+   `./Tools/SmokeTest/run-extension.sh` drives the real controller against a live
+   extension: every dialog kind, client cancel, Pi's own timeout, notifications,
+   status and widget set/clear, title and composer prefill, and the unsupported
+   method path. It is credit-free (Pi runs extension commands locally) and the
+   two bugs it found are fixed (§9). Still to eyeball in the GUI: the dialog card
+   layering, the "N more waiting" queue count, and that Escape is a real cancel
+   rather than a dismiss — the harness covers the logic, not the pixels.
 3. **Audit the transcript rows against the spec** (`README.md`): tool card
    affordances, collapsed-by-default long output, error always visible, copy
    buttons, timestamp semantics.
@@ -551,6 +590,11 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 - ~~Reloaded sessions lose compaction/branch markers~~ — verified against a real
   compacted session: `get_messages` includes the summary, and the transcript
   renders a compaction row after resume (`run-open.sh`).
+- ~~Timed extension dialogs lingered after Pi had resolved them~~ — dismissed by
+  a local deadline that mirrors Pi's, and the activity timeline says why
+  (`run-extension.sh`).
+- ~~A 1.5 s dialog timeout displayed as "25m 0s"~~ — the wire sends milliseconds;
+  `ExtensionUIRequest.timeoutSeconds` converts once (`run-extension.sh`).
 - ~~`SessionReplayTest` orphan check was vacuous~~ — it now matches `toolResult`
   messages to calls by `toolCallId` (3754 of 3754 matched).
 - ~~Deeply nested RPC payloads crash the app~~ — the iterative scanner replaced
@@ -592,6 +636,8 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 - [ ] `./Tools/SmokeTest/run-open.sh --small` → `RESULT: all checks passed`
 - [ ] `./Tools/SmokeTest/run-paths.sh` → `RESULT: all checks passed` (only if you
       touched `PiPaths`, trust, session discovery, or process launching)
+- [ ] `./Tools/SmokeTest/run-extension.sh` → `RESULT: all checks passed` (only if
+      you touched extension UI, dialogs, or the prompt send path)
 - [ ] The app launches and stays up for a few seconds with no crash report
 - [ ] `git status` shows **no** changes in `~/.pi/agent` (no `trust.json`, no new
       session files, no touched settings)

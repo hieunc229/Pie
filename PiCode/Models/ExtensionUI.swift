@@ -18,8 +18,6 @@ struct ExtensionDialog: Identifiable, Equatable {
     var draftText: String = ""
     /// Choice for `.select`.
     var selection: String?
-    /// Set when Pi's own timeout resolves the request before the user answers.
-    var isExpired: Bool = false
     /// Set when another queued dialog is shown while this one waits.
     var queuedBehind: String?
 
