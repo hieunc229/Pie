@@ -383,10 +383,17 @@ final class AppState {
         preferences.persist()
     }
 
-    /// A project stays open while a search is running: a match hidden inside a
-    /// fold would look like a broken result.
+    /// Whether a project's chats are on screen.
+    ///
+    /// A fold is a fold: clicking a project always hides or shows its chats, even
+    /// while the search field has text in it. It used to be ignored whenever the
+    /// query was non-empty, on the theory that a match hidden inside a fold looks
+    /// like a broken result — but a click that silently does nothing is worse, and
+    /// the sidebar already says which projects are folded by their missing chats.
+    /// A search still decides *which* projects and chats `filteredProjects` offers;
+    /// this only decides whether the ones it offers are visible.
     func showsChats(of project: ProjectGroup) -> Bool {
-        sidebarQuery.trimmingCharacters(in: .whitespaces).isEmpty || !isCollapsed(project: project)
+        !isCollapsed(project: project)
     }
 
     func togglePin(project: ProjectGroup) {

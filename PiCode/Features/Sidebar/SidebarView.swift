@@ -42,6 +42,21 @@ enum SidebarStyle {
     /// edge to edge while the search field sat on a margin. Inset by the margin
     /// instead, and the pill lines up with the field and with the folder glyph.
     static let rowHighlightInset: CGFloat = sidebarMargin
+    /// The highlight pill's corners. Shared by both row types through
+    /// `sidebarRow(fill:topMargin:bottomMargin:)`, so a project's pill and a
+    /// chat's cannot be two different shapes.
+    static let rowHighlightRadius: CGFloat = 6
+    /// The floor under a row's content, so a project's pill can be the same height
+    /// as a chat's even though the project also carries a margin.
+    ///
+    /// The list holds a row to `defaultMinListRowHeight` — 20pt here, measured —
+    /// so a chat's pill is 20 + the row insets while its text is only ~17pt tall.
+    /// A project's content is 17pt plus its 12pt margin, which *clears* the floor
+    /// instead of being held to it: its pill came out 25pt against a chat's 28.
+    /// Holding both rows' content to a shared floor is what makes the invariant
+    /// structural — and since both rows go through the chrome, a future macOS that
+    /// changes the list's minimum moves both pills together.
+    static let rowMinHeight: CGFloat = 20
     /// Breathing room above a project — it has to separate the project from the
     /// previous project's last chat — and below it, before its own chats.
     static let projectTopMargin: CGFloat = 12
@@ -64,6 +79,49 @@ enum SidebarStyle {
         return NSColor(white: 0, alpha: isDark ? 0.35 : 0.06)
     })
     static let searchFieldRadius: CGFloat = 8
+}
+
+/// The highlight pill behind a sidebar row, and the row's vertical margins.
+///
+/// The space above a project is a **margin, not padding**: `listRowBackground`
+/// fills the row's whole cell — measured, the full column width and the full cell
+/// height — so a row that pads itself *inside* also makes its own pill taller.
+/// The project row did, and its pill came out 37pt against a chat's 28pt: hover a
+/// project next to a chat and one of them is visibly a different rank, which is
+/// exactly what this sidebar is trying not to say.
+///
+/// So the margin is applied twice, from the one value: as layout space around the
+/// row, and as an inset on the *shape*, which shrinks the pill back to the row's
+/// content height. Both numbers are parameters and both rows go through this one
+/// function, so a project and a chat can only differ in colour. `SidebarClickTest`
+/// measures the two pills against each other.
+struct SidebarRowChrome: ViewModifier {
+    var fill: Color
+    var topMargin: CGFloat
+    var bottomMargin: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .frame(minHeight: SidebarStyle.rowMinHeight)
+            .padding(.top, topMargin)
+            .padding(.bottom, bottomMargin)
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: SidebarStyle.rowHighlightRadius, style: .continuous)
+                    .fill(fill)
+                    .padding(.horizontal, SidebarStyle.rowHighlightInset)
+                    .padding(.top, topMargin)
+                    .padding(.bottom, bottomMargin)
+            )
+    }
+}
+
+extension View {
+    /// Give a sidebar row its highlight and its margins. See `SidebarRowChrome`.
+    func sidebarRow(fill: Color,
+                    topMargin: CGFloat = 0,
+                    bottomMargin: CGFloat = 0) -> some View {
+        modifier(SidebarRowChrome(fill: fill, topMargin: topMargin, bottomMargin: bottomMargin))
+    }
 }
 
 struct SidebarView: View {
@@ -316,13 +374,11 @@ struct ProjectRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.top, SidebarStyle.projectTopMargin)
-        .padding(.bottom, SidebarStyle.projectBottomMargin)
-        .listRowBackground(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isHovering ? Color.primary.opacity(0.05) : .clear)
-                .padding(.horizontal, SidebarStyle.rowHighlightInset)
-        )
+        // The margin above a project is space *around* its pill, not room inside
+        // it: see `SidebarRowChrome`.
+        .sidebarRow(fill: isHovering ? Color.primary.opacity(0.05) : .clear,
+                    topMargin: SidebarStyle.projectTopMargin,
+                    bottomMargin: SidebarStyle.projectBottomMargin)
         .onHover { isHovering = $0 }
         .accessibilityValue(state.isCollapsed(project: project) ? "chats hidden" : "chats shown")
         .contextMenu {
@@ -396,11 +452,9 @@ struct SessionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowBackground(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? Color.accentColor.opacity(0.14) : (isHovering ? Color.primary.opacity(0.05) : .clear))
-                .padding(.horizontal, SidebarStyle.rowHighlightInset)
-        )
+        .sidebarRow(fill: isSelected
+                    ? Color.accentColor.opacity(0.14)
+                    : (isHovering ? Color.primary.opacity(0.05) : .clear))
         .onHover { isHovering = $0 }
         .contextMenu(menuItems: contextMenu)
         .help(helpText)

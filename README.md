@@ -75,6 +75,8 @@ The composer floats over the transcript: rows scroll behind it and fade under th
 - Sort sessions by most recently active; allow pinning without changing Pi's session files.
 - Show session name, activity state, and a subtle relative timestamp.
 - Support search across project names, session names, and locally indexed prompt/response text.
+- Clicking a project folds its session list away; clicking it again brings it back. The fold is explicit, so it holds while a search is running too — a query never turns a click into a no-op.
+- The space between two projects is a margin, not padding: a project's highlight pill is exactly as tall as a session's (28pt), the 12pt of air above it is unpainted, and there is none of it below.
 - Context menu: rename, reveal session file, duplicate current branch, export, and remove from PiCode's recent list.
 - Deleting a Pi session file must be a separate, explicit destructive action with confirmation. Removing a sidebar item is not deletion.
 - The bottom area provides Settings, Pi version/update state, and diagnostics.

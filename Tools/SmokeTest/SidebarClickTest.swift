@@ -2,20 +2,30 @@
 //  SidebarClickTest.swift
 //  PiCode smoke test — not part of the app target.
 //
-//  Two claims about the sidebar that only pixels and a real mouse event can
+//  Three claims about the sidebar that only pixels and a real mouse event can
 //  settle:
 //
 //    1. clicking a project row folds its chats away, and clicking again brings
 //       them back — in a `NavigationSplitView` sidebar, with the row wrapped in a
 //       `Button`, which is where a click can quietly get eaten;
 //    2. the row highlight (the hover/selection pill) starts and ends on the same
-//       horizontal margin as the search field, instead of running to the edges.
+//       horizontal margin as the search field, instead of running to the edges;
+//    3. the space above a project is a *margin*: the project's pill is the same
+//       height as a chat's, the 12pt of air above it is unpainted, and there is
+//       none of it below.
 //
-//  It renders a mock of the real row structure (metrics extracted from
-//  `SidebarView.swift` by run-sidebar-click.sh), paints the project row's
-//  background red so its rectangle can be measured without confusing it with
-//  text, clicks that row through the window's own event path, and counts the
-//  text lines that survive.
+//  Every row in the mock paints its own distinctly-coloured background, so a row
+//  can be found, measured and counted by *colour* alone — no measurement here
+//  depends on reading text. That matters: text drawn over a saturated fill picks
+//  up that fill's tint, and over pure blue its edge pixels land 26 off neutral,
+//  past the threshold `WindowPixels.isText` uses to keep coloured fills out of a
+//  count of text lines. Counting rows by ink made this harness fail for a reason
+//  that had nothing to do with the sidebar.
+//
+//  The mock calls the app's own `sidebarRow(fill:topMargin:bottomMargin:)` rather
+//  than a copy of it: run-sidebar-click.sh extracts everything between
+//  `enum SidebarStyle` and `struct SidebarView`, which includes it. So what is
+//  measured below is the shipped rule, not a re-implementation of it.
 //
 
 import SwiftUI
@@ -27,9 +37,16 @@ struct SidebarClickDemo: View {
 
     @State private var isFolded = false
 
-    /// Not a real colour: a detector-friendly one. Text is neutral, so "red" is
-    /// unambiguous when counting ink.
-    private static let highlight = Color(.sRGB, red: 1, green: 0, blue: 0, opacity: 1)
+    /// Detector colours, not design ones. Each is a pair of bright channels with
+    /// one dark, so the four predicates below can never overlap:
+    ///
+    ///     red      projA         magenta  projA-aaa
+    ///     cyan     projA-bbb     green    projB        yellow  projB-ccc
+    static let projectA = Color(.sRGB, red: 1, green: 0, blue: 0, opacity: 1)
+    static let chatA1 = Color(.sRGB, red: 1, green: 0, blue: 1, opacity: 1)
+    static let chatA2 = Color(.sRGB, red: 0, green: 1, blue: 1, opacity: 1)
+    static let projectB = Color(.sRGB, red: 0, green: 1, blue: 0, opacity: 1)
+    static let chatB1 = Color(.sRGB, red: 1, green: 1, blue: 0, opacity: 1)
 
     var body: some View {
         List {
@@ -43,40 +60,40 @@ struct SidebarClickDemo: View {
                                height: SidebarStyle.projectIconSize,
                                alignment: .leading)
                         .offset(x: -SidebarStyle.projectIconShift)
-                    Text("proj").font(SidebarStyle.rowFont)
+                    Text("projA").font(SidebarStyle.rowFont)
                     Spacer(minLength: 0)
                 }
-                        .foregroundStyle(.primary)
+                .foregroundStyle(.primary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.top, SidebarStyle.projectTopMargin)
-            .padding(.bottom, SidebarStyle.projectBottomMargin)
-            .listRowBackground(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Self.highlight)
-                    .padding(.horizontal, SidebarStyle.rowHighlightInset)
-            )
+            .sidebarRow(fill: Self.projectA,
+                        topMargin: SidebarStyle.projectTopMargin,
+                        bottomMargin: SidebarStyle.projectBottomMargin)
 
             if !isFolded {
-                ForEach(["proj-aaa", "proj-bbb"], id: \.self) { chat in
-                    // `.primary` is not decoration: the real `SessionRow` sets it,
-                    // and without it an *inactive* window draws these rows in the
-                    // dimmed sidebar colour, which this harness reads as no text
-                    // and reports as "the chats did not come back". It did fail
-                    // that way, once, whenever another app held focus.
-                    Text(chat).font(SidebarStyle.rowFont)
-                        .foregroundStyle(.primary)
-                        .padding(.leading, SidebarStyle.titleIndent)
-                }
+                // `.primary` on the text is not decoration: the real `SessionRow`
+                // sets it, and without it an *inactive* window draws these rows in
+                // the dimmed sidebar colour. Nothing here measures the text, but the
+                // mock should still look like the thing it stands in for.
+                chat("projA-aaa", Self.chatA1)
+                chat("projA-bbb", Self.chatA2)
             }
+
+            // A second group, so the space above a project can be measured against
+            // the chat that precedes it rather than against the list's own top.
+            Text("projB").font(SidebarStyle.rowFont)
+                .foregroundStyle(.primary)
+                .sidebarRow(fill: Self.projectB,
+                            topMargin: SidebarStyle.projectTopMargin,
+                            bottomMargin: SidebarStyle.projectBottomMargin)
+            chat("projB-ccc", Self.chatB1)
         }
         .listStyle(.sidebar)
         // The sidebar material is invisible to `cacheDisplay` — it draws as
-        // transparent, which the capture resolves to black, which makes *every*
-        // pixel "darker than the backdrop" and every row one giant ink band. The
-        // mock therefore paints its own flat backdrop; the real sidebar's material
-        // is not what this harness is about.
+        // transparent, which the capture resolves to black. The mock therefore
+        // paints its own flat backdrop; the real sidebar's material is not what
+        // this harness is about.
         .scrollContentBackground(.hidden)
         .background(
             GeometryReader { proxy in
@@ -85,6 +102,13 @@ struct SidebarClickDemo: View {
                     .onChange(of: proxy.size.width) { _, width in onWidth(width) }
             }
         )
+    }
+
+    private func chat(_ title: String, _ colour: Color) -> some View {
+        Text(title).font(SidebarStyle.rowFont)
+            .foregroundStyle(.primary)
+            .padding(.leading, SidebarStyle.titleIndent)
+            .sidebarRow(fill: colour)
     }
 }
 
@@ -104,9 +128,8 @@ final class SidebarClickDelegate: NSObject, NSApplicationDelegate {
         } detail: {
             Text("detail").frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        // One opaque canvas for both columns: a capture measures ink against the
-        // most common brightness, and a half-transparent window leaves half the
-        // picture black.
+        // One opaque canvas for both columns: the capture is one image and a
+        // half-transparent window leaves half of it black.
         .background(Color(nsColor: .textBackgroundColor)))
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -128,17 +151,52 @@ final class SidebarClickDelegate: NSObject, NSApplicationDelegate {
         return WindowPixels.capture(content)
     }
 
-    /// The red pill's rectangle, in pixels.
-    private func highlightRect(_ pixels: WindowPixels) -> (x: ClosedRange<Int>, y: ClosedRange<Int>)? {
+    // MARK: - Pills, by colour
+
+    private struct Pill {
+        var name: String
+        var x: ClosedRange<Int>
+        var y: ClosedRange<Int>
+
+        func height(in pixels: WindowPixels) -> CGFloat {
+            CGFloat(Double(y.count)) / pixels.scale
+        }
+        func points(_ value: Int, _ pixels: WindowPixels) -> CGFloat {
+            CGFloat(Double(value)) / pixels.scale
+        }
+    }
+
+    private typealias Colour = (Int, Int, Int) -> Bool
+
+    private static let rows: [(String, Colour)] = [
+        ("projA", { r, g, b in r > 120 && g < 90 && b < 90 }),
+        ("projA-aaa", { r, g, b in r > 120 && g < 90 && b > 120 }),
+        ("projA-bbb", { r, g, b in r < 90 && g > 120 && b > 120 }),
+        ("projB", { r, g, b in r < 90 && g > 120 && b < 90 }),
+        ("projB-ccc", { r, g, b in r > 120 && g > 120 && b < 90 }),
+    ]
+
+    /// One row's painted rectangle, found by colour: the extents of every pixel the
+    /// row's own fill matched. Rounded corners and antialiased edges cost at most a
+    /// pixel at each edge, which is why every comparison allows 1.5pt.
+    private func rect(_ pixels: WindowPixels, _ match: Colour) -> (x: ClosedRange<Int>, y: ClosedRange<Int>)? {
         var xs: [Int] = [], ys: [Int] = []
         for y in 0..<pixels.height {
             for x in 0..<pixels.width {
                 let (r, g, b) = pixels.rgb(x, y)
-                if r > 120, g < 90, b < 90 { xs.append(x); ys.append(y) }
+                if match(r, g, b) { xs.append(x); ys.append(y) }
             }
         }
         guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else { return nil }
         return (minX...maxX, minY...maxY)
+    }
+
+    /// Every row that is on screen, in the order the list draws them.
+    private func pills(_ pixels: WindowPixels) -> [Pill] {
+        Self.rows.compactMap { name, match -> Pill? in
+            guard let found = rect(pixels, match) else { return nil }
+            return Pill(name: name, x: found.x, y: found.y)
+        }
     }
 
     // MARK: - Steps
@@ -148,55 +206,90 @@ final class SidebarClickDelegate: NSObject, NSApplicationDelegate {
             check(false, "the harness could render a window")
             return finish()
         }
-        guard let rect = highlightRect(pixels) else {
-            check(false, "the project row's highlight was painted")
+        let found = pills(pixels)
+        let byName = Dictionary(uniqueKeysWithValues: found.map { ($0.name, $0) })
+        guard let projectA = byName["projA"], let chatA1 = byName["projA-aaa"],
+              let chatA2 = byName["projA-bbb"], let projectB = byName["projB"] else {
+            check(false, "every mock row painted its own highlight",
+                  "found " + (found.isEmpty ? "none" : found.map(\.name).joined(separator: ", ")))
             return finish()
         }
-        print(String(format: "  note  column %.1fpt wide, capture %.1fpt tall (frame %.1fpt); highlight x %.1f-%.1fpt",
-                     Double(columnWidth), Double(pixels.height) / Double(pixels.scale),
-                     Double(window.frame.height),
-                     Double(CGFloat(rect.x.lowerBound) / pixels.scale),
-                     Double(CGFloat(rect.x.upperBound) / pixels.scale)))
+        print(String(format: "  note  column %.1fpt wide; projA y %.1f-%.1f, projA-aaa y %.1f-%.1f, projA-bbb y %.1f-%.1f, projB y %.1f-%.1f",
+                     Double(columnWidth),
+                     projectA.points(projectA.y.lowerBound, pixels), projectA.points(projectA.y.upperBound, pixels),
+                     chatA1.points(chatA1.y.lowerBound, pixels), chatA1.points(chatA1.y.upperBound, pixels),
+                     chatA2.points(chatA2.y.lowerBound, pixels), chatA2.points(chatA2.y.upperBound, pixels),
+                     projectB.points(projectB.y.lowerBound, pixels), projectB.points(projectB.y.upperBound, pixels)))
 
-        // Rows, not the toolbar toggle above them and not the other column. The
-        // backdrop is measured *inside the column*: the detail column has its own
-        // colour, and the whole-image modal brightness is whichever of the two
-        // covers more pixels.
-        let columnPixels = Int((columnWidth + 1) * pixels.scale)
-        let backdrop = pixels.background(in: 0..<columnPixels, yRange: rect.y.lowerBound..<pixels.height)
-        let rows = pixels.textLines(gap: 4,
-                                    xRange: 0..<columnPixels,
-                                    yRange: rect.y.lowerBound..<pixels.height,
-                                    backdrop: backdrop)
-        check(rows.count == 3, "three rows are on screen before the click",
-              "found \(rows.count); ink bands " + rows.map { band in "\(band.first ?? -1)-\(band.last ?? -1)" }.joined(separator: ", "))
+        // Rows, counted by colour, not by ink: every row here paints one.
+        check(found.count == 5, "five rows are on screen before the click",
+              "found \(found.count): " + found.map(\.name).joined(separator: ", "))
 
-        let left = CGFloat(rect.x.lowerBound) / pixels.scale
-        let right = CGFloat(rect.x.upperBound) / pixels.scale
-        check(abs(left - SidebarStyle.sidebarMargin) <= 1.5,
-              "the row highlight starts on the search field's margin",
-              String(format: "%.1fpt against %.1fpt", Double(left), Double(SidebarStyle.sidebarMargin)))
-        let trailing = columnWidth - right
-        check(abs(trailing - SidebarStyle.sidebarMargin) <= 1.5,
-              "the row highlight ends on the search field's margin",
-              String(format: "%.1fpt from the trailing edge", Double(trailing)))
+        highlightInsets(pixels, projectA, "the first")
+        highlightInsets(pixels, projectB, "the second")
 
-        click(at: clickPoint(in: rect, pixels))
+        measureMargin(pixels, projectA, chatA1, chatA2, projectB)
+
+        click(at: clickPoint(in: projectA, pixels))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.checkFolded() }
     }
 
+    private func highlightInsets(_ pixels: WindowPixels, _ pill: Pill, _ which: String) {
+        let left = pill.points(pill.x.lowerBound, pixels)
+        let right = columnWidth - pill.points(pill.x.upperBound, pixels)
+        check(abs(left - SidebarStyle.sidebarMargin) <= 1.5 && abs(right - SidebarStyle.sidebarMargin) <= 1.5,
+              "\(which) row's highlight sits on the search field's margin",
+              String(format: "%.1fpt from the leading edge, %.1fpt from the trailing one (margin %.1fpt)",
+                     Double(left), Double(right), Double(SidebarStyle.sidebarMargin)))
+    }
+
+    /// The space above a project is a *margin*.
+    ///
+    /// Three measurements settle it, and none of them needs the text:
+    ///
+    ///   * the project's pill is exactly as tall as a chat's — it used to be 37pt
+    ///     against 28pt, because `listRowBackground` fills the row's whole cell and
+    ///     the project row was padding itself *inside* it;
+    ///   * the air above it, measured from the pill of the chat that precedes the
+    ///     next project, is the top margin and nothing else;
+    ///   * there is none below it: the project's pill ends where its first chat's
+    ///     begins. A margin on the wrong side would show up here as a gap.
+    private func measureMargin(_ pixels: WindowPixels,
+                               _ projectA: Pill, _ chatA1: Pill, _ chatA2: Pill, _ projectB: Pill) {
+        let projectHeight = projectA.height(in: pixels)
+        let chatHeight = chatA1.height(in: pixels)
+        check(abs(projectHeight - chatHeight) <= 1.5,
+              "a project's highlight is the height of a chat's",
+              String(format: "%.1fpt against %.1fpt (it was 37.0 against 28.0 while the margin was inside the pill)",
+                     Double(projectHeight), Double(chatHeight)))
+
+        let gapAbove = Double(projectB.y.lowerBound - chatA2.y.upperBound - 1) / Double(pixels.scale)
+        check(abs(gapAbove - SidebarStyle.projectTopMargin) <= 1.5,
+              "the gap above a project is the top margin, outside the pill",
+              String(format: "%.1fpt against %.1fpt", gapAbove, Double(SidebarStyle.projectTopMargin)))
+
+        let gapBelow = Double(chatA1.y.lowerBound - projectA.y.upperBound - 1) / Double(pixels.scale)
+        check(abs(gapBelow) <= 1.5,
+              "a project's highlight ends where its first chat's begins",
+              String(format: "%.1fpt below it", gapBelow))
+    }
+
     private func checkFolded() {
-        guard let pixels = capture(), let rect = highlightRect(pixels) else { return finish() }
-        let lines = rowCount(pixels, pill: rect)
-        check(lines == 1, "clicking the project folds its chats away", "\(lines) row(s) left")
-        click(at: clickPoint(in: rect, pixels))
+        guard let pixels = capture() else { return finish() }
+        let found = pills(pixels)
+        check(found.count == 3, "clicking the project folds its chats away",
+              "\(found.count) row(s) left: " + found.map(\.name).joined(separator: ", "))
+        if let projectA = found.first(where: { $0.name == "projA" }) {
+            click(at: clickPoint(in: projectA, pixels))
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.checkUnfolded() }
     }
 
     private func checkUnfolded() {
-        guard let pixels = capture(), let rect = highlightRect(pixels) else { return finish() }
-        let lines = rowCount(pixels, pill: rect)
-        check(lines == 3, "clicking it again brings the chats back", "\(lines) row(s) on screen")
+        guard let pixels = capture() else { return finish() }
+        let found = pills(pixels)
+        check(found.count == 5, "clicking it again brings the chats back",
+              "\(found.count) row(s) on screen: " + found.map(\.name).joined(separator: ", "))
         if let data = pixels.pngData() {
             try? data.write(to: URL(fileURLWithPath: "/tmp/picode-sidebar-click.png"))
             print("  note  wrote /tmp/picode-sidebar-click.png — look at it")
@@ -204,19 +297,13 @@ final class SidebarClickDelegate: NSObject, NSApplicationDelegate {
         finish()
     }
 
-    private func rowCount(_ pixels: WindowPixels, pill: (x: ClosedRange<Int>, y: ClosedRange<Int>)) -> Int {
-        pixels.textLines(gap: 4,
-                         xRange: 0..<Int((columnWidth + 1) * pixels.scale),
-                         yRange: pill.y.lowerBound..<pixels.height).count
-    }
-
     /// The capture's y counts down from the top of the *content view*, window
     /// coordinates count up from the bottom of it, and the title bar is in
     /// neither, so the two meet at the content height.
-    private func clickPoint(in pill: (x: ClosedRange<Int>, y: ClosedRange<Int>), _ pixels: WindowPixels) -> NSPoint {
-        let centre = CGFloat(pill.y.lowerBound + pill.y.upperBound) / 2
-        return NSPoint(x: CGFloat(pill.x.lowerBound) / pixels.scale + 40,
-                       y: CGFloat(pixels.height) / pixels.scale - centre / pixels.scale)
+    private func clickPoint(in pill: Pill, _ pixels: WindowPixels) -> NSPoint {
+        let centre = CGFloat(Double(pill.y.lowerBound + pill.y.upperBound) / 2)
+        return NSPoint(x: CGFloat(Double(pill.x.lowerBound) / Double(pixels.scale)) + 40,
+                       y: CGFloat(Double(pixels.height) / Double(pixels.scale)) - centre / pixels.scale)
     }
 
     /// Through the window's own event path, so hit testing, the List row and the
