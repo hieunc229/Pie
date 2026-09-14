@@ -17,6 +17,7 @@ struct ToolCallCard: View {
 
     @State private var isInputExpanded = false
     @State private var isDetailsExpanded = false
+    @Environment(\.piCodeOpenChange) private var openChange
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -48,7 +49,20 @@ struct ToolCallCard: View {
                             Image(systemName: change.kind.systemImage)
                                 .imageScale(.small)
                                 .foregroundStyle(tint(for: change.kind))
-                            PathLabel(path: change.path, emphasizeLastComponent: false)
+                            // Selecting the card opens the diff for that file; the
+                            // reveal button next to it is the shortcut out to
+                            // Finder, which is a different intent.
+                            Button {
+                                openChange(change.path)
+                            } label: {
+                                Text(change.path)
+                                    .font(.callout.monospaced())
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .foregroundStyle(.primary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Show this file's diff in the inspector")
                             Spacer(minLength: 0)
                             DiffStatView(additions: change.additions, deletions: change.deletions)
                             Button {

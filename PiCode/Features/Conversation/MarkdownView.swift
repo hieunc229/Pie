@@ -29,6 +29,29 @@ private struct PiCodeOpenFileKey: EnvironmentKey {
     static let defaultValue = PiCodeOpenFileAction.disabled
 }
 
+/// Called when the user selects a file the agent changed (a tool card's change
+/// chip). Implementations open the Changes inspector on that file's diff.
+struct PiCodeOpenChangeAction {
+    var handler: (String) -> Void
+
+    func callAsFunction(_ path: String) {
+        handler(path)
+    }
+
+    static let disabled = PiCodeOpenChangeAction { _ in }
+}
+
+private struct PiCodeOpenChangeKey: EnvironmentKey {
+    static let defaultValue = PiCodeOpenChangeAction.disabled
+}
+
+extension EnvironmentValues {
+    var piCodeOpenChange: PiCodeOpenChangeAction {
+        get { self[PiCodeOpenChangeKey.self] }
+        set { self[PiCodeOpenChangeKey.self] = newValue }
+    }
+}
+
 extension EnvironmentValues {
     var piCodeOpenFile: PiCodeOpenFileAction {
         get { self[PiCodeOpenFileKey.self] }

@@ -35,25 +35,29 @@ struct TranscriptRowView: View {
     // MARK: - User
 
     private var userRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .trailing, spacing: 4) {
             HStack(spacing: 6) {
-                Image(systemName: "person.fill")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
+                rowActions
                 Text("You")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                rowActions
+                Image(systemName: "person.fill")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
             }
             Text(item.text)
                 .font(.body)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .padding(12)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        // The spec calls for a compact prompt bubble on the trailing edge, so the
+        // bubble hugs its text and is capped rather than spanning the transcript.
+        .frame(maxWidth: 520, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .opacity(item.isStreaming ? 0.75 : 1)
         .contextMenu {
             Button("Copy Message") { WorkspaceLauncher.copyToPasteboard(item.text) }
@@ -103,6 +107,14 @@ struct TranscriptRowView: View {
         }
         .contextMenu {
             Button("Copy Message") { WorkspaceLauncher.copyToPasteboard(item.text) }
+            // Pi forks at user messages (`get_fork_messages` returns user entries
+            // only), so an assistant reply branches from the message that asked
+            // for it — the text Pi hands back is that message, ready to edit.
+            if let entryId = item.forkEntryId {
+                Button("Branch from the message above…") {
+                    Task { await controller.fork(fromEntryId: entryId) }
+                }
+            }
         }
     }
 
@@ -133,6 +145,14 @@ struct TranscriptRowView: View {
         }
         .onAppear {
             if item.isStreaming { isThinkingExpanded = true }
+        }
+        .contextMenu {
+            Button("Copy Reasoning") { WorkspaceLauncher.copyToPasteboard(item.text) }
+            if let entryId = item.forkEntryId {
+                Button("Branch from the message above…") {
+                    Task { await controller.fork(fromEntryId: entryId) }
+                }
+            }
         }
     }
 

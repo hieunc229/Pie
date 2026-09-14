@@ -862,26 +862,7 @@ struct ContextPane: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(controller.activity.suffix(40).reversed()) { entry in
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: entry.kind.systemImage)
-                            .imageScale(.small)
-                            .foregroundStyle(entry.isError ? Color.red : Color.secondary)
-                            .padding(.top, 1)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(entry.title)
-                                .font(.caption)
-                            if let detail = entry.detail {
-                                Text(detail)
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        Spacer(minLength: 0)
-                        Text(Format.clockTime(entry.timestamp))
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.tertiary)
-                    }
+                    ActivityRowView(entry: entry, showsTimestamp: true)
                 }
             }
         }

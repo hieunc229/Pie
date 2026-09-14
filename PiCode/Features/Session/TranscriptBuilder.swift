@@ -53,6 +53,10 @@ enum TranscriptBuilder {
         private var indexByItemID: [String: Int] = [:]
         private var userEntryCursor = 0
         private let userEntryIds: [String]
+        /// The user entry that produced the assistant blocks we are walking.
+        /// Pi only allows forking at user messages (`get_fork_messages`), so an
+        /// assistant row's branch point is the message that asked for it.
+        private var lastUserEntryId: String?
 
         init(userEntryIds: [String]) {
             self.userEntryIds = userEntryIds
@@ -84,6 +88,7 @@ enum TranscriptBuilder {
                 entryId = userEntryIds[userEntryCursor]
                 userEntryCursor += 1
             }
+            lastUserEntryId = entryId
             append(TranscriptItem(
                 id: "msg-\(index)-user",
                 kind: .user,
@@ -110,7 +115,8 @@ enum TranscriptBuilder {
                         modelName: message.model,
                         provider: message.provider,
                         usage: message.usage,
-                        stopReason: message.stopReason
+                        stopReason: message.stopReason,
+                        forkEntryId: lastUserEntryId
                     ))
 
                 case .thinking:
@@ -122,7 +128,8 @@ enum TranscriptBuilder {
                         text: block.thinking,
                         timestamp: message.timestamp,
                         modelName: message.model,
-                        provider: message.provider
+                        provider: message.provider,
+                        forkEntryId: lastUserEntryId
                     ))
 
                 case .toolCall:

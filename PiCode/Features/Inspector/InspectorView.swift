@@ -78,6 +78,20 @@ struct ChangesPane: View {
             content
         }
         .task(id: selectedPath) { await loadDiff() }
+        .onAppear { applyRequestedSelection() }
+        // The selection lives here, not in the tool card, so a request from the
+        // transcript has to be matched against this pane's own change list —
+        // Pi reports paths relative to the project and the list may hold either
+        // form.
+        .onChange(of: state.selectedChangePath) { _, _ in applyRequestedSelection() }
+    }
+
+    private func applyRequestedSelection() {
+        guard let requested = state.selectedChangePath else { return }
+        let match = changes.first { change in
+            change.path == requested || absolutePath(for: change) == requested
+        }
+        selectedPath = match?.path ?? requested
     }
 
     private var header: some View {

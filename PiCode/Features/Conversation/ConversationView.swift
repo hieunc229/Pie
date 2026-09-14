@@ -13,6 +13,7 @@ struct ConversationView: View {
     var controller: PiSessionController
 
     @State private var isPinnedToBottom = true
+    @State private var isActivityExpanded = false
 
     private let bottomAnchor = "picode-transcript-bottom"
 
@@ -44,6 +45,16 @@ struct ConversationView: View {
                 .frame(maxWidth: .infinity)
             }
             .background(Color(nsColor: .textBackgroundColor))
+            // Assistant text names files the way the agent saw them — usually
+            // relative to the project — and change chips name them the way Pi
+            // reported them, so both are resolved and handed to the inspector
+            // here rather than in every row.
+            .environment(\.piCodeOpenFile, PiCodeOpenFileAction { path, line in
+                state.openInInspector(path: resolve(path), line: line)
+            })
+            .environment(\.piCodeOpenChange, PiCodeOpenChangeAction { path in
+                state.openInChanges(path: resolve(path))
+            })
             .onChange(of: controller.items.count) { _, _ in
                 scrollIfPinned(proxy, animated: true)
             }
@@ -76,6 +87,14 @@ struct ConversationView: View {
         }
     }
 
+    func resolve(_ path: String) -> String {
+        guard !path.isAbsolutePath else { return path }
+        return URL(fileURLWithPath: controller.projectPath)
+            .appendingPathComponent(path)
+            .standardizedFileURL
+            .path
+    }
+
     // MARK: - Footer
 
     @ViewBuilder
@@ -99,26 +118,51 @@ struct ConversationView: View {
         }
     }
 
+    /// A running turn is one compact line: what Pi is doing, which model, and how
+    /// long it has been going. Expanding it shows the recent activity timeline
+    /// inline, so the user does not have to leave the transcript to find out why
+    /// nothing has appeared yet.
     private var streamingRow: some View {
-        HStack(spacing: 8) {
-            ProgressView()
-                .controlSize(.small)
-            Text("Pi is working")
-                .font(.callout)
-            if let model = controller.streamingModel ?? controller.model?.displayName {
-                Text(model)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let started = controller.streamingStartedAt {
-                TimelineView(.periodic(from: started, by: 1)) { context in
-                    Text(Format.duration(context.date.timeIntervalSince(started)))
-                        .font(.caption.monospacedDigit())
+        DisclosureGroup(isExpanded: $isActivityExpanded) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(recentActivity) { entry in
+                    ActivityRowView(entry: entry, showsTimestamp: true)
+                }
+                if recentActivity.isEmpty {
+                    Text("Nothing recorded yet.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
+            .padding(.top, 6)
+            .padding(.leading, 2)
+        } label: {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Pi is working")
+                    .font(.callout)
+                if let model = controller.streamingModel ?? controller.model?.displayName {
+                    Text(model)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let started = controller.streamingStartedAt {
+                    TimelineView(.periodic(from: started, by: 1)) { context in
+                        Text(Format.duration(context.date.timeIntervalSince(started)))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.vertical, 2)
         }
-        .padding(.vertical, 2)
+        .disclosureGroupStyle(.automatic)
+        .accessibilityLabel("Pi is working. Expand for recent activity.")
+    }
+
+    private var recentActivity: [ActivityEntry] {
+        Array(controller.activity.suffix(8).reversed())
     }
 
     private func statusRow(icon: String, text: String, showsSpinner: Bool) -> some View {

@@ -117,6 +117,41 @@ struct StatusPill: View {
     }
 }
 
+// MARK: - Activity row
+
+/// One line of the activity timeline. Shared by the Inspector's timeline pane and
+/// the inline disclosure under a running turn, so the two can never drift apart.
+struct ActivityRowView: View {
+    var entry: ActivityEntry
+    var showsTimestamp: Bool = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: entry.kind.systemImage)
+                .imageScale(.small)
+                .foregroundStyle(entry.isError ? Color.red : Color.secondary)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.title)
+                    .font(.caption)
+                if let detail = entry.detail {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if showsTimestamp {
+                Spacer(minLength: 6)
+                Text(Format.clockTime(entry.timestamp))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 // MARK: - Section
 
 struct InspectorSection<Content: View>: View {

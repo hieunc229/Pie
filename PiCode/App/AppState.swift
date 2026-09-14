@@ -67,6 +67,8 @@ final class AppState {
     /// File highlighted by a `path:line` link in assistant Markdown.
     var selectedFilePath: String?
     var selectedFileLine: Int?
+    /// File the Changes pane should select, set by a tool card's change chip.
+    var selectedChangePath: String?
 
     /// Text the inspector wants appended to the composer (e.g. an `@path`
     /// reference). The composer consumes it and clears it.
@@ -76,6 +78,14 @@ final class AppState {
         selectedFilePath = path
         selectedFileLine = line
         inspectorTab = .files
+        isInspectorVisible = true
+    }
+
+    /// Opens the diff for a file the agent changed. The Changes pane owns the
+    /// selection, so this only hands it the path and reveals the pane.
+    func openInChanges(path: String) {
+        selectedChangePath = path
+        inspectorTab = .changes
         isInspectorVisible = true
     }
     var isSettingsPresented = false

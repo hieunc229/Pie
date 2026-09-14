@@ -65,6 +65,9 @@ enum SessionReplayTest {
         var toolCallIds = Set<String>()
         var summaries = 0
         var thinkingBlocks = 0
+        var forkableAssistantRows = 0
+        var assistantRowsWithoutForkPoint = 0
+        var forkPointsNotOnBranch = Set<String>()
 
         print("== replaying sessions ==")
         for session in sessions {
@@ -137,6 +140,20 @@ enum SessionReplayTest {
                 if item.fullOutputPath != nil { truncatedFiles.append(path) }
             }
             if duplicates > 0 { duplicateIDFiles.append("\(path) (\(duplicates) duplicates)") }
+
+            // The "branch from here" action on a reply forks at the user message
+            // that asked for it (Pi only forks at user entries). A reply with no
+            // fork point would render the action as missing; a fork point that is
+            // not a user entry on this branch would make Pi reject the fork.
+            let branchUserIds = Set(userEntryIds)
+            for item in items where item.kind == .assistant || item.kind == .thinking {
+                guard let fork = item.forkEntryId else {
+                    assistantRowsWithoutForkPoint += 1
+                    continue
+                }
+                forkableAssistantRows += 1
+                if !branchUserIds.contains(fork) { forkPointsNotOnBranch.insert("\(path)#\(fork)") }
+            }
             if empties > 0 { emptyIDFiles.append("\(path) (\(empties) empty)") }
 
             // Tool rows need a matching pair: a result with no call would render
@@ -159,6 +176,11 @@ enum SessionReplayTest {
         check("tool results have a matching call", orphanToolResults == 0,
               "\(orphanToolResults) orphan(s) out of \(toolResultIds.count) distinct result id(s),"
               + " \(toolCallIds.count) call id(s)")
+        check("every reply has a fork point", assistantRowsWithoutForkPoint == 0,
+              "\(assistantRowsWithoutForkPoint) assistant/thinking row(s) without one,"
+              + " \(forkableAssistantRows) forkable")
+        check("every fork point is a user entry on the branch", forkPointsNotOnBranch.isEmpty,
+              forkPointsNotOnBranch.sorted().prefix(3).joined(separator: ", "))
         check("no unknown message roles", unknownRoles.isEmpty,
               unknownRoles.map { "\($0.key)×\($0.value)" }.sorted().joined(separator: ", "))
         check("no unknown entry types", unknownEntryTypes.isEmpty,
