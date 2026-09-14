@@ -1,0 +1,18 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# Swift Package Manager (not used yet, but keep it clean if it appears)
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+._*
+
+# Local scratch
+/tmp/
