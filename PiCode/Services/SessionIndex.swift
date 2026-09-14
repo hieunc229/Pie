@@ -11,19 +11,70 @@
 
 import Foundation
 
-/// Well-known locations under `~/.pi/agent`. Credentials live here and are read
-/// only to detect whether authentication exists; secrets are never copied into
-/// PiCode storage or logs.
+/// Well-known locations under Pi's agent directory. Credentials live here and
+/// are read only to detect whether authentication exists; secrets are never
+/// copied into PiCode storage or logs.
+///
+/// Pi can be relocated, so these paths **must** resolve the way Pi's own
+/// `config.js` resolves them (`getAgentDir`, `getSessionsDir`):
+///
+/// 1. `PI_CODING_AGENT_DIR` (tilde-expanded) replaces `~/.pi/agent`.
+/// 2. The session directory is `PI_CODING_AGENT_SESSION_DIR`, else Pi's own
+///    `settings.json` `sessionDir`, else `<agent>/sessions`.
+///
+/// Getting this wrong is not cosmetic: PiCode writes trust decisions into
+/// `trust.json`, so if Pi reads a different file the user's answer is silently
+/// ignored while PiCode claims the project is trusted. PiCode also launches `pi`
+/// with the inherited environment, so these variables apply to the child too.
 enum PiPaths {
     static var home: URL { URL(fileURLWithPath: NSHomeDirectory()) }
-    static var agentDirectory: URL { home.appendingPathComponent(".pi/agent") }
-    static var sessionsDirectory: URL { agentDirectory.appendingPathComponent("sessions") }
+
+    static var agentDirectory: URL {
+        if let override = directory(fromEnvironment: "PI_CODING_AGENT_DIR") { return override }
+        return home.appendingPathComponent(".pi/agent")
+    }
+
+    static var sessionsDirectory: URL {
+        if let override = directory(fromEnvironment: "PI_CODING_AGENT_SESSION_DIR") { return override }
+        if let configured = configuredSessionDirectory { return configured }
+        return agentDirectory.appendingPathComponent("sessions")
+    }
+
     static var settingsFile: URL { agentDirectory.appendingPathComponent("settings.json") }
     static var trustFile: URL { agentDirectory.appendingPathComponent("trust.json") }
     static var authFile: URL { agentDirectory.appendingPathComponent("auth.json") }
     static var modelsFile: URL { agentDirectory.appendingPathComponent("models.json") }
     /// Pi's cache of provider model lists. Read-only for PiCode.
     static var modelsStoreFile: URL { agentDirectory.appendingPathComponent("models-store.json") }
+
+    /// `sessionDir` from Pi's `settings.json`, if the user set one. PiCode only
+    /// reads this file, never writes it. Relative paths are ignored: Pi resolves
+    /// them against the working directory, which changes per project, so PiCode
+    /// cannot know which directory they mean.
+    private static let configuredSessionDirectory: URL? = {
+        guard let data = try? Data(contentsOf: settingsFile),
+              let root = try? JSONCoding.decode(data),
+              let raw = root["sessionDir"]?.stringValue
+        else { return nil }
+        return directory(fromUserPath: raw)
+    }()
+
+    /// Expands an environment override the way Pi does: `~`, `$HOME`, `file://`
+    /// and absolute paths are understood; anything else is rejected rather than
+    /// guessed at.
+    private static func directory(fromEnvironment key: String) -> URL? {
+        guard let raw = ProcessInfo.processInfo.environment[key], !raw.isEmpty else { return nil }
+        return directory(fromUserPath: raw)
+    }
+
+    private static func directory(fromUserPath raw: String) -> URL? {
+        var path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return nil }
+        if path.hasPrefix("file://"), let url = URL(string: path) { return url.standardizedFileURL }
+        path = (path as NSString).expandingTildeInPath
+        guard path.isAbsolutePath else { return nil }
+        return URL(fileURLWithPath: path).standardizedFileURL
+    }
 }
 
 /// Reads Pi's session directory. This type is safe to use off the main actor:

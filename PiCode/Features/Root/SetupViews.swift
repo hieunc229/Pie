@@ -129,7 +129,7 @@ struct PiSetupView: View {
                     }
                 }
 
-                Text("Nothing on this screen changes your Pi configuration. Pi settings, sessions, and trust decisions stay in `~/.pi/agent`.")
+                Text("Nothing on this screen changes your Pi configuration. Pi settings, sessions, and trust decisions stay in `\(PiPaths.agentDirectory.path.abbreviatingHomeDirectory)`.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

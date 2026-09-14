@@ -65,6 +65,7 @@ PiCode's own preferences.
 | JSON boundary (reads + writes) | ✅ `./Tools/SmokeTest/run-json.sh` — scanner matches Foundation on every real session line, 20k-deep nesting safe |
 | Session replay over all real sessions | ✅ `./Tools/SmokeTest/run-replay.sh` — 7.4k lines, no bad rows/ids/roles |
 | Resuming a real session (`--session`) | ✅ `./Tools/SmokeTest/run-open.sh` — read-only verified byte-for-byte |
+| Pi config locations (relocated `PI_CODING_AGENT_DIR` etc.) | ✅ `./Tools/SmokeTest/run-paths.sh` — PiCode and Pi agree, proven against a live `pi` |
 | Discovery / launch / trust / session index / git | ✅ implemented |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
@@ -97,6 +98,7 @@ open /tmp/picode-dd/Build/Products/Debug/PiCode.app
 ./Tools/SmokeTest/run-replay.sh   # every real session file through the transcript builder
 ./Tools/SmokeTest/run-open.sh     # resume the biggest real session (copy) and re-read it
 ./Tools/SmokeTest/run-open.sh --small   # smallest session; also diffs the tree vs get_tree
+./Tools/SmokeTest/run-paths.sh    # Pi's config/session locations, checked against a live pi
 ```
 
 The smoke test is the **acceptance gate for any change to `Models/`,
@@ -121,7 +123,7 @@ Why the smoke test compiles only `Models/`, `Services/`, `Shared/`: those files
 are Foundation-only by design (§5) so they can be built without SwiftUI. Keep it
 that way — if you need a new service, don't import SwiftUI in it.
 
-The other three harnesses exist because they each caught a real bug:
+The other four harnesses exist because they each caught a real bug:
 
 - **`run-json.sh`** cross-checks `JSONScanner` against Foundation on every line
   of every real session, plus escapes, malformed input, round trips, and 20k-deep
@@ -138,6 +140,14 @@ The other three harnesses exist because they each caught a real bug:
   `get_state.messageCount == get_messages.count`, that `get_entries(since:)`
   returns exactly the entries after the cursor, and that the file is unchanged
   afterwards. It works on a **copy**, so a bug here cannot damage real history.
+- **`run-paths.sh`** resolves `PiPaths` in a child process (environment variables
+  are read once per process, so each case needs a fresh one) and then launches a
+  throwaway `pi --mode rpc` in a temp config directory to confirm Pi really writes
+  where PiCode claims: `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`,
+  `settings.json` `sessionDir`, precedence between them, tilde expansion, and
+  that a relative path is ignored rather than guessed. It exists because
+  `PiPaths` was hardcoded to `~/.pi/agent` (§7), which would have made PiCode
+  write trust decisions to a file Pi never reads.
 
 Nothing above sends a model prompt. Keep it that way: PiCode's budget belongs to
 the user.
@@ -179,7 +189,8 @@ PiCode/
 │   ├── PiProcess.swift        Process wrapper: pipes, direct exec, termination reporting
 │   ├── JSONLDecoder.swift     strict LF framing (multi-byte-safe, capped buffer)
 │   ├── PiDiscoveryService.swift  finds a *validated* pi; owns the launch PATH rule (§8)
-│   ├── SessionIndex.swift     read-only scan of ~/.pi/agent/sessions (never writes)
+│   ├── SessionIndex.swift     read-only scan of Pi's session directory (never writes);
+│   │                          `PiPaths` owns the relocation rules (§7)
 │   ├── ProjectTrustService.swift Pi-compatible trust.json read/write + lock + nearest ancestor
 │   ├── GitStatusService.swift porcelain v1 -z + numstat -z via /usr/bin/git -C
 │   ├── PreferencesStore.swift PiCode's own prefs (JSON in Application Support)
@@ -250,15 +261,39 @@ protocol logic in views.
 | **The session tree is built locally, never fetched** | `get_tree` costs ~32 s on a 787-entry session and blocks Pi's request queue (so it delays the user's next prompt). The tree is pure `parentId` structure, so `PiTreeNode.buildTree` derives it from entries instantly and matches Pi's output exactly (`run-open.sh --small` proves it). |
 | **Entries are read once, then followed with a cursor** | A full `get_entries` costs ~20 s and Pi does not cache it, while `get_entries(since:lastId)` costs ~0.01 s. One full read per session, incremental appends after every turn — nothing on the hot path stalls the next prompt. |
 | **Hand-written iterative JSON scanner** | `JSONDecoder` + recursive `JSONValue` crashed (SIGBUS) on Pi's nested `get_tree` payload. The scanner is stack-safe at any depth and faster than the `try?`-chain decoder; it also makes outgoing payloads deterministic (sorted keys). |
+| **`PiPaths` resolves Pi's own relocation rules** | Pi can be moved with `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR` or `settings.json` `sessionDir`, and PiCode launches `pi` with the inherited environment, so both must agree on where the config lives. This is a correctness issue, not cosmetics: PiCode writes `trust.json`, and if Pi reads a different file the user's answer is ignored while PiCode reports the project as trusted. |
 
 ---
 
 ## 7. Pi on-disk formats (as verified against v0.85.1)
 
+### Where Pi's files live
+
+Never hardcode `~/.pi/agent`. Pi relocates itself, and PiCode launches `pi` with
+the inherited environment, so it must resolve the same paths Pi's `config.js`
+does:
+
+| Priority | Agent directory | Session directory |
+| --- | --- | --- |
+| 1 | `PI_CODING_AGENT_DIR` | `PI_CODING_AGENT_SESSION_DIR` |
+| 2 | `~/.pi/agent` | `sessionDir` in `settings.json` |
+| 3 | — | `<agent dir>/sessions` |
+
+Tilde paths, `file://` URLs and absolute paths are accepted; a *relative*
+`sessionDir` is ignored rather than guessed, because Pi resolves it against the
+working directory and that changes per project. All of this lives in `PiPaths`
+(`SessionIndex.swift`) and is checked against a live `pi` by
+`./Tools/SmokeTest/run-paths.sh`.
+
+Known gap: Pi merges a project's `.pi/settings.json` over the global one, so a
+project can set its *own* `sessionDir`. PiCode indexes one global directory, so
+that project's sessions would not appear in the sidebar. Nobody has hit it; if
+you do, the fix is per-project session discovery, not a global `sessionDir`.
+
 ### Sessions
 
 ```
-~/.pi/agent/sessions/--<path with / and leading / replaced>--/<ISO8601>_<uuid>.jsonl
+<session dir>/--<path with / and leading / replaced>--/<ISO8601>_<uuid>.jsonl
 ```
 
 - One JSON object per line, LF-terminated.
@@ -273,7 +308,7 @@ protocol logic in views.
 ### Trust
 
 ```
-~/.pi/agent/trust.json   { "<absolute canonical path>": true|false }
+<agent dir>/trust.json   { "<absolute canonical path>": true|false }
 ```
 
 - Sorted keys, 2-space indent, trailing newline — byte-compatible with Pi's writer.
@@ -285,6 +320,9 @@ protocol logic in views.
   `.pi/APPEND_SYSTEM.md`, project `.agents/skills`.
 - As of this writing `~/.pi/agent/trust.json` **does not exist** on this machine
   and the smoke test asserts PiCode never creates it as a side effect.
+- Because PiCode *does* write this one file (only after an explicit user
+  decision), the agent directory must be Pi's real one — see
+  `run-paths.sh` above.
 
 ### Git (used by the Changes pane)
 
@@ -541,6 +579,8 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   that depends on them.
 - **Never** leave a `TODO` that hides a compatibility problem; surface it in the
   UI as a compatibility card.
+- **Never** hardcode a path inside Pi's config directory. Ask `PiPaths` (§7) —
+  Pi can be relocated, and PiCode must agree with it.
 
 ## 13. Review checklist before you call something done
 
@@ -550,6 +590,8 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 - [ ] `./Tools/SmokeTest/run-json.sh` → `RESULT: all checks passed`
 - [ ] `./Tools/SmokeTest/run-replay.sh` → `RESULT: all checks passed`
 - [ ] `./Tools/SmokeTest/run-open.sh --small` → `RESULT: all checks passed`
+- [ ] `./Tools/SmokeTest/run-paths.sh` → `RESULT: all checks passed` (only if you
+      touched `PiPaths`, trust, session discovery, or process launching)
 - [ ] The app launches and stays up for a few seconds with no crash report
 - [ ] `git status` shows **no** changes in `~/.pi/agent` (no `trust.json`, no new
       session files, no touched settings)
