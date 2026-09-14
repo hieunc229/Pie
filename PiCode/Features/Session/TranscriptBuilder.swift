@@ -250,7 +250,9 @@ enum TranscriptBuilder {
                 text: message.summary.isEmpty ? message.text : message.summary,
                 timestamp: message.timestamp,
                 entryId: message.fromId,
-                badge: message.role == "branchSummary" ? "Branch summary" : "Compaction"
+                // The role is what carries the distinction; the transcript row
+                // names it and picks its glyph from `SummaryKind`.
+                summaryKind: message.role == "branchSummary" ? .branch : .compaction
             ))
         }
 

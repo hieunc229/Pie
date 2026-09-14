@@ -33,6 +33,34 @@ enum ToolStatus: Equatable {
     }
 }
 
+/// Pi records two kinds of summary, and they are different facts: a *compaction*
+/// folded the earlier context away to make room, while a *branch summary*
+/// describes the path that was left behind when the user switched branches.
+///
+/// Both are one quiet line in the transcript — the summary text is a compression
+/// nobody reads as prose — so the row still has to know which one it is to name it
+/// correctly. Carrying the distinction rather than the finished label keeps the
+/// wording (and the glyph, which matches the session tree's for the same entry) in
+/// one place, next to the model it describes.
+enum SummaryKind: String, Equatable {
+    case compaction
+    case branch
+
+    var label: String {
+        switch self {
+        case .compaction: return "Compact context"
+        case .branch: return "Branch summary"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .compaction: return "arrow.down.right.and.arrow.up.left"
+        case .branch: return "arrow.triangle.branch"
+        }
+    }
+}
+
 /// A file touched by an agent turn, derived from tool inputs/outputs.
 struct FileChange: Identifiable, Equatable, Hashable {
     enum Kind: String {
@@ -128,6 +156,8 @@ struct TranscriptItem: Identifiable, Equatable {
 
     // System row metadata
     var badge: String?
+    /// Set on `.compaction` items: which of Pi's two summaries this row is.
+    var summaryKind: SummaryKind?
     /// Set on user items so the transcript can offer fork-from-here.
     var forkEntryId: String?
 

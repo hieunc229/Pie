@@ -99,11 +99,11 @@ Render a chronological, virtualized conversation from Pi messages and events:
 - Assistant text uses full-width Markdown with selectable text, tables, lists, links, and syntax-highlighted fenced code.
 - Stream text in place without changing scroll position when the user has scrolled upward.
 - Tool calls appear as collapsible cards with tool name, concise input summary, duration, status, and expandable raw input/output.
-- The repeating quiet actions fold instead of stacking: neighbouring `bash`, `edit`/`write` and `read` calls become one dimmed, collapsed line — `Run command`, `Edited files` or `Read files` for a single call, `Edited files, run commands` for a run — showing the command or path beside it. Clicking the line opens it; for a run, clicking a call inside opens that call's output. Failures and running calls keep a visible pill or spinner on the folded line, and every other tool keeps its card.
+- The repeating quiet actions fold instead of stacking: neighbouring `bash`, `edit`/`write` and `read` calls become one dimmed, collapsed line — `Run command`, `Edited files` or `Read files` for a single call, `Edited files, run commands` for a run — showing the command or path beside it. The line itself is the control, with no chevron: clicking anywhere along it opens it, and for a run, clicking a call inside opens that call's output. Failures and running calls keep a visible pill or spinner on the folded line, and every other tool keeps its card.
 - Bash output uses a monospaced, selectable log view with ANSI color support and a maximum collapsed height.
 - File writes/edits use change cards showing path and available line counts. Selecting a card opens the inspector diff.
-- Thinking/reasoning content is collapsed and labeled according to what the provider actually exposes. Never fabricate hidden reasoning.
-- Retries, compaction, summaries, extension errors, and cancellation appear as lightweight system rows.
+- Thinking/reasoning content is collapsed and labeled according to what the provider actually exposes. Never fabricate hidden reasoning. Like the folded tool rows, it is a dimmed line with no chevron, opened by clicking it, and it opens itself while the reasoning is still streaming.
+- Retries, compaction, summaries, extension errors, and cancellation appear as lightweight system rows. A compaction is one line — `[icon] Compact context`, or `Branch summary` for a branch Pi summarised when the user switched — and shows nothing else; the summary text stays on its context menu and in the exported transcript.
 - A running task has a compact elapsed-time disclosure that expands to the activity timeline.
 - Each completed assistant message supports copy and branch/fork actions. Feedback controls are optional and local-only unless a backend is deliberately added later.
 - Provide a jump-to-latest button when new content arrives off-screen.

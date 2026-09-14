@@ -18,6 +18,13 @@
 //    * a command that is still running. The line keeps a spinner and its elapsed
 //      time, so "Pi is doing something" stays visible without being expanded.
 //
+//  There is no chevron. These lines are dimmed and short, and a column of little
+//  arrows down the left of the conversation is more furniture than the fold is
+//  worth; the line *is* the control — clicking anywhere along it opens it, the
+//  pointer lifts the dimming, and the tooltip names what will happen. The same is
+//  true of the `Thinking` line in `TranscriptRowView`, so the transcript has one
+//  way of saying "there is more under this".
+//
 
 import SwiftUI
 
@@ -47,7 +54,7 @@ struct ToolGroupView: View {
                         }
                     }
                     .padding(.top, 2)
-                    .padding(.leading, ToolGroupStyle.childIndent)
+                    .padding(.leading, ConversationLayout.nestedIndent)
                 }
             }
         }
@@ -61,11 +68,6 @@ struct ToolGroupView: View {
             withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
         } label: {
             HStack(spacing: 7) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-
                 Image(systemName: row.groupSystemImage)
                     .imageScale(.small)
                     .foregroundStyle(.secondary)
@@ -148,11 +150,6 @@ struct ToolActionRow: View {
                 withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-
                     Image(systemName: familyIcon)
                         .imageScale(.small)
                         .foregroundStyle(statusTint)
@@ -192,7 +189,7 @@ struct ToolActionRow: View {
 
             if isExpanded {
                 ToolCallContent(item: item, controller: controller)
-                    .padding(.leading, 15)
+                    .padding(.leading, ConversationLayout.nestedIndent)
             }
         }
     }
@@ -219,13 +216,4 @@ struct ToolActionRow: View {
         default: return .secondary
         }
     }
-}
-
-/// The geometry the folded rows share, in one place so the two levels cannot be
-/// indented differently from each other.
-enum ToolGroupStyle {
-    /// How far a call sits inside the run that holds it. One step, because the
-    /// transcript is already a column: a second step would leave the output of the
-    /// third nested thing at the width of a postcard.
-    static let childIndent: CGFloat = 13
 }

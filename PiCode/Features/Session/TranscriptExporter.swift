@@ -47,7 +47,10 @@ enum TranscriptExporter {
                 lines.append("## Error")
                 lines.append(item.errorMessage ?? item.text)
             case .compaction:
-                lines.append("## \(item.badge ?? "Compaction")")
+                // The row is one line in the UI, but an exported transcript is read
+                // without the conversation around it, so the summary itself belongs
+                // here — under the same name the row used.
+                lines.append("## \(item.summaryKind?.label ?? "Compaction")")
                 lines.append(item.text)
             case .retry:
                 lines.append("## Retry")

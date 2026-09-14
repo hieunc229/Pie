@@ -31,6 +31,13 @@ enum ConversationLayout {
     /// What `.frame(maxWidth:)` gets: the content plus its gutters, because the
     /// padding goes *inside* the cap (see `ConversationColumn`).
     static var maxColumnWidth: CGFloat { maxContentWidth + horizontalPadding * 2 }
+
+    /// How far content sits inside the line that owns it: a call inside the run
+    /// that holds it, a call's output under its own summary, and reasoning under
+    /// its `Thinking` label. One number, so a row that is folded two levels deep is
+    /// still indented by the same step as one folded once — and so the transcript
+    /// never spends two steps' worth of width on indentation.
+    static let nestedIndent: CGFloat = 15
 }
 
 /// The content column: apply this to anything that must line up with the

@@ -120,26 +120,46 @@ struct TranscriptRowView: View {
 
     // MARK: - Thinking
 
+    /// Reasoning is a folded row like a run of commands: one dimmed line, clicked
+    /// to open, with no chevron (see `ToolGroupView`) — the transcript says "there
+    /// is more under this" in exactly one way.
+    ///
+    /// It is a button rather than a `DisclosureGroup` for the same reason: the
+    /// system style puts a chevron in the leading gutter, which both draws the
+    /// arrow this design just removed and shifts the brain glyph out of line with
+    /// every other row's icon.
     private var thinkingRow: some View {
-        DisclosureGroup(isExpanded: $isThinkingExpanded) {
-            SyntaxText(text: item.text, language: .plain)
-                .foregroundStyle(.secondary)
-                .padding(.top, 6)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "brain")
-                    .imageScale(.small)
-                Text(item.isStreaming ? "Thinking…" : "Thinking")
-                    .font(.caption.weight(.semibold))
-                if let model = item.modelName {
-                    Text(model)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { isThinkingExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "brain")
+                        .imageScale(.small)
+                    Text(item.isStreaming ? "Thinking…" : "Thinking")
+                        .font(.caption.weight(.semibold))
+                    if let model = item.modelName {
+                        Text(model)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
             }
-            .foregroundStyle(.secondary)
+            .buttonStyle(.plain)
+            .help(isThinkingExpanded ? "Hide the reasoning" : "Show the reasoning")
+
+            if isThinkingExpanded {
+                SyntaxText(text: item.text, language: .plain)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, ConversationLayout.nestedIndent)
+            }
         }
+        // A turn's reasoning is worth watching while it arrives and noise
+        // afterwards, so it opens by itself while streaming and stays as the user
+        // left it once it is done.
         .onChange(of: item.isStreaming) { _, isStreaming in
             if isStreaming { isThinkingExpanded = true }
         }
@@ -224,24 +244,26 @@ struct TranscriptRowView: View {
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.red.opacity(0.35)))
     }
 
+    /// A compaction is a fact, not a document: one line saying the context was
+    /// folded (or that a branch was summarised) and nothing else. The summary text
+    /// is a compression of the conversation that was just replaced — it is not what
+    /// anyone is reading the transcript for, and a wall of it in the middle of the
+    /// conversation is the noise this row used to be. It stays on the context menu
+    /// so it is not unreachable.
     private var compactionRow: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "arrow.down.right.and.arrow.up.left")
+        let kind = item.summaryKind ?? .compaction
+        return HStack(spacing: 8) {
+            Image(systemName: kind.systemImage)
                 .imageScale(.small)
                 .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.badge ?? "Compaction summary")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(item.text)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(kind.label)
+                .font(.callout)
+                .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
-        .padding(10)
-        .background(.quaternary.opacity(0.22), in: RoundedRectangle(cornerRadius: 9))
+        .contextMenu {
+            Button("Copy Summary") { WorkspaceLauncher.copyToPasteboard(item.text) }
+        }
     }
 
     private var retryRow: some View {
