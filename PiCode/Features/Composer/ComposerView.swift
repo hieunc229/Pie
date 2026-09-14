@@ -18,7 +18,7 @@ import SwiftUI
 /// They are here, and not inline in the view, so the harness can *predict* the
 /// box's height and width instead of hard-coding a number that then drifts: it
 /// asserts the measured box against `boxHeight(forEditor:)` and against
-/// `ConversationLayout.textColumnWidth`.
+/// `ConversationLayout.maxContentWidth`.
 enum ComposerMetrics {
     /// Rounded enough that the box reads as one soft object next to the sidebar's
     /// pills, small enough that a single line does not look like a capsule.

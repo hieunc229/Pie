@@ -391,7 +391,12 @@ final class ComposerKeyDelegate: NSObject, NSApplicationDelegate {
     /// The box and the transcript's rows must be the same width, at a wide pane
     /// and at a narrow one. The composer is an overlay, so it inherits nothing:
     /// before `ConversationColumn` it was as wide as the pane while the rows
-    /// stopped at 860pt, and at a narrow size it was 44pt wider than the text.
+    /// stopped at the cap, and at a narrow size it was 44pt wider than the text.
+    ///
+    /// The prediction is written the way the layout is meant to read — the pane
+    /// minus its gutters, capped at `maxContentWidth` — and not with the cap the
+    /// frame is given, so a gutter that creeps into `maxContentWidth` shows up as
+    /// a measured failure rather than as agreement with itself.
     private func runWidthChecks() {
         print()
         print("== the box's width against the transcript's rows ==")
@@ -417,7 +422,8 @@ final class ComposerKeyDelegate: NSObject, NSApplicationDelegate {
             let boxWidth = CGFloat(white.x.upperBound - white.x.lowerBound + 1) / pixels.scale
             let rowLeft = CGFloat(green.x.lowerBound) / pixels.scale
             let boxLeft = CGFloat(white.x.lowerBound) / pixels.scale
-            let expected = min(width, ConversationLayout.maxContentWidth) - 2 * ConversationLayout.horizontalPadding
+            let expected = min(width - 2 * ConversationLayout.horizontalPadding,
+                               ConversationLayout.maxContentWidth)
 
             print(String(format: "  at %.0fpt: row %.1fpt from x %.1f, box %.1fpt from x %.1f (expected %.1f)",
                          width, rowWidth, rowLeft, boxWidth, boxLeft, expected))

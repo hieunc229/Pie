@@ -79,7 +79,7 @@ check_source "$CONVERSATION" '.padding(.bottom, 8 + bottomInset)' "the inset is 
 # sides have to use the one constant.
 check_source "$SESSION" 'ConversationColumn { composerStack }' "the composer is laid out in the transcript's column"
 check_source "$CONVERSATION" 'ConversationColumn {' "the transcript's rows are laid out in that column"
-check_source "$COLUMN" 'static var textColumnWidth' "the column's width is derived, not repeated"
+check_source "$COLUMN" 'static var maxColumnWidth' "the column's own cap is derived from the content width, not repeated"
 # The box's height must be *derivable*, and the box must be padded with the
 # metrics rather than with literals — otherwise the probe below measures a shape
 # the app stopped drawing.
