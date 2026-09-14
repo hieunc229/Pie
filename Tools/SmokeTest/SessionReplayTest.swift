@@ -10,6 +10,13 @@
 //  one proves the *reading* path works against megabytes of real Pi output —
 //  including shapes nobody thought about — for free, without calling a model.
 //
+//  It also proves the *folding* rule (`TranscriptRows.group`) over those same
+//  sessions. Folding is the one piece of the transcript's presentation that is a
+//  pure function of the items, so the claims it makes — nothing is lost, only
+//  neighbouring commands/edits/reads are folded, a fold is always maximal — are
+//  checked here against every turn that has ever run on this machine instead of
+//  against a hand-written example.
+//
 //  Sessions are opened read-only. The test never writes to ~/.pi/agent.
 //
 //      ./Tools/SmokeTest/run-replay.sh
@@ -68,6 +75,20 @@ enum SessionReplayTest {
         var forkableAssistantRows = 0
         var assistantRowsWithoutForkPoint = 0
         var forkPointsNotOnBranch = Set<String>()
+        // Folding (`TranscriptRows.group`).
+        var foldRows = 0
+        var foldedItems = 0
+        var foldedSingletons = 0
+        var foldedMultiway = 0
+        var foldedByFamily: [ToolFamily: Int] = [:]
+        var titlesByFamily: [String: Int] = [:]
+        var adjacentGroups = 0
+        var nonQuietFold = 0
+        var splitRuns = 0
+        var lostItems = 0
+        var missingItemRows = 0
+        var emptyFoldedSummary = 0
+        var lostFailures = 0
 
         print("== replaying sessions ==")
         for session in sessions {
@@ -156,6 +177,60 @@ enum SessionReplayTest {
             }
             if empties > 0 { emptyIDFiles.append("\(path) (\(empties) empty)") }
 
+            // --- folding ---------------------------------------------------
+            let rows = TranscriptRows.group(items)
+            foldRows += rows.count
+            // Every item must still be reachable through exactly one row. The
+            // rows are what the transcript draws, so an item dropped here is an
+            // item the user cannot see, and the harness would be the only place
+            // it ever showed up.
+            let reachable = rows.flatMap(\.items)
+            if reachable.count != items.count { lostItems += abs(items.count - reachable.count) }
+            let reachableIDs = Set(reachable.map(\.id))
+            missingItemRows += items.filter { !reachableIDs.contains($0.id) }.count
+
+            for (index, row) in rows.enumerated() {
+                switch row {
+                case .item:
+                    continue
+                case .group(let group):
+                    foldedItems += group.count
+                    if group.count == 1 { foldedSingletons += 1 } else { foldedMultiway += 1 }
+                    for item in group {
+                        if let family = ToolFamily.of(item.toolName) {
+                            foldedByFamily[family, default: 0] += 1
+                        } else {
+                            nonQuietFold += 1
+                        }
+                        // A failure must stay visible on the folded line, so a
+                        // folded call that failed has to be counted and
+                        // accounted for in `ToolGroupView`'s status pill.
+                        if item.toolStatus == .failure || item.toolStatus == .cancelled { lostFailures += 1 }
+                        if item.foldedSummary.isEmpty { emptyFoldedSummary += 1 }
+                    }
+                    titlesByFamily[row.groupTitle, default: 0] += 1
+                    // Two folded rows in a row means the fold stopped early: the
+                    // run between them was folded too, so the boundary was
+                    // invented rather than found.
+                    if index > 0, case .group = rows[index - 1] { adjacentGroups += 1 }
+                }
+            }
+            // A run is maximal: if two neighbours both fold, nothing may sit
+            // between them in the *input* either.
+            for index in items.indices.dropFirst() {
+                let previous = items[index - 1]
+                let current = items[index]
+                guard previous.kind == .toolCall, current.kind == .toolCall,
+                      ToolFamily.of(previous.toolName) != nil,
+                      ToolFamily.of(current.toolName) != nil else { continue }
+                // They are adjacent *and* foldable, so they must share a row.
+                let shared = rows.contains { row in
+                    guard case .group(let group) = row else { return false }
+                    return group.contains { $0.id == previous.id } && group.contains { $0.id == current.id }
+                }
+                if !shared { splitRuns += 1 }
+            }
+
             // Tool rows need a matching pair: a result with no call would render
             // as an orphan card. Results are checked at the message level, because
             // `TranscriptBuilder` folds them into their call's row.
@@ -185,6 +260,27 @@ enum SessionReplayTest {
               unknownRoles.map { "\($0.key)×\($0.value)" }.sorted().joined(separator: ", "))
         check("no unknown entry types", unknownEntryTypes.isEmpty,
               unknownEntryTypes.map { "\($0.key)×\($0.value)" }.sorted().joined(separator: ", "))
+
+        // --- folding ---------------------------------------------------------
+        // The claims `TranscriptRows.group` makes, checked over every real turn on
+        // this machine rather than over an example written to pass.
+        check("folding keeps every item", lostItems == 0 && missingItemRows == 0,
+              "\(lostItems) item(s) lost, \(missingItemRows) unreachable through any row")
+        check("only command/edit/read rows fold", nonQuietFold == 0,
+              "\(nonQuietFold) folded row(s) from another tool")
+        check("a fold is one maximal run", adjacentGroups == 0 && splitRuns == 0,
+              "\(adjacentGroups) adjacent group pair(s), \(splitRuns) run(s) split apart")
+        check("every folded call has a line to identify it", emptyFoldedSummary == 0,
+              "\(emptyFoldedSummary) with no command and no path")
+        check("folding touched real sessions", foldedItems > 0,
+              "\(foldedItems) call(s) folded out of \(toolCalls)")
+        print("  folding:   \(foldedItems) call(s) in \(foldRows) row(s) —"
+              + " \(foldedSingletons) alone, \(foldedMultiway) in a run;"
+              + " families " + foldedByFamily.sorted { $0.value > $1.value }
+                .map { "\($0.key.rawValue)=\($0.value)" }.joined(separator: " "))
+        print("  folded lines: " + titlesByFamily.sorted { $0.value > $1.value }
+            .prefix(8).map { "\($0.key)×\($0.value)" }.joined(separator: " | "))
+        print("  watched:   \(lostFailures) folded failure/cancel(s) that must keep their red pill")
 
         print("  entries:   \(entryTypes.sorted { $0.value > $1.value }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))")
         print("  roles:     \(roles.sorted { $0.value > $1.value }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))")

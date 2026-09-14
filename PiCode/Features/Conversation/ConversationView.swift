@@ -32,9 +32,18 @@ struct ConversationView: View {
                         if controller.items.isEmpty {
                             emptyState
                         } else {
-                            ForEach(controller.items) { item in
-                                TranscriptRowView(item: item, controller: controller)
-                                    .id(item.id)
+                            // `TranscriptRows.group` folds neighbouring commands,
+                            // edits and reads into one dimmed line; everything else
+                            // is one item per row. The rows are built from the same
+                            // array the controller holds, so a folded line grows in
+                            // place while a turn is streaming.
+                            ForEach(TranscriptRows.group(controller.items)) { row in
+                                switch row {
+                                case .item(let item):
+                                    TranscriptRowView(item: item, controller: controller)
+                                case .group(let items):
+                                    ToolGroupView(items: items, controller: controller)
+                                }
                             }
                         }
 

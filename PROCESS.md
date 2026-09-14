@@ -63,7 +63,7 @@ PiCode's own preferences.
 | `swiftc -typecheck` over all sources | ✅ clean |
 | RPC layer vs real `pi` (v0.85.1) | ✅ `./Tools/SmokeTest/run.sh` — all checks pass |
 | JSON boundary (reads + writes) | ✅ `./Tools/SmokeTest/run-json.sh` — scanner matches Foundation on every real session line, 20k-deep nesting safe |
-| Session replay over all real sessions | ✅ `./Tools/SmokeTest/run-replay.sh` — 7.4k lines, no bad rows/ids/roles |
+| Session replay over all real sessions | ✅ `./Tools/SmokeTest/run-replay.sh` — 9719 lines, 8861 transcript rows, no bad rows/ids/roles; also proves the folding rule (see the row below) |
 | Resuming a real session (`--session`) | ✅ `./Tools/SmokeTest/run-open.sh` — read-only verified byte-for-byte |
 | Pi config locations (relocated `PI_CODING_AGENT_DIR` etc.) | ✅ `./Tools/SmokeTest/run-paths.sh` — PiCode and Pi agree, proven against a live `pi` |
 | Extension UI round trip against a live extension | ✅ `./Tools/SmokeTest/run-extension.sh` — all 35 checks pass, no model call |
@@ -78,6 +78,7 @@ PiCode's own preferences.
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
 | Transcript vs README spec | ✅ audited (§11); the gaps it found are fixed |
+| Quiet tool calls fold (command/edit/read) | ⚠️ `./Tools/SmokeTest/run-replay.sh` — the folding *rule* is proved over every real session on this machine: 4852 of 4852 calls folded, 0 items lost, 0 non-quiet rows folded, 0 adjacent/split runs, every folded call has a command or a path (7234 rows → 2070 singletons, 1155 runs; titles `Run command`×1216, `Edited files`×659, `Run commands`×434, `Read files`×425, and mixed forms like `Edited files, run commands`×162). What is **not** verified: the view itself — that a folded line looks dimmed, that clicking it opens, that the nested action rows and their diffstats render, and that 150 real folded failure/cancel calls show their red pill (the count is printed by the harness, the pill is not measured). See §11 |
 | PROCESS.md | ✅ this file |
 
 Nothing in the repo is generated or checked in from `/tmp`; the smoke test lives
@@ -146,7 +147,12 @@ The other harnesses exist because they each caught a real bug:
 - **`run-replay.sh`** pushes every real session file through
   `JSONLDecoder → PiSessionEntry → TranscriptBuilder` and asserts: no undecodable
   lines, no duplicate/empty row ids, no unknown roles or entry types, and every
-  tool result matched to a call by `toolCallId`.
+  tool result matched to a call by `toolCallId`. It also checks the transcript's
+  folding rule (`TranscriptRows.group`, imported from `Features/Conversation/`
+  because it is Foundation-only): folding keeps every item reachable, only
+  command/edit/read rows fold, a fold is one maximal run (no two adjacent groups,
+  no run split apart), and every folded call carries a command or a path to
+  identify it. Nothing there draws anything — see §11 for what still needs eyes.
 - **`run-open.sh`** resumes a real session exactly the way the sidebar does
   (`pi --mode rpc --session <copy>`), asserts Pi resumed *that* session, that the
   locally built tree matches Pi's `get_tree` (small sessions), that
@@ -401,6 +407,12 @@ protocol logic in views.
 | **PiCode writes exactly two kinds of Pi file** | `trust.json` (the same document `/trust` writes) and, only on an explicit click in Settings → Providers, `auth.json` and `models.json` in the shapes Pi documents. Everything else under Pi's config directory is read-only, and no credential is ever read back into the UI. Before adding a third, ask why the user cannot do it in `pi` itself. |
 | **The sidebar is a projection, not a database** | `SessionIndex.loadAllProjects()` reads Pi's session directory on every refresh; pins and "hidden" flags only decorate the result. `run-index.sh` guards this: add caching and the sidebar can start disagreeing with the terminal about what exists. |
 | **A project is a row, not a section header** | A `Section` in the sidebar list style is a collapsible group with a disclosure chevron — wrong for a list that mirrors what is on disk. The row *is* the disclosure: clicking it folds its chats (`AppState.toggleCollapsed`, persisted as a decoration), and the fold wins over a search — `showsChats` asks `isCollapsed` *first*, because a query that overrides a documented click is indistinguishable from a broken one. As a row it also shares its chats' leading inset, which is what makes "a chat title starts where the project's name starts" exact instead of a two-point correction. The glyph is drawn to the left of its row so it lands beside the search field, and that shift is drawing-only, so the name — and therefore every chat title under it — does not move: `projectIconShift` (9pt) is how far left it once sat, `projectIconRightShift` (6pt) is how far the menu then asked it back in, and `projectIconOffset` (3pt) is the single name for what is actually applied. Its highlight is a `Button`'s: one `listRowBackground` pill inset by `rowHighlightInset` (`= sidebarMargin`) **on the shape, not on the row** — a `listRowBackground` fills the row's entire cell, its own insets and any padding included, so padding the row puts air *inside* the pill. Which is why the menu's second pass deleted every vertical margin instead of tuning one: a project's highlight became 37.0pt tall against a chat's 28.0pt when it carried 12pt of padding, and "equal spacing between everything" is only structural if no row pads itself at all. Both rows go through one `SidebarRowChrome`, so there is exactly one place that draws a pill, and it is the reason a project and a chat can differ only in colour. `run-sidebar-click.sh` clicks the row for real and measures the pills and the pitch. |
+| **Three tool families fold, and only three** | `bash`, `edit`/`write` and `read` are the calls a real session repeats: across the 16 real sessions on this machine they are **all 4852** tool calls (2761 command, 1201 edit, 890 read), and every other tool name is something a person would actually want to read. So `ToolFamily.of` knows exactly those names and everything else keeps its card: a `grep` five times in a row is not the same shape of noise as a command five times in a row, because the point of folding is that the user already knows what the line will say. Folding is *presentation*, so it is a **pure function** of the item list (`TranscriptRows.group`) in a Foundation-only file — the replay harness imports it and checks the rule over every session that has ever run here (4852/4852 calls folded, nothing lost, no non-quiet tool folded, no run split). |
+| **A run ends at anything that is not a neighbouring quiet call** | An assistant message, a thinking block, an orphaned result or a non-folding tool between two commands is a boundary, so a run is *consecutive* calls and nothing else. "Group all the edits in a turn" would draw a line under a paragraph of explanation and call it one action, which is a claim about what the agent did that PiCode cannot actually know. It also means a fold is always maximal, which is a property the harness can assert (no two adjacent groups; no two neighbouring quiet calls left in separate rows). |
+| **The folded line is keyed by its *first* item** | `.group`'s id is `group-<first item id>`. A turn streams: the group grows from one call to six while the user reads it, and if the id followed the contents, every appended call would give the row a new identity and SwiftUI would rebuild it — folding the line back up under the user's cursor. Keyed by the head, the row keeps its identity and its `@State isExpanded` while it grows. |
+| **A folded line keeps its status, a failed call keeps a pill** | The whole point of collapsing is that the user is not reading the calls, so anything they would need to act on has to survive on the line: a running call keeps its spinner and elapsed time, and a run containing a failure or a cancellation shows `Failed`/`Cancelled` even though its content is closed. 150 real folded calls in the sessions here are failures or cancels. The same rule applies inside a run — `ToolActionRow` marks the call that failed and colours its icon, because "which one broke" is the question the expanded list exists to answer. This is also why the failure sentence ("This tool reported a failure without output") is part of `ToolCallContent` and not of the card's header: a card may be collapsed, a folded row may be expanded, and the sentence has to be present in both. |
+| **Two disclosure levels, one indent step** | A run opens to a list, and a call inside it opens to its content. One click cannot open six outputs — that is the noise being removed — and one click must not be needed for a *single* call, so a one-call group skips the intermediate list and opens its content directly (`ToolGroupView` branches on `items.count == 1`). The list's indent is one constant (`ToolGroupStyle.childIndent`, 13pt) used in one place, because two levels of indentation inside a 736pt column leaves the output at the width of a postcard. |
+| **The shared content moved out of the card** | `ToolCallContent` draws arguments, file changes, output, truncation notice, failure sentence and structured result; `ToolCallCard` (non-quiet tools) and `ToolGroupView`/`ToolActionRow` (folded ones) both draw it. An `edit`'s diffstat and a `read`'s file chip must not be able to disagree between the two shapes, and the card lost ~140 lines by it. The card keeps its own chrome (icon, name, status pill, chevrons, copy button); the folded row keeps its own header. |
 
 ---
 
@@ -863,6 +875,20 @@ Consequences baked into the controller:
     settles it.
   - a window capture's bitmap comes back **alpha-first**, so read pixels through
     `WindowPixels` and never through `NSBitmapImageRep.bitmapData` (§3).
+- **The transcript's folding identity is a SwiftUI fact, not a cosmetic one.** A
+  `ForEach` over `TranscriptRows.group(items)` keys each row by its `id`, and
+  `@State` — including a folded row's `isExpanded` — is thrown away when that id
+  changes. A group's id is therefore `group-<first item id>`, never a hash of its
+  contents: a streaming turn appends calls to a run every second or two, and an
+  id that followed the contents would fold the line back up under the user's
+  cursor mid-read. The same reasoning applies to any future row whose contents
+  grow.
+- **An empty view still costs its `HStack`'s spacing.** `DiffStatView` draws
+  nothing when both counts are `nil` or zero, which is every `read` — but the
+  `ForEach` that produced it still took part in the row, so a read's line came out
+  with a 6pt gap in front of nothing. Guard the *spacing* (here: filter to the
+  changes that actually have numbers) rather than trusting a view that renders
+  empty to render nothing at all.
 - The project uses `PBXFileSystemSynchronizedRootGroup` rooted at `PiCode/`, so
   **new files under `PiCode/` are added to the target automatically** — no
   `project.pbxproj` edit needed. Files added *outside* `PiCode/` (e.g.
@@ -954,6 +980,21 @@ Consequences baked into the controller:
    that the search field's own fill separates it well enough now that the rule
    under it is gone.
 11. Update this file when you finish any of the above.
+12. **The folded tool rows, seen once by a human.** The folding *rule* is proved
+    over every real session by `run-replay.sh` (see §2), but nothing has drawn a
+    folded line: there is no harness for it, and none was run — this landed on an
+    explicit instruction to stop the verify loop. Open a real session and check:
+    that a run of commands reads as *one* dimmed line and not as a card, that the
+    chevron turns and the content opens on a click anywhere along the line (the
+    whole row is `.contentShape(Rectangle())` inside a `.plain` button), that a
+    one-call group opens its content directly while a many-call group opens a list,
+    that the command or path in `foldedSummary` is truncated in the *middle* and
+    stays one line, that a running call's spinner and elapsed time tick, that one of
+    the 150 folded failures shows its red `Failed` pill while collapsed, that the
+    nested action rows' diffstats line up, and that the empty-state and long-output
+    paths still look right in both appearances. Also check the grouped title on a
+    real run — `Edited files, run commands` is generated, and the words are the one
+    part of this that no test can judge.
 
 Already closed by the harnesses (kept here so nobody re-opens them):
 
@@ -1046,6 +1087,24 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   as a chat's — one place to change and one place to measure: if you touch
   `rowMinHeight`, `rowHighlightInset` or the chrome, run `run-sidebar-click.sh`,
   which measures the pills and the steps between them.
+- **The transcript folds only three families, and folding is a pure function**: a
+  tool call with a card is the default; only `bash`, `edit`/`write` and `read`
+  become a folded line, and the list of names lives in `ToolFamily.of` — one
+  place, with the words (`label`/`pluralLabel`/`listedLabel`) and the icon beside
+  it. Adding a fourth family means adding a case and accepting that the user will
+  stop reading its calls. The *rule* stays in `TranscriptRows.group`: pure,
+  Foundation-only, no SwiftUI, because that is what lets `run-replay.sh` prove it
+  over every real session instead of over an example. Don't move that decision
+  into the view, and don't give a group an id that depends on its contents — a
+  streaming turn would re-key the row and fold it up again (§10).
+- **A tool call's content is drawn in one place**: `ToolCallContent` renders
+  arguments, file changes, output, the truncation notice, the failure sentence and
+  the structured result; the card and the folded rows add only their own headers.
+  Change a tool's presentation there, once. Anything a user must not be able to
+  miss stays *outside* the disclosure — that is why the failure sentence is part
+  of the content and the running/failed pill is on the collapsed line — and any
+  new tool-shaped row has to keep that rule: no state that matters only behind a
+  click.
 - **Recessed controls on the sidebar**: the search field's fill has to be darker
   than the sidebar material in *both* appearances, so it is a translucent black
   with a per-appearance alpha (`SidebarStyle.searchFieldFill`) — `.quaternary`
@@ -1075,7 +1134,14 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 - [ ] `xcodebuild` → `** BUILD SUCCEEDED **`
 - [ ] `./Tools/SmokeTest/run.sh` → `RESULT: all checks passed`
 - [ ] `./Tools/SmokeTest/run-json.sh` → `RESULT: all checks passed`
-- [ ] `./Tools/SmokeTest/run-replay.sh` → `RESULT: all checks passed`
+- [ ] `./Tools/SmokeTest/run-replay.sh` → `RESULT: all checks passed`, including
+      the folding checks. If you touched `TranscriptRows`, `ToolFamily`,
+      `ToolCallContent`, `ToolGroupView` or `ToolCallCard`, read its `folding:`
+      line: folded calls must still equal the total tool-call count for the
+      families it knows (4852 of 4852 here), `0` items lost, `0` folded rows from
+      another tool, `0` adjacent/split runs. A `watched:` count above zero means
+      there are real folded failures on disk — those need `ToolGroupView`'s red
+      pill, so they are the rows to look at when you open the app
 - [ ] `./Tools/SmokeTest/run-open.sh --small` → `RESULT: all checks passed`
 - [ ] `./Tools/SmokeTest/run-paths.sh` → `RESULT: all checks passed` (only if you
       touched `PiPaths`, trust, session discovery, or process launching)
@@ -1105,6 +1171,10 @@ Already closed by the harnesses (kept here so nobody re-opens them):
       height means a `NSViewRepresentable` is taking its maximum height again, and
       a wrong width means the padding and the width cap were swapped (§10)
 - [ ] The app launches and stays up for a few seconds with no crash report
+- [ ] Folded tool rows opened by eye: a run of commands reads as one dimmed line,
+      clicking it (anywhere along it) opens, a one-call group opens its content
+      directly while a many-call group opens a list, a running call keeps its
+      spinner, a folded failure keeps its red pill (§11 item 12)
 - [ ] `git status` shows **no** changes in `~/.pi/agent` (no `trust.json`, no new
       session files, no touched settings)
 - [ ] No `sh -c` / `Process` with a shell anywhere in the diff

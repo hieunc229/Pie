@@ -99,6 +99,7 @@ Render a chronological, virtualized conversation from Pi messages and events:
 - Assistant text uses full-width Markdown with selectable text, tables, lists, links, and syntax-highlighted fenced code.
 - Stream text in place without changing scroll position when the user has scrolled upward.
 - Tool calls appear as collapsible cards with tool name, concise input summary, duration, status, and expandable raw input/output.
+- The repeating quiet actions fold instead of stacking: neighbouring `bash`, `edit`/`write` and `read` calls become one dimmed, collapsed line — `Run command`, `Edited files` or `Read files` for a single call, `Edited files, run commands` for a run — showing the command or path beside it. Clicking the line opens it; for a run, clicking a call inside opens that call's output. Failures and running calls keep a visible pill or spinner on the folded line, and every other tool keeps its card.
 - Bash output uses a monospaced, selectable log view with ANSI color support and a maximum collapsed height.
 - File writes/edits use change cards showing path and available line counts. Selecting a card opens the inspector diff.
 - Thinking/reasoning content is collapsed and labeled according to what the provider actually exposes. Never fabricate hidden reasoning.
