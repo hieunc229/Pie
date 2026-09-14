@@ -10,9 +10,9 @@
 //       `Button`, which is where a click can quietly get eaten;
 //    2. the row highlight (the hover/selection pill) starts and ends on the same
 //       horizontal margin as the search field, instead of running to the edges;
-//    3. the space above a project is a *margin*: the project's pill is the same
-//       height as a chat's, the 12pt of air above it is unpainted, and there is
-//       none of it below.
+//    3. every row is on one pitch: the step from a project to its first chat, from
+//       a chat to the next chat, and from the last chat to the next project are the
+//       same, and a project's highlight is exactly the height of a chat's.
 //
 //  Every row in the mock paints its own distinctly-coloured background, so a row
 //  can be found, measured and counted by *colour* alone — no measurement here
@@ -22,8 +22,7 @@
 //  count of text lines. Counting rows by ink made this harness fail for a reason
 //  that had nothing to do with the sidebar.
 //
-//  The mock calls the app's own `sidebarRow(fill:topMargin:bottomMargin:)` rather
-//  than a copy of it: run-sidebar-click.sh extracts everything between
+//  The mock calls the app's own `sidebarRow(fill:)` rather than a copy of it: run-sidebar-click.sh extracts everything between
 //  `enum SidebarStyle` and `struct SidebarView`, which includes it. So what is
 //  measured below is the shipped rule, not a re-implementation of it.
 //
@@ -59,7 +58,7 @@ struct SidebarClickDemo: View {
                         .frame(width: SidebarStyle.projectIconSize,
                                height: SidebarStyle.projectIconSize,
                                alignment: .leading)
-                        .offset(x: -SidebarStyle.projectIconShift)
+                        .offset(x: -SidebarStyle.projectIconOffset)
                     Text("projA").font(SidebarStyle.rowFont)
                     Spacer(minLength: 0)
                 }
@@ -67,9 +66,7 @@ struct SidebarClickDemo: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .sidebarRow(fill: Self.projectA,
-                        topMargin: SidebarStyle.projectTopMargin,
-                        bottomMargin: SidebarStyle.projectBottomMargin)
+            .sidebarRow(fill: Self.projectA)
 
             if !isFolded {
                 // `.primary` on the text is not decoration: the real `SessionRow`
@@ -80,13 +77,11 @@ struct SidebarClickDemo: View {
                 chat("projA-bbb", Self.chatA2)
             }
 
-            // A second group, so the space above a project can be measured against
-            // the chat that precedes it rather than against the list's own top.
+            // A second group, so the step from a chat to the next project can be
+            // measured against the step from a chat to a chat.
             Text("projB").font(SidebarStyle.rowFont)
                 .foregroundStyle(.primary)
-                .sidebarRow(fill: Self.projectB,
-                            topMargin: SidebarStyle.projectTopMargin,
-                            bottomMargin: SidebarStyle.projectBottomMargin)
+                .sidebarRow(fill: Self.projectB)
             chat("projB-ccc", Self.chatB1)
         }
         .listStyle(.sidebar)
@@ -228,7 +223,7 @@ final class SidebarClickDelegate: NSObject, NSApplicationDelegate {
         highlightInsets(pixels, projectA, "the first")
         highlightInsets(pixels, projectB, "the second")
 
-        measureMargin(pixels, projectA, chatA1, chatA2, projectB)
+        measureRhythm(pixels, projectA, chatA1, chatA2, projectB)
 
         click(at: clickPoint(in: projectA, pixels))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.checkFolded() }
@@ -243,35 +238,38 @@ final class SidebarClickDelegate: NSObject, NSApplicationDelegate {
                      Double(left), Double(right), Double(SidebarStyle.sidebarMargin)))
     }
 
-    /// The space above a project is a *margin*.
+    /// One pitch for every row.
     ///
-    /// Three measurements settle it, and none of them needs the text:
+    /// The menu asked for equal spacing — between two projects, between a project
+    /// and its first chat, between two chats — and that is now the whole rule: no
+    /// row in the sidebar pads itself vertically, so the list's own cell sets the
+    /// step. A project used to carry a 12pt margin (as padding *and* as an inset on
+    /// its highlight), which made the step from the chat above it 40.0pt against a
+    /// chat's 28.0pt, and made the project's own pill 37.0pt tall against 28.0pt.
     ///
-    ///   * the project's pill is exactly as tall as a chat's — it used to be 37pt
-    ///     against 28pt, because `listRowBackground` fills the row's whole cell and
-    ///     the project row was padding itself *inside* it;
-    ///   * the air above it, measured from the pill of the chat that precedes the
-    ///     next project, is the top margin and nothing else;
-    ///   * there is none below it: the project's pill ends where its first chat's
-    ///     begins. A margin on the wrong side would show up here as a gap.
-    private func measureMargin(_ pixels: WindowPixels,
-                               _ projectA: Pill, _ chatA1: Pill, _ chatA2: Pill, _ projectB: Pill) {
+    /// Two things are measured, and neither reads any text: the pills' heights, and
+    /// the tops of four pills in a row, whose differences are the steps. A margin
+    /// added back anywhere shows up as a step that does not match.
+    private func measureRhythm(_ pixels: WindowPixels,
+                                _ projectA: Pill, _ chatA1: Pill, _ chatA2: Pill, _ projectB: Pill) {
         let projectHeight = projectA.height(in: pixels)
         let chatHeight = chatA1.height(in: pixels)
         check(abs(projectHeight - chatHeight) <= 1.5,
               "a project's highlight is the height of a chat's",
-              String(format: "%.1fpt against %.1fpt (it was 37.0 against 28.0 while the margin was inside the pill)",
+              String(format: "%.1fpt against %.1fpt (it was 37.0 against 28.0 while the project padded itself inside its own pill)",
                      Double(projectHeight), Double(chatHeight)))
 
-        let gapAbove = Double(projectB.y.lowerBound - chatA2.y.upperBound - 1) / Double(pixels.scale)
-        check(abs(gapAbove - SidebarStyle.projectTopMargin) <= 1.5,
-              "the gap above a project is the top margin, outside the pill",
-              String(format: "%.1fpt against %.1fpt", gapAbove, Double(SidebarStyle.projectTopMargin)))
-
-        let gapBelow = Double(chatA1.y.lowerBound - projectA.y.upperBound - 1) / Double(pixels.scale)
-        check(abs(gapBelow) <= 1.5,
-              "a project's highlight ends where its first chat's begins",
-              String(format: "%.1fpt below it", gapBelow))
+        func step(_ above: Pill, _ below: Pill) -> Double {
+            Double(below.y.lowerBound - above.y.lowerBound) / Double(pixels.scale)
+        }
+        let steps: [(String, Double)] = [
+            ("project → its first chat", step(projectA, chatA1)),
+            ("chat → chat", step(chatA1, chatA2)),
+            ("last chat → next project", step(chatA2, projectB)),
+        ]
+        check(steps.allSatisfy { abs($0.1 - steps[0].1) <= 1.5 },
+              "every row is on one pitch, whichever rows they are",
+              steps.map { String(format: "%@ %.1fpt", $0.0, $0.1) }.joined(separator: ", "))
     }
 
     private func checkFolded() {

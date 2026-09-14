@@ -48,8 +48,35 @@ check_source "$SIDEBAR" 'state.toggleCollapsed(project: project)' \
     "clicking a project folds its chats (no chevron to click)"
 check_source "$SIDEBAR" 'state.showsChats(of: project)' \
     "a folded project hides its chats"
-check_source "$SIDEBAR" '.offset(x: -SidebarStyle.projectIconShift)' \
-    "the project glyph is shifted onto the search field's margin"
+check_source "$SIDEBAR" '.offset(x: -SidebarStyle.projectIconOffset)' \
+    "the project glyph is shifted to its own mark beside the search field"
+# The menu is one weight: normal. Anything heavier in this file is a regression —
+# a heading shouts, and the whole design is that a project is not a heading.
+if grep -qE 'weight: \.(medium|semibold|bold|heavy|black|ultraLight|thin|light)|\\.bold\(\)|fontWeight\(' "$SIDEBAR"; then
+    echo "  FAIL the sidebar uses a weight other than regular:"
+    grep -nE 'weight: \.(medium|semibold|bold|heavy|black|ultraLight|thin|light)|\\.bold\(\)|fontWeight\(' "$SIDEBAR" | sed 's/^/       /'
+    fail=1
+else
+    echo "  ok   every text style in the sidebar is regular weight"
+fi
+# The rhythm is the list's: a row may not pad itself vertically (that also grows
+# its highlight, because `listRowBackground` fills the whole cell).
+CHROME="$(sed -n '/struct SidebarRowChrome/,/^}/p' "$SIDEBAR")"
+if printf '%s' "$CHROME" | grep -qE '\.padding\(\.(top|bottom|vertical)'; then
+    echo "  FAIL the shared row chrome pads its row vertically, so the rhythm is not uniform"
+    fail=1
+else
+    echo "  ok   the shared chrome adds no vertical padding, so every row is on one pitch"
+fi
+# The border under the search field is gone on purpose: the field's own fill is
+# the separation. One Divider is left, above the footer, and it must stay one.
+DIVIDERS="$(grep -cE '^[[:space:]]*Divider\(\)' "$SIDEBAR")"
+if [ "$DIVIDERS" = 1 ]; then
+    echo "  ok   no border under the search field (one Divider left, above the footer)"
+else
+    echo "  FAIL the sidebar draws $DIVIDERS Dividers; exactly one (the footer's) is expected"
+    fail=1
+fi
 if grep -qE 'Section[ ({]' "$SIDEBAR"; then
     echo "  FAIL a project is still a Section (the sidebar turns those into a collapsible group with a chevron)"
     fail=1

@@ -19,7 +19,9 @@ import SwiftUI
 /// semantic styles do not line up here (macOS puts `.callout` and `.body` at the
 /// same 13pt while a section header at `.caption` is smaller).
 enum SidebarStyle {
-    static let rowFont = Font.system(size: 14, weight: .regular)
+    /// One size for a project and for every chat under it. 13pt regular: a menu of
+    /// names, not a document, and nothing in it is a heading.
+    static let rowFont = Font.system(size: 13, weight: .regular)
     /// Left edge of the sidebar's own content: the search field's fill and the
     /// project glyph both start here.
     static let sidebarMargin: CGFloat = 10
@@ -29,41 +31,56 @@ enum SidebarStyle {
     static let projectIconSize: CGFloat = 15
     /// How far left of its row the project glyph is drawn. The list style insets
     /// rows about 19pt from the sidebar edge while the search field sits at 10, so
-    /// the glyph is shifted by the difference to line up with the field; the shift
-    /// is drawing-only, which leaves the project name (and therefore every chat
-    /// title under it) exactly where it was. Measured, not derived:
-    /// `run-sidebar-align.sh` fails if the glyph drifts off `sidebarMargin`.
+    /// the glyph is shifted by the difference to line up with the field; 9pt puts
+    /// its ink exactly on the field's edge. The shift is drawing-only, which leaves
+    /// the project name (and therefore every chat title under it) exactly where it
+    /// was.
     static let projectIconShift: CGFloat = 9
+    /// …and then 6pt back to the right, which is where the glyph sits now: hard
+    /// against the search field's edge it read as drifting away from its own name.
+    /// Drawing-only too, so the label does not move. Measured, not derived:
+    /// `run-sidebar-align.sh` fails if the glyph's ink is not
+    /// `sidebarMargin + projectIconRightShift` from the sidebar's edge.
+    static let projectIconRightShift: CGFloat = 6
+    /// What `.offset(x:)` actually applies. One name for the drawn position, so the
+    /// view and the harness cannot disagree about which number is in force.
+    static var projectIconOffset: CGFloat { projectIconShift - projectIconRightShift }
     /// Gap between the folder glyph and the project name.
     static let iconTextSpacing: CGFloat = 10
-    /// How far the row highlight (the hover/selection pill) is inset from the
-    /// row's own edges. `listRowBackground` fills the whole column — measured:
-    /// 0 to 140pt in a 140pt column, no inset of its own — so the pill used to run
-    /// edge to edge while the search field sat on a margin. Inset by the margin
-    /// instead, and the pill lines up with the field and with the folder glyph.
+    /// Not a metric, but the rule the two below encode: there is **no vertical
+    /// margin anywhere** in this list. One chat sits as far below the previous chat
+    /// as below a project, and a project sits as far below the chat above it as a
+    /// chat does. The rhythm is the list's, and the folder glyph — not air — is what
+    /// says where one project's chats end and the next one begins. (A 12pt
+    /// `projectTopMargin` used to sit here; it made a project read as a heading, and
+    /// it is gone. Do not bring it back as padding: `listRowBackground` fills the
+    /// row's cell, so padding a row also makes its highlight taller.)
     static let rowHighlightInset: CGFloat = sidebarMargin
+    /// The fill of a highlighted row — the *only* one. Hover and the active row are
+    /// the same neutral grey: the pointer and the selection are the same statement
+    /// ("this is the row you mean"), so they do not need two colours, and a grey
+    /// rather than `accentColor` means the highlight does not change colour when the
+    /// window loses focus. Add `SidebarStyle.rowHighlightFill` to `.clear`, never a
+    /// new literal.
+    static let rowHighlightFill = Color.primary.opacity(0.08)
     /// The highlight pill's corners. Shared by both row types through
-    /// `sidebarRow(fill:topMargin:bottomMargin:)`, so a project's pill and a
-    /// chat's cannot be two different shapes.
+    /// `sidebarRow(fill:)`, so a project's pill and a chat's cannot be two shapes.
     static let rowHighlightRadius: CGFloat = 6
-    /// The floor under a row's content, so a project's pill can be the same height
-    /// as a chat's even though the project also carries a margin.
+    /// The floor under a row's content, so both row types are one height.
     ///
     /// The list holds a row to `defaultMinListRowHeight` — 20pt here, measured —
-    /// so a chat's pill is 20 + the row insets while its text is only ~17pt tall.
-    /// A project's content is 17pt plus its 12pt margin, which *clears* the floor
-    /// instead of being held to it: its pill came out 25pt against a chat's 28.
-    /// Holding both rows' content to a shared floor is what makes the invariant
-    /// structural — and since both rows go through the chrome, a future macOS that
-    /// changes the list's minimum moves both pills together.
+    /// so a pill is `max(20, content) + 8` whatever the row holds. Set explicitly
+    /// rather than leaning on the list, because "a project's highlight is a chat's
+    /// highlight" is an invariant of this design and not a coincidence of the
+    /// platform: if that minimum ever changes, it changes for both.
     static let rowMinHeight: CGFloat = 20
-    /// Breathing room above a project — it has to separate the project from the
-    /// previous project's last chat — and below it, before its own chats.
-    static let projectTopMargin: CGFloat = 12
-    /// No extra room under a project: a chat sits the same distance below its
-    /// project's name as it does below another chat. Only the top margin and the
-    /// glyph say where one project's chats stop and the next start.
-    static let projectBottomMargin: CGFloat = 0
+    /// Secondary and empty-state text. Regular weight, like everything else in this
+    /// menu: there is no bold, medium or semibold type anywhere in it, and the
+    /// semantic styles are avoided here because they drag a weight along with their
+    /// size. `run-sidebar-align.sh` fails on a heavier weight appearing in this
+    /// file.
+    static let captionFont = Font.system(size: 11, weight: .regular)
+    static let messageFont = Font.system(size: 13, weight: .regular)
     /// How far a chat title is inset so it starts where its project's *name*
     /// starts rather than under the folder glyph. Exact because a project is a
     /// row like a chat is, so both get the same leading inset (a `Section` header
@@ -81,46 +98,39 @@ enum SidebarStyle {
     static let searchFieldRadius: CGFloat = 8
 }
 
-/// The highlight pill behind a sidebar row, and the row's vertical margins.
+/// The highlight pill behind a sidebar row. Every row paints it through here, so a
+/// project's highlight and a chat's can only differ in colour — which is the point:
+/// the two are the same rank of information and must hover alike.
 ///
-/// The space above a project is a **margin, not padding**: `listRowBackground`
-/// fills the row's whole cell — measured, the full column width and the full cell
-/// height — so a row that pads itself *inside* also makes its own pill taller.
-/// The project row did, and its pill came out 37pt against a chat's 28pt: hover a
-/// project next to a chat and one of them is visibly a different rank, which is
-/// exactly what this sidebar is trying not to say.
+/// `listRowBackground` fills the row's whole cell — measured, the full column width
+/// and the full cell height, any padding and `listRowInsets` included — so **nothing
+/// here may pad the row vertically**: a row that pads itself inside also makes its
+/// own pill taller. The project row did, and its highlight came out 37pt against a
+/// chat's 28pt, which made one of them look like a heading.
 ///
-/// So the margin is applied twice, from the one value: as layout space around the
-/// row, and as an inset on the *shape*, which shrinks the pill back to the row's
-/// content height. Both numbers are parameters and both rows go through this one
-/// function, so a project and a chat can only differ in colour. `SidebarClickTest`
-/// measures the two pills against each other.
+/// The horizontal inset is on the *shape* for the same reason the vertical one is
+/// absent: the pill has to sit on the sidebar's margin (where the search field and
+/// the folder glyph are) while the row itself runs the full width.
+/// `SidebarClickTest` measures the pills against each other.
 struct SidebarRowChrome: ViewModifier {
     var fill: Color
-    var topMargin: CGFloat
-    var bottomMargin: CGFloat
 
     func body(content: Content) -> some View {
         content
             .frame(minHeight: SidebarStyle.rowMinHeight)
-            .padding(.top, topMargin)
-            .padding(.bottom, bottomMargin)
             .listRowBackground(
                 RoundedRectangle(cornerRadius: SidebarStyle.rowHighlightRadius, style: .continuous)
                     .fill(fill)
                     .padding(.horizontal, SidebarStyle.rowHighlightInset)
-                    .padding(.top, topMargin)
-                    .padding(.bottom, bottomMargin)
             )
     }
 }
 
 extension View {
-    /// Give a sidebar row its highlight and its margins. See `SidebarRowChrome`.
-    func sidebarRow(fill: Color,
-                    topMargin: CGFloat = 0,
-                    bottomMargin: CGFloat = 0) -> some View {
-        modifier(SidebarRowChrome(fill: fill, topMargin: topMargin, bottomMargin: bottomMargin))
+    /// Give a sidebar row its highlight: `SidebarStyle.rowHighlightFill` while it is
+    /// hovered or active, `.clear` otherwise. See `SidebarRowChrome`.
+    func sidebarRow(fill: Color) -> some View {
+        modifier(SidebarRowChrome(fill: fill))
     }
 }
 
@@ -131,14 +141,13 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             searchField
-            Divider()
             if state.phase.isReady {
                 list
             } else {
                 VStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Indexing sessions…")
-                        .font(.callout)
+                        .font(SidebarStyle.messageFont)
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -158,6 +167,7 @@ struct SidebarView: View {
                 .imageScale(.small)
             TextField("Search sessions", text: $state.sidebarQuery)
                 .textFieldStyle(.plain)
+                .font(SidebarStyle.rowFont)
                 .focused($isSearching)
             if !state.sidebarQuery.isEmpty {
                 Button {
@@ -199,10 +209,10 @@ struct SidebarView: View {
             if state.filteredProjects.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: state.sidebarQuery.isEmpty ? "folder" : "magnifyingglass")
-                        .font(.system(size: 26, weight: .light))
+                        .font(.system(size: 26, weight: .regular))
                         .foregroundStyle(.tertiary)
                     Text(state.sidebarQuery.isEmpty ? "No projects yet" : "No matches")
-                        .font(.callout)
+                        .font(SidebarStyle.messageFont)
                         .foregroundStyle(.secondary)
                     if state.sidebarQuery.isEmpty {
                         Button("Open Project Folder…") { Task { await state.addProject() } }
@@ -244,7 +254,7 @@ struct SidebarView: View {
             }
             if project.sessions.isEmpty && ephemeral == nil {
                 Text("No sessions yet")
-                    .font(.caption)
+                    .font(SidebarStyle.captionFont)
                     .foregroundStyle(.tertiary)
                     .padding(.leading, SidebarStyle.titleIndent)
                     .padding(.bottom, 4)
@@ -291,7 +301,7 @@ struct SidebarView: View {
                 ProgressView().controlSize(.small)
             } else if let date = state.lastIndexedAt {
                 Text("Indexed \(Format.relativeTime(date))")
-                    .font(.caption2)
+                    .font(SidebarStyle.captionFont)
                     .foregroundStyle(.tertiary)
             }
         }
@@ -356,9 +366,9 @@ struct ProjectRow: View {
                     .frame(width: SidebarStyle.projectIconSize,
                            height: SidebarStyle.projectIconSize,
                            alignment: .leading)
-                    // Drawing-only, so the name stays put while the glyph lines up
-                    // with the search field.
-                    .offset(x: -SidebarStyle.projectIconShift)
+                    // Drawing-only, so the name stays put while the glyph moves to
+                    // its own mark beside the search field.
+                    .offset(x: -SidebarStyle.projectIconOffset)
                 Text(project.name)
                     .font(SidebarStyle.rowFont)
                     .lineLimit(1)
@@ -374,11 +384,9 @@ struct ProjectRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // The margin above a project is space *around* its pill, not room inside
-        // it: see `SidebarRowChrome`.
-        .sidebarRow(fill: isHovering ? Color.primary.opacity(0.05) : .clear,
-                    topMargin: SidebarStyle.projectTopMargin,
-                    bottomMargin: SidebarStyle.projectBottomMargin)
+        // A project is highlighted exactly like a chat: one fill, one shape, one
+        // height. See `SidebarRowChrome`.
+        .sidebarRow(fill: isHovering ? SidebarStyle.rowHighlightFill : .clear)
         .onHover { isHovering = $0 }
         .accessibilityValue(state.isCollapsed(project: project) ? "chats hidden" : "chats shown")
         .contextMenu {
@@ -444,7 +452,7 @@ struct SessionRow: View {
                         .foregroundStyle(.tertiary)
                 } else if isEphemeral {
                     Text("in memory")
-                        .font(.caption2)
+                        .font(SidebarStyle.captionFont)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -452,9 +460,7 @@ struct SessionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .sidebarRow(fill: isSelected
-                    ? Color.accentColor.opacity(0.14)
-                    : (isHovering ? Color.primary.opacity(0.05) : .clear))
+        .sidebarRow(fill: (isSelected || isHovering) ? SidebarStyle.rowHighlightFill : .clear)
         .onHover { isHovering = $0 }
         .contextMenu(menuItems: contextMenu)
         .help(helpText)

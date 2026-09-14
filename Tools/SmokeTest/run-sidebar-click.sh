@@ -63,8 +63,10 @@ else
     echo "  FAIL a row paints its own background ($(grep -cE '^[[:space:]]*\.listRowBackground\(' "$SIDEBAR") call sites, expected 1)"
     fail=1
 fi
-check_source "$SIDEBAR" '.padding(.top, topMargin)' \
-    "the margin is applied to the highlight shape, not only around the row"
+check_absent "$SIDEBAR" 'projectTopMargin' \
+    "no vertical margin is left in the sidebar (every row is on one pitch)"
+check_absent "$SIDEBAR" 'weight: .medium' \
+    "the menu is not medium-weight"
 # The fold is asked for first, and nothing about the query may come before it: a
 # click that folds nothing is indistinguishable from a broken row. `showsChats`
 # must be a straight `!isCollapsed` and must not mention `sidebarQuery` at all.

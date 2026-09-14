@@ -52,12 +52,10 @@ struct SidebarAlignDemo: View {
                 .frame(width: SidebarStyle.projectIconSize,
                        height: SidebarStyle.projectIconSize,
                        alignment: .leading)
-                .offset(x: -SidebarStyle.projectIconShift)
+                .offset(x: -SidebarStyle.projectIconOffset)
             Text(project.name).font(SidebarStyle.rowFont)
             Spacer(minLength: 0)
         }
-        .padding(.top, SidebarStyle.projectTopMargin)
-        .padding(.bottom, SidebarStyle.projectBottomMargin)
     }
 
     @ViewBuilder
@@ -201,9 +199,12 @@ final class SidebarAlignDelegate: NSObject, NSApplicationDelegate {
         check(iconPoints > 10, "the project glyph is drawn at full size",
               String(format: "%.1fpt wide", Double(iconPoints)))
         let glyphInk = CGFloat(headerRuns[0].lowerBound) / scale
-        check(abs(glyphInk - SidebarStyle.sidebarMargin) <= 1.5,
-              "the project glyph lines up with the search field's left edge",
-              String(format: "glyph ink %.1fpt against margin %.1fpt", Double(glyphInk), Double(SidebarStyle.sidebarMargin)))
+        // The glyph is drawn `projectIconRightShift` in from the search field's edge
+        // (it used to sit exactly on it, which read as drifting from its name).
+        let glyphMark = SidebarStyle.sidebarMargin + SidebarStyle.projectIconRightShift
+        check(abs(glyphInk - glyphMark) <= 1.5,
+              "the project glyph sits in from the search field's edge",
+              String(format: "glyph ink %.1fpt against %.1fpt", Double(glyphInk), Double(glyphMark)))
 
         // The rhythm: a chat must sit as far below its project's *name* as it sits
         // below another chat.
@@ -214,14 +215,14 @@ final class SidebarAlignDelegate: NSObject, NSApplicationDelegate {
                 func centre(_ span: ClosedRange<Int>) -> Double { Double(span.lowerBound + span.upperBound) / 2 }
                 let projectToChat = (centre(textBands[1]) - centre(textBands[0])) / Double(scale)
                 let chatToChat = (centre(textBands[2]) - centre(textBands[1])) / Double(scale)
-                // Not exact, and cannot be: a project row carries
-                // `projectTopMargin` as padding, and in a sidebar List 12pt of row
-                // padding shows up as ~9.8pt of separation while stealing 1.5pt
-                // from the gap *below* the padded row — measured, with a spacer
-                // row, with `.listRowInsets`, and with the padding on the last
-                // chat instead (the last two are worse). So the rhythm is equal to
-                // within 1.5pt, and the numbers are printed either way: if this
-                // drifts, the layout changed, not the tolerance.
+                // Now exact, and it has to be: there is no vertical margin left in
+                // the sidebar at all, so both rows are one cell of the list and one
+                // pitch. It used to be 26.5 against 28.0 — a project row carried
+                // `projectTopMargin` as padding, and in a sidebar List row padding
+                // shows up as slightly less separation than asked for while stealing
+                // 1.5pt from the gap *below* the padded row (measured, and measured
+                // again with a spacer row and with `.listRowInsets`: both worse).
+                // The 1.5pt band stays only because ink centres are integers.
                 check(abs(projectToChat - chatToChat) <= 1.5,
                       "a chat sits the same distance below a project's name as below another chat",
                       String(format: "%.1fpt then %.1fpt", projectToChat, chatToChat))

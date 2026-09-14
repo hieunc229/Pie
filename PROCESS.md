@@ -69,8 +69,8 @@ PiCode's own preferences.
 | Extension UI round trip against a live extension | ✅ `./Tools/SmokeTest/run-extension.sh` — all 35 checks pass, no model call |
 | Sidebar contents are real (no hidden project DB) | ✅ `./Tools/SmokeTest/run-index.sh` — 16 session files on disk → 8 projects, every path exists |
 | Providers, credentials, third-party providers | ✅ `./Tools/SmokeTest/run-providers.sh` — verified against a live `pi`, no credential of the user's is touched |
-| Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt alignment delta, glyph on the search margin, project→chat pitch 26.5pt against chat→chat 28.0pt (the 1.5pt residual is the list's, see §10) |
-| Sidebar rows behave (click a project to fold its chats; highlight on the search margin) | ✅ `./Tools/SmokeTest/run-sidebar-click.sh` — 14 checks, all measured from painted pills: 5 rows → 3 → 5 as a real posted click folds and unfolds a project; a project's highlight 28.0pt tall against a chat's **28.0pt** (it was 37.0pt while the row padded itself *inside* its `listRowBackground`); the air above the second project 12.0pt with **0.0pt** below the first, so the margin is outside the pill; highlight 10.0pt in from both edges of a 268pt column. |
+| Sidebar row layout (one size, chat titles aligned under project names) | ⚠️ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen before the menu's second pass: 0.0pt alignment delta, glyph on the search margin. The menu then moved the glyph 6pt in (`projectIconRightShift`), dropped the row font to 13pt and removed the last vertical margin, so this needs re-measuring; the harness now expects the glyph at `sidebarMargin + projectIconRightShift` and an *exact* project→chat pitch (it was 26.5pt against chat→chat 28.0pt, the 1.5pt residual the old row padding stole — §10). |
+| Sidebar rows behave (click a project to fold its chats; one pitch; highlight on the search margin) | ⚠️ `./Tools/SmokeTest/run-sidebar-click.sh` — the click half is measured from painted pills: 5 rows → 3 → 5 as a real posted click folds and unfolds a project, and a project's highlight 28.0pt tall against a chat's 28.0pt (it was 37.0pt while the row padded itself *inside* its `listRowBackground`). The rhythm half was re-written this turn for the menu's uniform-spacing change and has **not been run**: it now asserts that project→chat, chat→chat and chat→project steps are all equal, where it used to assert a 12.0pt margin above a project. |
 | A click on a project wins over the search field | ✅ `./Tools/SmokeTest/run-sidebar-click.sh` — source check that `AppState.showsChats` asks `isCollapsed` first; the old `query.isEmpty \|\| !isCollapsed` made a documented click a silent no-op. |
 | Discovery / launch / trust / session index / git | ✅ implemented |
 | Composer: Return sends, Shift+Return is a line, box shape, two-line clamp, box width | ✅ `./Tools/SmokeTest/run-composer.sh` — real `ComposerTextView`, real key events: Return/Shift/Option/Command-Return in both send-key modes; box measured at 84.0pt against `ComposerMetrics.boxHeight(forEditor:)`, the editor at 22.0/40.0/40.0/40.0pt for 1/2/3/5 lines, and the box against a transcript row at two pane widths: 816.0pt from x 242.0 at 1300pt, 456.0pt from x 22.0 at 500pt |
@@ -198,25 +198,32 @@ the user.
   numbers under test are the shipped ones; both also grep the view for the wiring
   those numbers assume, and both need a GUI session (not SSH).
   - `run-sidebar-align.sh` checks geometry: a chat title starts at the same x as
-    its project's name; the project glyph's ink lands on
-    `SidebarStyle.sidebarMargin` (the search field's left edge) at full width; and
-    a chat sits as far below its project's name as below another chat. The last
-    comes from ink *centres* measured in the project name's own x column —
-    measuring whole lines would let the taller folder glyph into the project's
-    span and skew it, which is exactly the false 1.5pt difference this used to
-    report. It dumps `/tmp/picode-sidebar-look.png`, a mock of the whole column,
-    so a human can judge the colours a machine cannot.
+    its project's name; the project glyph's ink lands
+    `projectIconRightShift` in from `SidebarStyle.sidebarMargin` (the search
+    field's left edge) at full width; and a chat sits as far below its project's
+    name as below another chat — now exactly, because no row pads itself
+    vertically any more. The pitch comes from ink *centres* measured in the
+    project name's own x column — measuring whole lines would let the folder
+    glyph into the project's span and skew it, which is exactly the false 1.5pt
+    difference this used to report. It also greps the view for things a mock
+    cannot: that no `.font` in the sidebar carries a weight other than
+    `.regular`, that `SidebarRowChrome` adds no vertical padding, and that
+    exactly one `Divider()` is left (the footer's — the rule under the search
+    field is gone on purpose). It dumps `/tmp/picode-sidebar-look.png`, a mock of
+    the whole column, so a human can judge the colours a machine cannot.
   - `run-sidebar-click.sh` checks behaviour and the geometry of the highlight.
     Every row in its mock paints a distinct saturated fill (red, magenta, cyan,
     green, yellow — each a different pair of bright channels), so a row can be
-    found, measured and **counted by colour**: five rows, the fold, and the
-    pill heights all come from rectangles, not from ink. Then it *clicks a row
-    through the window's own event path* — a `NavigationSplitView` sidebar,
+    found, measured and **counted by colour**: five rows, the fold, the pill
+    heights and the pitch all come from rectangles, not from ink. Then it *clicks
+    a row through the window's own event path* — a `NavigationSplitView` sidebar,
     `List`, `Button` and all — asserting the chats fold away and come back.
     Posted events, not delivered ones: SwiftUI runs an event-tracking loop on
-    mouse-down, so `sendEvent`ing the down and the up deadlocks the harness. It
-    dumps `/tmp/picode-sidebar-click.png`, where a human can see the 12pt of
-    unpainted air above a project.
+    mouse-down, so `sendEvent`ing the down and the up deadlocks the harness. Its
+    geometry claim is one pitch: the tops of four pills give project→chat,
+    chat→chat and chat→project, and all three must agree (they used to be 28.0pt
+    above a chat and 40.0pt above a project while a 12pt margin sat on the
+    project row). It dumps `/tmp/picode-sidebar-click.png`.
   - Both read pixels through `Tools/SmokeTest/WindowPixels.swift`, which redraws
     the capture into a buffer with a pinned layout. Do not go back to reading
     `NSBitmapImageRep(cgImage:).bitmapData` directly: the capture comes back
@@ -393,7 +400,7 @@ protocol logic in views.
 | **Extension commands get the patient `prompt` timeout** | Pi answers `prompt` only once the text has been handled, and an extension command is handled by its own handler, which may sit on a dialog for minutes. A normal prompt keeps the 60 s preflight budget; a slash command Pi reported as an extension command gets the same patient budget as `bash`. |
 | **PiCode writes exactly two kinds of Pi file** | `trust.json` (the same document `/trust` writes) and, only on an explicit click in Settings → Providers, `auth.json` and `models.json` in the shapes Pi documents. Everything else under Pi's config directory is read-only, and no credential is ever read back into the UI. Before adding a third, ask why the user cannot do it in `pi` itself. |
 | **The sidebar is a projection, not a database** | `SessionIndex.loadAllProjects()` reads Pi's session directory on every refresh; pins and "hidden" flags only decorate the result. `run-index.sh` guards this: add caching and the sidebar can start disagreeing with the terminal about what exists. |
-| **A project is a row, not a section header** | A `Section` in the sidebar list style is a collapsible group with a disclosure chevron — wrong for a list that mirrors what is on disk. The row *is* the disclosure: clicking it folds its chats (`AppState.toggleCollapsed`, persisted as a decoration), and the fold wins over a search — `showsChats` asks `isCollapsed` *first*, because a query that overrides a documented click is indistinguishable from a broken one. As a row it also shares its chats' leading inset, which is what makes "a chat title starts where the project's name starts" exact instead of a two-point correction. The glyph is drawn `projectIconShift` (9pt, measured) to the left of its row so it lands on the search field's margin, and that shift is drawing-only, so the name — and therefore every chat title under it — does not move. Its highlight is a `Button`'s: one `listRowBackground` pill, inset by `rowHighlightInset` (`= sidebarMargin`) at the sides, and by `projectTopMargin`/`projectBottomMargin` at the top and bottom — **on the shape, not on the row**: a `listRowBackground` fills the row's entire cell, its own insets and any padding included, so padding the row put the 12pt of air *inside* the pill and made a project's highlight 37.0pt tall against a chat's 28.0pt (§10). Both rows go through one `SidebarRowChrome`, so there is exactly one place that draws a pill. `run-sidebar-click.sh` clicks the row for real and measures both. |
+| **A project is a row, not a section header** | A `Section` in the sidebar list style is a collapsible group with a disclosure chevron — wrong for a list that mirrors what is on disk. The row *is* the disclosure: clicking it folds its chats (`AppState.toggleCollapsed`, persisted as a decoration), and the fold wins over a search — `showsChats` asks `isCollapsed` *first*, because a query that overrides a documented click is indistinguishable from a broken one. As a row it also shares its chats' leading inset, which is what makes "a chat title starts where the project's name starts" exact instead of a two-point correction. The glyph is drawn to the left of its row so it lands beside the search field, and that shift is drawing-only, so the name — and therefore every chat title under it — does not move: `projectIconShift` (9pt) is how far left it once sat, `projectIconRightShift` (6pt) is how far the menu then asked it back in, and `projectIconOffset` (3pt) is the single name for what is actually applied. Its highlight is a `Button`'s: one `listRowBackground` pill inset by `rowHighlightInset` (`= sidebarMargin`) **on the shape, not on the row** — a `listRowBackground` fills the row's entire cell, its own insets and any padding included, so padding the row puts air *inside* the pill. Which is why the menu's second pass deleted every vertical margin instead of tuning one: a project's highlight became 37.0pt tall against a chat's 28.0pt when it carried 12pt of padding, and "equal spacing between everything" is only structural if no row pads itself at all. Both rows go through one `SidebarRowChrome`, so there is exactly one place that draws a pill, and it is the reason a project and a chat can differ only in colour. `run-sidebar-click.sh` clicks the row for real and measures the pills and the pitch. |
 
 ---
 
@@ -806,10 +813,12 @@ Consequences baked into the controller:
     it should not run edge to edge;
   - and it fills the row's whole **cell**, its own insets and any padding
     included: a project row that padded itself 12pt top and bottom came out
-    **37.0pt** tall against a chat's 28.0pt, and `listRowInsets(top: 12)` moved the
-    pill to ~29pt with *no gap at all*. (Also measured: `listRowInsets(EdgeInsets())`
-    still spans the column, and a 12pt spacer row produced a 28pt gap — see the
-    next item.) A margin outside a pill has to be cut out of the *shape* (§12);
+    **37.0pt** tall against a chat's 28.0pt, its extra air ended up *inside* the
+    pill, and the padding also changed the rhythm — so the menu's second pass
+    deleted every vertical margin instead of tuning one (§12). (Also measured:
+    `listRowInsets(top: 12)` moved the pill to ~29pt with *no gap at all*,
+    `listRowInsets(EdgeInsets())` still spans the column, and a 12pt spacer row
+    produced a 28pt gap — see the next item.)
   - a row's content is floored at **20pt** (`.defaultMinListRowHeight` is ignored
     by `.listStyle(.sidebar)`: a 40pt spacer still produced a 48pt cell), so a
     pill's height is `max(20, content) + 8` — which is why 17pt of content and
@@ -822,7 +831,7 @@ Consequences baked into the controller:
     painted and four counted. Count painted rows by colour instead;
   - list **rows** are inset ~2pt further than section **headers**, and the system
     row inset is ~19pt from the sidebar edge while the search field sits at 10pt
-    (hence `projectIconShift = 9`);
+    (hence `projectIconShift = 9`, and `projectIconRightShift = 6` on top of it);
   - a sidebar list row has a **minimum height** of ~27.5pt, and row *padding* does
     not add what it says: 12pt of `.padding(.top)` shows up as ~9.8pt of
     separation and *steals 1.5pt from the gap below the padded row*, which is the
@@ -830,7 +839,14 @@ Consequences baked into the controller:
     (`Color.clear.frame(height:)`) keeps the rhythm exact but is floored at the
     27.5pt minimum; `.listRowInsets` is worse (it stole 5.5pt);
     `.listSectionSpacing` is **unavailable on macOS**, so per-*group* spacing
-    cannot be expressed directly;
+    cannot be expressed directly. Conclusion, now shipped: the only rhythm that is
+    exactly equal everywhere is the list's own, so no row insets or pads itself
+    vertically and no group is separated at all;
+  - `Color.accentColor` follows the *window's* focus: macOS draws an inactive
+    window's accent as grey, so an accent-tinted row background changes colour when
+    the sidebar is not the key view. A neutral `Color.primary.opacity(0.08)` does
+    not — hence one grey for both hover and the active row, which also says the two
+    are the same statement rather than two different ones;
   - `Image(systemName: "folder")` at `font(size: 15)` renders 16.5pt of ink, so a
     fixed 15pt frame does not clip it;
   - **a posted mouse event is not always delivered.** With several clicks in one
@@ -916,13 +932,26 @@ Consequences baked into the controller:
    above it (measured from two pane widths in `run-composer.sh`, but never against
    a real transcript row), and its distance from the bottom edge reads as a
    deliberate margin rather than a cropped box.
-10. **Click-to-fold a project by hand.** `run-sidebar-click.sh` now clicks a real
-   row through the window's event path in a `NavigationSplitView` sidebar (5 rows
-   → 3 → 5) and measures both pills, so the hit-testing and the geometry are
-   proven. What is left is the human half: that the fold survives a relaunch, that
-   the hover highlight looks right in both appearances, that a fold made *while* a
-   search is running reads as deliberate rather than as missing results, and that
-   folding the project whose session is open does not disturb the open session.
+10. **The sidebar, both halves of the check — and this one is urgent.** The menu's
+   second pass (no rule under the search field, one uniform row pitch, the folder
+   glyph 6pt in, one grey hover/active highlight, 13pt regular type) was made on an
+   explicit instruction to stop running harnesses, so **none of it is measured**:
+   the status table's numbers are the old ones plus arithmetic, and both sidebar
+   harnesses were rewritten without being run. First run
+   `./Tools/SmokeTest/run-sidebar-align.sh` and
+   `./Tools/SmokeTest/run-sidebar-click.sh` — they now assert a glyph at
+   `sidebarMargin + projectIconRightShift`, an exact pitch (project→chat =
+   chat→chat = chat→project) from four painted pills, no `.font` in the file with a
+   weight other than `.regular`, no vertical padding in `SidebarRowChrome`, and
+   exactly one `Divider()` left — and replace the ⚠️ rows in §2 with what they
+   print. Then the human half, which no harness here can see: that the fold
+   survives a relaunch, that a grey highlight on a *project* row looks right (it
+   had none before — only chats hovered) in both appearances, that a fold made
+   *while* a search is running reads as deliberate rather than as missing results,
+   that folding the project whose session is open does not disturb the open
+   session, that 13pt rows against the 11pt caption still read as one menu, and
+   that the search field's own fill separates it well enough now that the rule
+   under it is gone.
 11. Update this file when you finish any of the above.
 
 Already closed by the harnesses (kept here so nobody re-opens them):
@@ -949,14 +978,21 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 - **Layout**: one type per file where practical; feature folders mirror the
   three-pane UI. New UI goes in the matching `Features/` folder.
 - **Sidebar rows**: a project and its chats are the same rank, so they share
-  `SidebarStyle.rowFont` (regular, no bold header) and the primary text colour.
-  A chat has no glyph; it is indented by `SidebarStyle.titleIndent` so its title
-  starts where the project's name starts. A project is a **row**, never a
-  `Section`: the sidebar list style turns a section header into a collapsible
-  group with a disclosure chevron, and a project is folded by clicking the row
-  instead. Rows also share the leading inset a section header does not, which is
-  why the indent no longer needs a correction — measure it with
-  `run-sidebar-align.sh` after changing the sidebar.
+  `SidebarStyle.rowFont` — 13pt, `.regular`, and *nothing* in the menu is medium,
+  semibold or bold (the semantic styles are avoided here because they drag a
+  weight along with their size; `run-sidebar-align.sh` greps the file for a
+  heavier one) — and the primary text colour. A chat has no glyph; it is indented
+  by `SidebarStyle.titleIndent` so its title starts where the project's name
+  starts. A project is a **row**, never a `Section`: the sidebar list style turns
+  a section header into a collapsible group with a disclosure chevron, and a
+  project is folded by clicking the row instead. Rows also share the leading inset
+  a section header does not, which is why the indent no longer needs a correction
+  — measure it with `run-sidebar-align.sh` after changing the sidebar. The folder
+  glyph is positioned by an `.offset` (`projectIconOffset`) rather than by padding,
+  because a shift that is drawing-only leaves the name — and every chat title
+  aligned to it — exactly where it was. The search field carries no rule beneath
+  it: its own recessed fill is the separation, and one `Divider()` (the footer's)
+  is all that is left in this view.
 - **The composer is one shape and one row**: the editor, its attachment chips and
   its controls share a single rounded box (`ComposerMetrics.cornerRadius`) and
   nothing behind them fills anything — no bar material under the composer area.
@@ -984,27 +1020,31 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   means "add a line", Option means "queue a follow-up", and the send chord comes
   from `PreferencesStore.SendKey`. The selector alone is not enough (§10) — and
   because the mapping is invisible in a diff, `run-composer.sh` asserts it.
-- **Vertical rhythm in the sidebar**: one chat sits as far below the previous
-  chat as below its project's name (within 1.5pt — the list's own quirk, §10).
-  Nothing gets an extra bottom margin to say "this is a heading": only
-  `projectTopMargin` separates two projects, and it is cut out of the highlight
-  rather than added to the row (next bullet). The project glyph gets a fixed
-  *height* as well as width so a 15pt folder cannot make its row taller than a
-  text row. Row padding is not a free way to add breathing room — it changes the
-  row's pitch *and* the size of the pill; ask for the margin you want and measure
-  it.
-- **The row highlight sits on the sidebar's horizontal margin**: hover and
-  selection draw a rounded pill (`rowHighlightRadius`), and that pill is inset by
+- **Vertical rhythm in the sidebar**: every row is on the list's own pitch — a
+  chat sits as far below the previous chat as below its project's name, and a
+  project sits as far below the chat above it as a chat does. Nothing gets an
+  extra margin to say "this is a heading": the folder glyph is what separates two
+  projects. Neither a margin nor row padding is a free way to add breathing room —
+  a row's padding changes the row's pitch *and* grows the pill, because
+  `listRowBackground` fills the whole cell — so if a gap is ever needed here, cut
+  it out of the *shape* (as `rowHighlightInset` does horizontally), do not pad the
+  row, and measure it with `run-sidebar-click.sh`. The project glyph gets a fixed
+  *height* as well as width so a 15pt folder cannot make its row taller than a text
+  row.
+- **The row highlight sits on the sidebar's horizontal margin, and is one
+  colour**: hover and the active row draw the same rounded pill
+  (`rowHighlightRadius`) filled with `rowHighlightFill` — a neutral grey, not
+  `accentColor`, which macOS draws grey anyway once the window is not key, so an
+  accent-tinted background changes colour under the pointer and says something
+  different about hover than about selection. The pill is inset by
   `rowHighlightInset` (which is `sidebarMargin`) so it starts and ends where the
-  search field does. `listRowBackground` fills the whole column by itself, so
-  without the inset the pill runs edge to edge while every other element sits on
-  a margin. It fills the whole **cell** as well, so the top/bottom margins that
-  separate two projects are applied to the *shape* too — which is what makes a
-  project's pill the same height as a chat's. Both rows paint through one
-  `SidebarRowChrome` (`View.sidebarRow(fill:topMargin:bottomMargin:)`), so there
-  is one place to change and one place to measure: if you touch
-  `projectTopMargin`, `rowMinHeight` or the chrome, run `run-sidebar-click.sh`,
-  which measures the pill's rectangle and the gaps above and below it.
+  search field does; `listRowBackground` fills the whole column by itself, so
+  without that inset it would run edge to edge while every other element sits on a
+  margin. Both rows paint through one `SidebarRowChrome`
+  (`View.sidebarRow(fill:)`), which is what makes a project's pill the same height
+  as a chat's — one place to change and one place to measure: if you touch
+  `rowMinHeight`, `rowHighlightInset` or the chrome, run `run-sidebar-click.sh`,
+  which measures the pills and the steps between them.
 - **Recessed controls on the sidebar**: the search field's fill has to be darker
   than the sidebar material in *both* appearances, so it is a translucent black
   with a per-appearance alpha (`SidebarStyle.searchFieldFill`) — `.quaternary`
@@ -1048,10 +1088,12 @@ Already closed by the harnesses (kept here so nobody re-opens them):
       (only if you touched the sidebar layout; needs a GUI session)
 - [ ] `./Tools/SmokeTest/run-sidebar-click.sh` → `RESULT: all checks passed`
       (only if you touched the sidebar's rows or highlights; needs a GUI session).
-      It measures the pills, so if you touched `SidebarStyle.projectTopMargin`,
-      `rowMinHeight` or `SidebarRowChrome`, check that a project's highlight is
-      still the height of a chat's (28.0pt) and that the gap above it is still
-      the margin, not air inside the pill
+      It measures the pills, so if you touched `rowMinHeight`,
+      `rowHighlightInset` or `SidebarRowChrome`, check that a project's highlight
+      is still the height of a chat's (28.0pt) and that the three steps —
+      project→chat, chat→chat, chat→project — still agree (28.0pt each; a row that
+      pads itself vertically breaks the second number, and pads *inside* its pill
+      to break the first)
 - [ ] `./Tools/SmokeTest/run-composer.sh` → `RESULT: all checks passed`
       (only if you touched the composer, the Return key, `PreferencesStore.SendKey`,
       `SessionView`'s bottom area, or the transcript's bottom inset; needs a GUI

@@ -76,7 +76,9 @@ The composer floats over the transcript: rows scroll behind it and fade under th
 - Show session name, activity state, and a subtle relative timestamp.
 - Support search across project names, session names, and locally indexed prompt/response text.
 - Clicking a project folds its session list away; clicking it again brings it back. The fold is explicit, so it holds while a search is running too — a query never turns a click into a no-op.
-- The space between two projects is a margin, not padding: a project's highlight pill is exactly as tall as a session's (28pt), the 12pt of air above it is unpainted, and there is none of it below.
+- One rhythm for the whole list: a session sits as far below the previous session as below its project's name, and a project sits as far below the chat above it as a session does. The folder glyph, not a gap, is what separates two projects — so a project's highlight pill is exactly as tall as a session's (28pt).
+- Hover and the active session draw the same rounded grey pill, inset to the same 10pt margin as the search field instead of running the sidebar's full width; the folder glyph sits 6pt in from that margin, and its name lines up with every session title under it.
+- The search field has no rule beneath it — its own recessed fill is the separation — and the menu is one size and one weight throughout: 13pt regular, no bold, medium or semibold type anywhere in it.
 - Context menu: rename, reveal session file, duplicate current branch, export, and remove from PiCode's recent list.
 - Deleting a Pi session file must be a separate, explicit destructive action with confirmation. Removing a sidebar item is not deletion.
 - The bottom area provides Settings, Pi version/update state, and diagnostics.
