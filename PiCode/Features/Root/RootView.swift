@@ -271,6 +271,10 @@ struct RootView: View {
         case .openSettings:
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
 
+        case .providersSettings:
+            state.openSettings(tab: .providers)
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+
         case .showPiSetup:
             state.isOnboardingPresented = true
 

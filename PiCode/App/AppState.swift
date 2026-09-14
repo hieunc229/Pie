@@ -88,7 +88,31 @@ final class AppState {
         inspectorTab = .changes
         isInspectorVisible = true
     }
+
+    /// Opens the settings window on a specific tab. The window itself is raised
+    /// by the view layer, which owns the AppKit call.
+    func openSettings(tab: SettingsTab) {
+        settingsTab = tab
+        isSettingsPresented = true
+    }
+
+    /// Pi reads `models.json` and its model catalog when a process starts, so a
+    /// provider change only takes effect in a new `pi` process. Restarting is
+    /// explicit because it interrupts whatever the session was doing.
+    func restartSessionsForConfigurationChange() {
+        let connected = controllers.values.filter { $0.connection.isConnected }
+        guard !connected.isEmpty else {
+            showToast("No running session to restart. New sessions pick this up already.")
+            return
+        }
+        for controller in connected {
+            Task { await controller.restart() }
+        }
+        showToast("Restarting \(connected.count) session(s) to apply the provider change.")
+    }
     var isSettingsPresented = false
+    /// Which settings tab is showing, so a command can open the relevant one.
+    var settingsTab: SettingsTab = .general
     var isOnboardingPresented = false
     var isAboutPresented = false
     var isRenameSheetPresented = false

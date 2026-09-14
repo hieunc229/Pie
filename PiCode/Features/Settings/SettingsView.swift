@@ -2,8 +2,13 @@
 //  SettingsView.swift
 //  PiCode
 //
-//  PiCode's own preferences. Pi configuration is never written from here:
-//  the last tab only shows where Pi keeps its settings and offers to open them.
+//  PiCode's own preferences, plus the one place PiCode edits configuration Pi
+//  owns: the Providers tab, which writes Pi's `auth.json` and `models.json` on
+//  explicit request. Everything else here is PiCode state, and the Pi tab only
+//  shows where Pi keeps its files.
+//
+//  The rule for that one exception: PiCode writes the *documented* shape of a
+//  file Pi already reads, never a private format, and never without a click.
 //
 
 import SwiftUI
@@ -12,18 +17,37 @@ struct SettingsView: View {
     @Bindable var state: AppState
 
     var body: some View {
-        TabView {
+        TabView(selection: $state.settingsTab) {
             GeneralSettings(state: state)
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
             ComposerSettings(state: state)
                 .tabItem { Label("Composer", systemImage: "text.cursor") }
+                .tag(SettingsTab.composer)
             SessionSettings(state: state)
                 .tabItem { Label("Sessions", systemImage: "bubble.left.and.text.bubble.right") }
+                .tag(SettingsTab.sessions)
+            ProvidersSettingsView(state: state)
+                .tabItem { Label("Providers", systemImage: "key") }
+                .tag(SettingsTab.providers)
             PiSettingsTab(state: state)
                 .tabItem { Label("Pi", systemImage: "terminal") }
+                .tag(SettingsTab.pi)
         }
-        .frame(width: 520, height: 420)
+        .frame(width: 560, height: 520)
     }
+}
+
+/// Tabs of the settings window, so the command palette can open a specific one
+/// instead of dropping the user on General.
+enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
+    case general
+    case composer
+    case sessions
+    case providers
+    case pi
+
+    var id: String { rawValue }
 }
 
 // MARK: - General

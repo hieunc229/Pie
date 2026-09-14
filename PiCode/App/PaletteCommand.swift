@@ -42,6 +42,7 @@ enum PaletteCommand: String, CaseIterable, Identifiable, Hashable {
     case revealPiDirectory
 
     case openSettings
+    case providersSettings
     case showPiSetup
     case checkForPiUpdates
 
@@ -77,6 +78,7 @@ enum PaletteCommand: String, CaseIterable, Identifiable, Hashable {
         case .revealInFinder: return "Reveal Project in Finder"
         case .revealPiDirectory: return "Reveal Pi's Config Folder"
         case .openSettings: return "Settings…"
+        case .providersSettings: return "Providers and Credentials…"
         case .showPiSetup: return "Pi Setup Help"
         case .checkForPiUpdates: return "Check Pi Version"
         }
@@ -111,6 +113,7 @@ enum PaletteCommand: String, CaseIterable, Identifiable, Hashable {
         case .revealInFinder: return "folder.circle"
         case .revealPiDirectory: return "gearshape.2"
         case .openSettings: return "gearshape"
+        case .providersSettings: return "key"
         case .showPiSetup: return "questionmark.circle"
         case .checkForPiUpdates: return "arrow.triangle.2.circlepath.circle"
         }
@@ -120,7 +123,7 @@ enum PaletteCommand: String, CaseIterable, Identifiable, Hashable {
     var requiresSession: Bool {
         switch self {
         case .newSession, .addProject, .refreshSessions, .toggleInspector, .toggleSidebar,
-             .openSettings, .showPiSetup, .checkForPiUpdates, .revealPiDirectory,
+             .openSettings, .providersSettings, .showPiSetup, .checkForPiUpdates, .revealPiDirectory,
              .showChanges, .showFiles, .showTerminal, .showTree, .showContext:
             return false
         default:
@@ -170,7 +173,7 @@ enum PaletteCommand: String, CaseIterable, Identifiable, Hashable {
             return .view
         case .copyTranscript, .copyLastResponse, .openInTerminal, .revealInFinder, .revealPiDirectory:
             return .share
-        case .openSettings, .showPiSetup, .checkForPiUpdates:
+        case .openSettings, .providersSettings, .showPiSetup, .checkForPiUpdates:
             return .app
         }
     }

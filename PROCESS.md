@@ -67,6 +67,8 @@ PiCode's own preferences.
 | Resuming a real session (`--session`) | ✅ `./Tools/SmokeTest/run-open.sh` — read-only verified byte-for-byte |
 | Pi config locations (relocated `PI_CODING_AGENT_DIR` etc.) | ✅ `./Tools/SmokeTest/run-paths.sh` — PiCode and Pi agree, proven against a live `pi` |
 | Extension UI round trip against a live extension | ✅ `./Tools/SmokeTest/run-extension.sh` — all 35 checks pass, no model call |
+| Sidebar contents are real (no hidden project DB) | ✅ `./Tools/SmokeTest/run-index.sh` — 16 session files on disk → 8 projects, every path exists |
+| Providers, credentials, third-party providers | ✅ `./Tools/SmokeTest/run-providers.sh` — verified against a live `pi`, no credential of the user's is touched |
 | Discovery / launch / trust / session index / git | ✅ implemented |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
@@ -124,7 +126,7 @@ Why the smoke test compiles only `Models/`, `Services/`, `Shared/`: those files
 are Foundation-only by design (§5) so they can be built without SwiftUI. Keep it
 that way — if you need a new service, don't import SwiftUI in it.
 
-The other four harnesses exist because they each caught a real bug:
+The other harnesses exist because they each caught a real bug:
 
 - **`run-json.sh`** cross-checks `JSONScanner` against Foundation on every line
   of every real session, plus escapes, malformed input, round trips, and 20k-deep
@@ -167,6 +169,23 @@ The other four harnesses exist because they each caught a real bug:
 Nothing above sends a model prompt. Keep it that way: PiCode's budget belongs to
 the user.
 
+- **`run-index.sh`** answers "are the projects in the sidebar real?" by listing
+  every session file Pi's session directory actually contains and checking that
+  each one maps to an existing project directory on disk, that pins/hidden
+  sessions only *decorate* that list, and that no project or session list is
+  cached in `UserDefaults`. PiCode has no database of projects: the sidebar is a
+  projection of `SessionIndex.loadAllProjects()`, grouped by each session's
+  canonical `cwd`. Keep it that way.
+- **`run-providers.sh`** exercises `PiProviderService` inside a throwaway
+  `PI_CODING_AGENT_DIR` and then asks a live `pi` what it makes of the files:
+  `0600` mode, masked fingerprints (no key ever printed), atomic writes with no
+  temp leftovers, OAuth entries and unknown fields preserved across edits, the
+  malformed-entry-poisoning bug and its repair, refusal to clobber an
+  unparseable file, custom-provider round trips that Pi's own
+  `get_available_models` then lists, that a credential is live for a running
+  session but a `models.json` provider is not, and that reading the user's real
+  configuration changes nothing.
+
 ### Environment (this machine)
 
 - macOS 15.3.2, Xcode 16.4, Swift 6.1.2 (language mode 5), arm64.
@@ -207,6 +226,9 @@ PiCode/
 │   ├── SessionIndex.swift     read-only scan of Pi's session directory (never writes);
 │   │                          `PiPaths` owns the relocation rules (§7)
 │   ├── ProjectTrustService.swift Pi-compatible trust.json read/write + lock + nearest ancestor
+│   ├── PiProviderService.swift read/report/repair Pi's auth.json + models.json, and ask
+│   │                          `pi auth check` about readiness (§7) — the one place PiCode
+│   │                          writes configuration Pi owns
 │   ├── GitStatusService.swift porcelain v1 -z + numstat -z via /usr/bin/git -C
 │   ├── PreferencesStore.swift PiCode's own prefs (JSON in Application Support)
 │   ├── DraftStore.swift       per-session composer drafts (JSON)
@@ -225,7 +247,8 @@ PiCode/
 │   ├── Inspector/       InspectorView (Changes), InspectorPanes (Files/Terminal/Tree/Context)
 │   ├── Extension/       ExtensionChrome (widgets/status/notifications), ExtensionDialogHost
 │   ├── Palette/         CommandPaletteView, Sheets (rename/compact/fork/delete)
-│   ├── Settings/        SettingsView (General/Composer/Sessions/Pi)
+│   ├── Settings/        SettingsView (General/Composer/Sessions/Providers/Pi),
+│   │                    ProvidersSettingsView (credentials + custom providers)
 │   └── Shared/          UIComponents (BannerView, StatusPill, DiffStatView, …)
 └── Tools/SmokeTest/     run*.sh + *Test.swift + Fixtures/ (see §3)
 ```
@@ -281,6 +304,8 @@ protocol logic in views.
 | **`picode://` links are provided by the transcript, not each row** | The link handler and `\.piCodeOpenFile`/`\.piCodeOpenChange` actions are set once in `ConversationView`, which is the only place that knows the project path to resolve a relative reference against. The first version of this shipped a handler nothing ever provided, so clicking a file reference silently did nothing. If you add a new transcript action, provide it there and check the click path, not just the compile. |
 | **Timed extension dialogs are dismissed locally** | Pi self-resolves a dialog with a `timeout` and never tells the client, so a card left on screen invites the user to answer a question that no longer exists. PiCode mirrors the deadline (a quarter second early, so an answer can never race Pi's) and explains it in the activity timeline. There is no "expired" card state on purpose — a dead question should not look answerable. |
 | **Extension commands get the patient `prompt` timeout** | Pi answers `prompt` only once the text has been handled, and an extension command is handled by its own handler, which may sit on a dialog for minutes. A normal prompt keeps the 60 s preflight budget; a slash command Pi reported as an extension command gets the same patient budget as `bash`. |
+| **PiCode writes exactly two kinds of Pi file** | `trust.json` (the same document `/trust` writes) and, only on an explicit click in Settings → Providers, `auth.json` and `models.json` in the shapes Pi documents. Everything else under Pi's config directory is read-only, and no credential is ever read back into the UI. Before adding a third, ask why the user cannot do it in `pi` itself. |
+| **The sidebar is a projection, not a database** | `SessionIndex.loadAllProjects()` reads Pi's session directory on every refresh; pins and "hidden" flags only decorate the result. `run-index.sh` guards this: add caching and the sidebar can start disagreeing with the terminal about what exists. |
 
 ---
 
@@ -308,6 +333,39 @@ Known gap: Pi merges a project's `.pi/settings.json` over the global one, so a
 project can set its *own* `sessionDir`. PiCode indexes one global directory, so
 that project's sessions would not appear in the sidebar. Nobody has hit it; if
 you do, the fix is per-project session discovery, not a global `sessionDir`.
+
+### Providers (the only config PiCode writes)
+
+Two files decide which models a session can use, and both belong to Pi:
+
+| File | Shape | Written by |
+| --- | --- | --- |
+| `<agent dir>/auth.json` | `{ "<provider>": { "type": "api_key", "key": … } }` or `{ "type": "oauth", "access", "refresh", "expires" }` | Pi's `/login`; PiCode's Settings → Providers |
+| `<agent dir>/models.json` | `{ "providers": { "<name>": { "baseUrl", "api", "apiKey", "models": [ … ] } } }` | Pi's `/setup-custom-providers`, or hand-editing; PiCode's Settings → Providers |
+
+Facts proven by `./Tools/SmokeTest/run-providers.sh` against a live `pi`:
+
+* `auth.json` is read **as a whole**. One entry that Pi cannot parse (for
+  example a provider-shaped entry missing `"type"`) makes *every* provider
+  report `invalid_state`. Repairing means removing that entry, never guessing
+  at it.
+* A credential added while a session is running **is** picked up (Pi checks the
+  file revision), within about half a second — no restart needed.
+* A provider added to `models.json` is **not** live until the process restarts:
+  `get_available_models` keeps the old catalog. That is why the Settings pane
+  offers "Restart Sessions to Apply Changes".
+* `apiKey` may be a literal, `$ENV_VAR`, or `!command`. PiCode keeps references
+  visible and never expands them.
+* Pi validates the file on read but PiCode refuses to overwrite a file it cannot
+  parse, and preserves fields it does not edit (`compat`, `headers`,
+  `samplingParams`, `thinkingLevelMap`) so an edit here cannot quietly drop
+  someone's customisation.
+* `pi auth check --provider <id> --json --no-refresh` answers readiness without a
+  network call. `pi auth print-api-key` / `print-bearer-token` and `--credentials`
+  exist and are off-limits: credentials stay Pi-owned.
+
+`enabledModels` in `settings.json` is only Ctrl+P's cycling scope and Pi
+maintains it itself, so PiCode leaves it alone.
 
 ### Sessions
 
@@ -546,6 +604,16 @@ Consequences baked into the controller:
 - `AppState.InspectorTab` is `String, CaseIterable, Identifiable` and exposes
   `label`/`systemImage` (not `title`).
 - `PiDiagnosticsLog.limit` is internal so Settings can describe it in help text.
+- `SettingsTab` (`general`, `composer`, `sessions`, `providers`, `pi`) is the
+  `TabView` selection; `AppState.openSettings(tab:)` sets it and the *view* raises
+  the window (`AppState` stays AppKit-free). `SettingsTab` lives in
+  `SettingsView.swift` next to the `TabView`.
+- `WorkspaceLauncher.openTerminal(at:)` takes a directory and returns `URL?`.
+  Putting it (or anything else non-`Void`) directly in a `Button` action inside a
+  `Form` `Section` produces a *bogus* SwiftUI error — "return type of property
+  requires that 'TableHeaderRowContent<…>' conform to 'View'" — pointing at the
+  section, not the line. Discard the value (`_ = …`) and recompile before you
+  start rewriting the view.
 - The project uses `PBXFileSystemSynchronizedRootGroup` rooted at `PiCode/`, so
   **new files under `PiCode/` are added to the target automatically** — no
   `project.pbxproj` edit needed. Files added *outside* `PiCode/` (e.g.
@@ -555,6 +623,15 @@ Consequences baked into the controller:
 
 ## 11. What's next (in priority order)
 
+0. **Auth is still only half-addressed.** Credentials and third-party
+   providers can now be configured in Settings → Providers (`run-providers.sh`,
+   §7), but Pi's *failure* messages are still shown as bare error rows. Pi says
+   things like `No API key for anthropic/claude-sonnet-4` and
+   `Run '/login anthropic' to re-authenticate.`; those should render as a
+   guidance card with a button that opens Terminal at `pi`, instead of text the
+   user has to interpret. Readiness already exists (`pi auth check --no-refresh`
+   from the same pane) — reuse it for the card's wording. Never call
+   `pi auth print-api-key`, `print-bearer-token`, or `--credentials`.
 1. **End-to-end run with a real prompt.** Everything up to the model call is
    verified; nothing downstream of a real `message_update` stream has been seen
    live. Pick a cheap model, send a one-line prompt in a scratch project, and
@@ -645,6 +722,10 @@ Already closed by the harnesses (kept here so nobody re-opens them):
       touched `PiPaths`, trust, session discovery, or process launching)
 - [ ] `./Tools/SmokeTest/run-extension.sh` → `RESULT: all checks passed` (only if
       you touched extension UI, dialogs, or the prompt send path)
+- [ ] `./Tools/SmokeTest/run-providers.sh` → `RESULT: all checks passed` (only if
+      you touched `PiProviderService`, settings, or Pi's config paths)
+- [ ] `./Tools/SmokeTest/run-index.sh` → `RESULT: all checks passed` (only if you
+      touched session discovery, the sidebar, or preferences)
 - [ ] The app launches and stays up for a few seconds with no crash report
 - [ ] `git status` shows **no** changes in `~/.pi/agent` (no `trust.json`, no new
       session files, no touched settings)
