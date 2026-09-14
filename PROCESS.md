@@ -70,7 +70,7 @@ PiCode's own preferences.
 | Discovery / launch / trust / session index / git | ✅ implemented |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
-| Transcript row polish, per-row affordances | ⚠️ functional, not yet audited against the spec |
+| Transcript vs README spec | ✅ audited (§11); the gaps it found are fixed |
 | PROCESS.md | ✅ this file |
 
 Nothing in the repo is generated or checked in from `/tmp`; the smoke test lives
@@ -277,6 +277,8 @@ protocol logic in views.
 | **Entries are read once, then followed with a cursor** | A full `get_entries` costs ~20 s and Pi does not cache it, while `get_entries(since:lastId)` costs ~0.01 s. One full read per session, incremental appends after every turn — nothing on the hot path stalls the next prompt. |
 | **Hand-written iterative JSON scanner** | `JSONDecoder` + recursive `JSONValue` crashed (SIGBUS) on Pi's nested `get_tree` payload. The scanner is stack-safe at any depth and faster than the `try?`-chain decoder; it also makes outgoing payloads deterministic (sorted keys). |
 | **`PiPaths` resolves Pi's own relocation rules** | Pi can be moved with `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR` or `settings.json` `sessionDir`, and PiCode launches `pi` with the inherited environment, so both must agree on where the config lives. This is a correctness issue, not cosmetics: PiCode writes `trust.json`, and if Pi reads a different file the user's answer is ignored while PiCode reports the project as trusted. |
+| **Replies branch from the message that asked** | Pi forks only at user entries (`get_fork_messages`), so the spec's "each assistant message supports branch/fork" is honored by giving every assistant/thinking row the user entry that produced it. Pi gets a fork point it accepts, and the returned text is the prompt the user can edit and resend. `run-replay.sh` asserts every reply has one and that it is a user entry on the active branch. |
+| **`picode://` links are provided by the transcript, not each row** | The link handler and `\.piCodeOpenFile`/`\.piCodeOpenChange` actions are set once in `ConversationView`, which is the only place that knows the project path to resolve a relative reference against. The first version of this shipped a handler nothing ever provided, so clicking a file reference silently did nothing. If you add a new transcript action, provide it there and check the click path, not just the compile. |
 | **Timed extension dialogs are dismissed locally** | Pi self-resolves a dialog with a `timeout` and never tells the client, so a card left on screen invites the user to answer a question that no longer exists. PiCode mirrors the deadline (a quarter second early, so an answer can never race Pi's) and explains it in the activity timeline. There is no "expired" card state on purpose — a dead question should not look answerable. |
 | **Extension commands get the patient `prompt` timeout** | Pi answers `prompt` only once the text has been handled, and an extension command is handled by its own handler, which may sit on a dialog for minutes. A normal prompt keeps the 60 s preflight budget; a slash command Pi reported as an extension command gets the same patient budget as `bash`. |
 
@@ -568,9 +570,14 @@ Consequences baked into the controller:
    two bugs it found are fixed (§9). Still to eyeball in the GUI: the dialog card
    layering, the "N more waiting" queue count, and that Escape is a real cancel
    rather than a dismiss — the harness covers the logic, not the pixels.
-3. **Audit the transcript rows against the spec** (`README.md`): tool card
-   affordances, collapsed-by-default long output, error always visible, copy
-   buttons, timestamp semantics.
+3. ~~**Audit the transcript rows against the spec** (`README.md`).~~ **Done** —
+   found and fixed: file references were dead links (the environment action was
+   never provided), change chips could not open the diff the spec says they
+   should, replies had no branch action, and the running turn was not the
+   compact elapsed-time disclosure the spec asks for. User prompts are now the
+   trailing bubble too. Not covered by a harness: scroll-position stability while
+   streaming upward, and ANSI color in the bash log — check both by eye during
+   the live run in item 1.
 4. **Trust flow polish.** `TrustViews` + `ProjectTrustService` exist but a full
    manual pass (untrusted project with `.pi/settings.json` → approve → relaunch →
    badge) hasn't been done, and `trust.json` shouldn't be left behind after
