@@ -12,14 +12,16 @@ struct TranscriptRowView: View {
     var item: TranscriptItem
     var controller: PiSessionController
 
-    @State private var isThinkingExpanded = false
-
     var body: some View {
         Group {
             switch item.kind {
             case .user: userRow
             case .assistant: assistantRow
-            case .thinking: thinkingRow
+            // Reasoning is folded, and folded by `TranscriptRows` like any other
+            // quiet step: a `Thinking` between two commands is part of that run,
+            // and a `Thinking` on its own is a run of one. The row it draws is
+            // `ToolGroupView`'s, so there is one implementation of the line.
+            case .thinking: ToolGroupView(items: [item], controller: controller)
             case .toolCall: ToolCallCard(item: item, controller: controller)
             case .toolResult: toolResultRow
             case .system: systemRow
@@ -110,64 +112,6 @@ struct TranscriptRowView: View {
             // Pi forks at user messages (`get_fork_messages` returns user entries
             // only), so an assistant reply branches from the message that asked
             // for it — the text Pi hands back is that message, ready to edit.
-            if let entryId = item.forkEntryId {
-                Button("Branch from the message above…") {
-                    Task { await controller.fork(fromEntryId: entryId) }
-                }
-            }
-        }
-    }
-
-    // MARK: - Thinking
-
-    /// Reasoning is a folded row like a run of commands: one dimmed line, clicked
-    /// to open, with no chevron (see `ToolGroupView`) — the transcript says "there
-    /// is more under this" in exactly one way.
-    ///
-    /// It is a button rather than a `DisclosureGroup` for the same reason: the
-    /// system style puts a chevron in the leading gutter, which both draws the
-    /// arrow this design just removed and shifts the brain glyph out of line with
-    /// every other row's icon.
-    private var thinkingRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button {
-                withAnimation(.easeOut(duration: 0.15)) { isThinkingExpanded.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "brain")
-                        .imageScale(.small)
-                    Text(item.isStreaming ? "Thinking…" : "Thinking")
-                        .font(.caption.weight(.semibold))
-                    if let model = item.modelName {
-                        Text(model)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(.secondary)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(isThinkingExpanded ? "Hide the reasoning" : "Show the reasoning")
-
-            if isThinkingExpanded {
-                SyntaxText(text: item.text, language: .plain)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, ConversationLayout.nestedIndent)
-            }
-        }
-        // A turn's reasoning is worth watching while it arrives and noise
-        // afterwards, so it opens by itself while streaming and stays as the user
-        // left it once it is done.
-        .onChange(of: item.isStreaming) { _, isStreaming in
-            if isStreaming { isThinkingExpanded = true }
-        }
-        .onAppear {
-            if item.isStreaming { isThinkingExpanded = true }
-        }
-        .contextMenu {
-            Button("Copy Reasoning") { WorkspaceLauncher.copyToPasteboard(item.text) }
             if let entryId = item.forkEntryId {
                 Button("Branch from the message above…") {
                     Task { await controller.fork(fromEntryId: entryId) }

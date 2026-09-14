@@ -63,7 +63,7 @@ PiCode's own preferences.
 | `swiftc -typecheck` over all sources | ✅ clean |
 | RPC layer vs real `pi` (v0.85.1) | ✅ `./Tools/SmokeTest/run.sh` — all checks pass |
 | JSON boundary (reads + writes) | ✅ `./Tools/SmokeTest/run-json.sh` — scanner matches Foundation on every real session line, 20k-deep nesting safe |
-| Session replay over all real sessions | ✅ `./Tools/SmokeTest/run-replay.sh` — 9719 lines, 8861 transcript rows, no bad rows/ids/roles; also proves the folding rule (see the row below) |
+| Session replay over all real sessions | ✅ `./Tools/SmokeTest/run-replay.sh` — 9908 lines, 9004 transcript rows, no bad rows/ids/roles; also proves the folding rule (see the row below) |
 | Resuming a real session (`--session`) | ✅ `./Tools/SmokeTest/run-open.sh` — read-only verified byte-for-byte |
 | Pi config locations (relocated `PI_CODING_AGENT_DIR` etc.) | ✅ `./Tools/SmokeTest/run-paths.sh` — PiCode and Pi agree, proven against a live `pi` |
 | Extension UI round trip against a live extension | ✅ `./Tools/SmokeTest/run-extension.sh` — all 35 checks pass, no model call |
@@ -78,7 +78,7 @@ PiCode's own preferences.
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
 | Transcript vs README spec | ✅ audited (§11); the gaps it found are fixed |
-| Quiet tool calls fold (command/edit/read) | ⚠️ `./Tools/SmokeTest/run-replay.sh` — the folding *rule* is proved over every real session on this machine: 4852 of 4852 calls folded, 0 items lost, 0 non-quiet rows folded, 0 adjacent/split runs, every folded call has a command or a path (7234 rows → 2070 singletons, 1155 runs; titles `Run command`×1216, `Edited files`×659, `Run commands`×434, `Read files`×425, and mixed forms like `Edited files, run commands`×162). What is **not** verified: the view itself — that a folded line looks dimmed, that clicking it opens, that the nested action rows and their diffstats render, and that 150 real folded failure/cancel calls show their red pill (the count is printed by the harness, the pill is not measured). The lines have **no chevron** (the row is the control) and `Thinking` and compaction were reworked in the same pass; see §11 items 12 and 13 |
+| Quiet rows fold (thinking/command/edit/read) | ✅ rule, ⚠️ view — `./Tools/SmokeTest/run-replay.sh`, run after this change: 8132 of 8132 quiet steps folded (3190 reasoning blocks, 2809 commands, 1231 edits, 902 reads), 0 items lost, 0 non-quiet rows folded, 0 adjacent/split runs, every folded call has a command or a path (9004 rows → 1608 rows: 872 standalone, 87 folds of one step, 649 runs; titles `Run commands, thinking`×72, `Edited files, thinking`×60, `Thinking`×54, `Edited files, thinking, run commands`×48, `Edited files, thinking, run command`×41, `Run command, thinking`×40, and longer mixed forms). 153 real folded calls are failures or cancels and must keep their red pill — the harness counts them, it does not see the pill. What is **not** verified: the view itself — that a folded line looks dimmed, that clicking it opens, that the nested step rows and their diffstats render, and that reasoning opens as text rather than as a card. The lines have **no chevron** (the row is the control); `Thinking` is folded by the same rule rather than drawn by its own row, and compaction was reworked in the same area; see §11 items 12 and 13 |
 | PROCESS.md | ✅ this file |
 
 Nothing in the repo is generated or checked in from `/tmp`; the smoke test lives
@@ -150,9 +150,10 @@ The other harnesses exist because they each caught a real bug:
   tool result matched to a call by `toolCallId`. It also checks the transcript's
   folding rule (`TranscriptRows.group`, imported from `Features/Conversation/`
   because it is Foundation-only): folding keeps every item reachable, only
-  command/edit/read rows fold, a fold is one maximal run (no two adjacent groups,
-  no run split apart), and every folded call carries a command or a path to
-  identify it. Nothing there draws anything — see §11 for what still needs eyes.
+  thinking/command/edit/read rows fold, a fold is one maximal run (no two adjacent
+  groups, no run split apart), every foldable item ends up folded (reasoning
+  included), and every folded call carries a command or a path to identify it.
+  Nothing there draws anything — see §11 for what still needs eyes.
 - **`run-open.sh`** resumes a real session exactly the way the sidebar does
   (`pi --mode rpc --session <copy>`), asserts Pi resumed *that* session, that the
   locally built tree matches Pi's `get_tree` (small sessions), that
@@ -407,14 +408,15 @@ protocol logic in views.
 | **PiCode writes exactly two kinds of Pi file** | `trust.json` (the same document `/trust` writes) and, only on an explicit click in Settings → Providers, `auth.json` and `models.json` in the shapes Pi documents. Everything else under Pi's config directory is read-only, and no credential is ever read back into the UI. Before adding a third, ask why the user cannot do it in `pi` itself. |
 | **The sidebar is a projection, not a database** | `SessionIndex.loadAllProjects()` reads Pi's session directory on every refresh; pins and "hidden" flags only decorate the result. `run-index.sh` guards this: add caching and the sidebar can start disagreeing with the terminal about what exists. |
 | **A project is a row, not a section header** | A `Section` in the sidebar list style is a collapsible group with a disclosure chevron — wrong for a list that mirrors what is on disk. The row *is* the disclosure: clicking it folds its chats (`AppState.toggleCollapsed`, persisted as a decoration), and the fold wins over a search — `showsChats` asks `isCollapsed` *first*, because a query that overrides a documented click is indistinguishable from a broken one. As a row it also shares its chats' leading inset, which is what makes "a chat title starts where the project's name starts" exact instead of a two-point correction. The glyph is drawn to the left of its row so it lands beside the search field, and that shift is drawing-only, so the name — and therefore every chat title under it — does not move: `projectIconShift` (9pt) is how far left it once sat, `projectIconRightShift` (6pt) is how far the menu then asked it back in, and `projectIconOffset` (3pt) is the single name for what is actually applied. Its highlight is a `Button`'s: one `listRowBackground` pill inset by `rowHighlightInset` (`= sidebarMargin`) **on the shape, not on the row** — a `listRowBackground` fills the row's entire cell, its own insets and any padding included, so padding the row puts air *inside* the pill. Which is why the menu's second pass deleted every vertical margin instead of tuning one: a project's highlight became 37.0pt tall against a chat's 28.0pt when it carried 12pt of padding, and "equal spacing between everything" is only structural if no row pads itself at all. Both rows go through one `SidebarRowChrome`, so there is exactly one place that draws a pill, and it is the reason a project and a chat can differ only in colour. `run-sidebar-click.sh` clicks the row for real and measures the pills and the pitch. |
-| **Three tool families fold, and only three** | `bash`, `edit`/`write` and `read` are the calls a real session repeats: across the 16 real sessions on this machine they are **all 4852** tool calls (2761 command, 1201 edit, 890 read), and every other tool name is something a person would actually want to read. So `ToolFamily.of` knows exactly those names and everything else keeps its card: a `grep` five times in a row is not the same shape of noise as a command five times in a row, because the point of folding is that the user already knows what the line will say. Folding is *presentation*, so it is a **pure function** of the item list (`TranscriptRows.group`) in a Foundation-only file — the replay harness imports it and checks the rule over every session that has ever run here (4852/4852 calls folded, nothing lost, no non-quiet tool folded, no run split). |
-| **A run ends at anything that is not a neighbouring quiet call** | An assistant message, a thinking block, an orphaned result or a non-folding tool between two commands is a boundary, so a run is *consecutive* calls and nothing else. "Group all the edits in a turn" would draw a line under a paragraph of explanation and call it one action, which is a claim about what the agent did that PiCode cannot actually know. It also means a fold is always maximal, which is a property the harness can assert (no two adjacent groups; no two neighbouring quiet calls left in separate rows). |
+| **Reasoning is a step, and the quiet rows fold** | `bash`, `edit`/`write`, `read` and `thinking` are what a real session repeats: across the 16 real sessions here the calls are **all 4942** (2809 command, 1231 edit, 902 read) and there are **3190 reasoning blocks** — 8132 rows that say the same thing over and over. Every other tool name is something a person would actually want to read, so `QuietFamily.of` knows exactly those shapes and everything else keeps its card: a `grep` five times in a row is not the same shape of noise as a command five times in a row, because the point of folding is that the user already knows what the line will say. Folding is *presentation*, so it is a **pure function** of the item list (`TranscriptRows.group`) in a Foundation-only file — the replay harness imports it and checks the rule over every session that has ever run here (8132/8132 quiet steps folded, nothing lost, no non-quiet row folded, no run split). |
+| **What folds, and what names the run, is one function** | `QuietFamily.of(item)` answers both questions — does this row fold, and what is the run called — so a run's members and its name can never be two different sets. `TranscriptRows.group` folds an item if and only if `of` returns a family, and `groupTitle` enumerates exactly those families; the harness asserts the two agree by requiring that *every* foldable item ends up inside a group (`foldedThinking == thinkingBlocks` is the check that caught the temptation to leave reasoning out of the run). Adding a family is therefore one case in one enum, not a new branch in the grouping. |
+| **A run ends at anything that is not a neighbouring quiet step** | An assistant message, an orphaned result or a non-folding tool between two steps is a boundary, so a run is *consecutive* steps and nothing else. “Group all the edits in a turn” would draw a line under a paragraph of explanation and call it one action, which is a claim about what the agent did that PiCode cannot actually know. It also means a fold is always maximal, which is a property the harness can assert (no two adjacent groups; no two neighbouring quiet steps left in separate rows). Reasoning is *inside* the run rather than a boundary, because in Pi's output it is interleaved with the calls it reasons about: a boundary there would leave a `Thinking` line above almost every group, which is the same noise in a different arrangement. |
 | **The folded line is keyed by its *first* item** | `.group`'s id is `group-<first item id>`. A turn streams: the group grows from one call to six while the user reads it, and if the id followed the contents, every appended call would give the row a new identity and SwiftUI would rebuild it — folding the line back up under the user's cursor. Keyed by the head, the row keeps its identity and its `@State isExpanded` while it grows. |
 | **A folded line keeps its status, a failed call keeps a pill** | The whole point of collapsing is that the user is not reading the calls, so anything they would need to act on has to survive on the line: a running call keeps its spinner and elapsed time, and a run containing a failure or a cancellation shows `Failed`/`Cancelled` even though its content is closed. 150 real folded calls in the sessions here are failures or cancels. The same rule applies inside a run — `ToolActionRow` marks the call that failed and colours its icon, because "which one broke" is the question the expanded list exists to answer. This is also why the failure sentence ("This tool reported a failure without output") is part of `ToolCallContent` and not of the card's header: a card may be collapsed, a folded row may be expanded, and the sentence has to be present in both. |
-| **Two disclosure levels, one indent step** | A run opens to a list, and a call inside it opens to its content. One click cannot open six outputs — that is the noise being removed — and one click must not be needed for a *single* call, so a one-call group skips the intermediate list and opens its content directly (`ToolGroupView` branches on `items.count == 1`). Every nested thing — a call inside its run, a call's output under its own summary, reasoning under its `Thinking` label — is indented by the one constant `ConversationLayout.nestedIndent` (15pt), because two steps of indentation inside a 736pt column leaves the output at the width of a postcard. |
-| **The transcript has no chevrons; the line is the control** | The folded tool lines (`Run command`, `Edited files`, `Read files` — nested action rows included) and the `Thinking` line are all one dimmed line the user clicks. A column of little arrows down the left of the conversation is more furniture than the fold is worth, so the affordance is the line itself: the whole row is a `.contentShape(Rectangle())` inside a `.plain` button, hovering lifts the dimming, and a tooltip names what a click will do. `Thinking` is therefore a `Button`, not a `DisclosureGroup` — the system style draws a chevron in the leading gutter *and* shifts the brain glyph out of line with every other row's icon. The one row that still shows a chevron is the transient "Pi is working" line in `ConversationView`, whose disclosure is what the spec asks for; if it is ever changed, this is the paragraph that says the rest of the transcript already gave its chevron up. |
+| **Two disclosure levels, one indent step** | A run opens to a list, and a step inside it opens to its content. One click cannot open six outputs — that is the noise being removed — and one click must not be needed for a *single* step, so a one-step group skips the intermediate list and opens its content directly (`ToolGroupView` branches on `items.count == 1`). Every nested thing — a step inside its run, a call's output under its own summary, reasoning under its own line — is indented by the one constant `ConversationLayout.nestedIndent` (15pt), because two steps of indentation inside a 736pt column leaves the output at the width of a postcard. |
+| **The transcript has no chevrons; the line is the control** | Every folded line — the run header, a `Thinking` step inside it, a nested `ToolActionRow` — is one dimmed line the user clicks. A column of little arrows down the left of the conversation is more furniture than the fold is worth, so the affordance is the line itself: the whole row is a `.contentShape(Rectangle())` inside a `.plain` button, hovering lifts the dimming, and a tooltip names what a click will do. Never a `DisclosureGroup`: the system style draws a chevron in the leading gutter *and* shifts the row's glyph out of line with every other row's icon. The one row that still shows a chevron is the transient "Pi is working" line in `ConversationView`, whose disclosure is what the spec asks for; if it is ever changed, this is the paragraph that says the rest of the transcript already gave its chevron up. |
 | **A compaction is a fact, not a document** | `.compaction` rows draw one line — `[icon] Compact context`, or `Branch summary` for the entry Pi writes when the user switches branches — and nothing else. The old row printed a badge plus the whole summary in a tinted box in the middle of the conversation, which is exactly the noise the transcript's folding exists to remove, and the summary text is a compression of the turns that were just replaced rather than something anyone reads. Pi's two summaries are different facts (one folded the context away, the other describes a path that was left behind), so the builder maps the message *role* onto `SummaryKind` and the row takes the label and the glyph from it — the glyphs are the same ones `PiSessionEntry` uses in the session tree, so the tree and the transcript name one event the same way. The text is not dropped: it is on the row's context menu and, in full, under the same heading in the exported transcript. |
-| **The shared content moved out of the card** | `ToolCallContent` draws arguments, file changes, output, truncation notice, failure sentence and structured result; `ToolCallCard` (non-quiet tools) and `ToolGroupView`/`ToolActionRow` (folded ones) both draw it. An `edit`'s diffstat and a `read`'s file chip must not be able to disagree between the two shapes, and the card lost ~140 lines by it. The card keeps its own chrome (icon, name, status pill, chevrons, copy button); the folded row keeps its own header. |
+| **The shared content moved out of the card** | `ToolCallContent` draws arguments, file changes, output, truncation notice, failure sentence and structured result; `ToolCallCard` (non-quiet tools) and `QuietStepContent` (folded ones, drawn by both `ToolGroupView` and `ToolActionRow`) share it. An `edit`'s diffstat and a `read`'s file chip must not be able to disagree between the two shapes, and the card lost ~140 lines by it. The card keeps its own chrome (icon, name, status pill, chevrons, copy button); the folded row keeps its own header. `QuietStepContent` is also where the *other* shape lives: a reasoning step draws its text rather than a call's card, so its line and its body are chosen in one place instead of in each of the two views that can open a single step. |
 
 ---
 
@@ -885,6 +887,18 @@ Consequences baked into the controller:
   id that followed the contents would fold the line back up under the user's
   cursor mid-read. The same reasoning applies to any future row whose contents
   grow.
+- **A folded row is not always a tool call.** Once `thinking` joined the fold, an
+  assumption that held for three families stopped holding for the fourth: a
+  reasoning item has no `toolArguments`, so `foldedSummary` is empty for it *by
+  construction* (`toolInputSummary` returns `""` when there is nothing to
+  summarise) and a folded line whose identity comes from its summary would come
+  out blank. The replay harness's “every folded call has a line to identify it”
+  check had to be narrowed to `item.kind == .toolCall` for the same reason —
+  reasoning is identified by its family name, deliberately, because a
+  middle-truncated fragment of a first draft says nothing. Anything that walks a
+  group and assumes a tool name, an output or a diffstat has to ask
+  `QuietFamily.of(item)` first; there are now four families and only three of them
+  are tools.
 - **An empty view still costs its `HStack`'s spacing.** `DiffStatView` draws
   nothing when both counts are `nil` or zero, which is every `read` — but the
   `ForEach` that produced it still took part in the row, so a read's line came out
@@ -982,24 +996,30 @@ Consequences baked into the controller:
    that the search field's own fill separates it well enough now that the rule
    under it is gone.
 11. Update this file when you finish any of the above.
-12. **The folded tool rows, seen once by a human.** The folding *rule* is proved
+12. **The folded rows, seen once by a human.** The folding *rule* is proved
     over every real session by `run-replay.sh` (see §2), but nothing has drawn a
     folded line: there is no harness for it, and none was run — this landed on an
     explicit instruction to stop the verify loop. Open a real session and check:
-    that a run of commands reads as *one* dimmed line and not as a card, that the
+    that a run of steps reads as *one* dimmed line and not as a card, that the
     content opens on a click anywhere along the line (the whole row is
     `.contentShape(Rectangle())` inside a `.plain` button) and that nothing looks
     *un*clickable now that there is no chevron (the hover lift and the tooltip are
-    the whole affordance), that a one-call group opens its content directly while a
-    many-call group opens a list, that the command or path in `foldedSummary` is
+    the whole affordance), that a one-step group opens its content directly while a
+    many-step group opens a list, that the command or path in `foldedSummary` is
     truncated in the *middle* and stays one line, that a running call's spinner and
-    elapsed time tick, that one of the 150 folded failures shows its red `Failed`
-    pill while collapsed, that the nested action rows' diffstats line up with the
-    one-call rows' output, that `Thinking` still opens itself while reasoning
-    streams and stays as the user left it afterwards, and that the empty-state and
-    long-output paths still look right in both appearances. Also check the grouped
-    title on a real run — `Edited files, run commands` is generated, and the words
-    are the one part of this that no test can judge.
+    elapsed time tick, that one of the 153 folded failures shows its red `Failed`
+    pill while collapsed, that the nested step rows' diffstats line up with the
+    one-step rows' output, and that the empty-state and long-output paths still
+    look right in both appearances. Also check the grouped title on a real run —
+    `Thinking, edited files, run commands` is generated, and the words are the one
+    part of this that no test can judge: in particular that a run of **reasoning**
+    reads correctly now that it is folded with the calls, is not mistaken for a
+    call, and that a `Thinking` step inside an opened run draws the reasoning text
+    (selectable, no output box, `Copy Reasoning` on the menu) rather than an empty
+    card. The one behaviour this pass *removed* is deliberate: a `Thinking` row no
+    longer opens itself while the reasoning streams — the folded line shows a
+    spinner and the text is one click away — so if watching reasoning arrive turns
+    out to be worth the movement, that is the thing to ask for back.
 13. **A compaction row, seen once.** There is no compaction row to look at in the
     16 sessions on disk — Pi writes 51 `compaction` *entries*, but a compaction
     reaches the transcript only as a `compactionSummary` *message* from
@@ -1103,19 +1123,23 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   as a chat's — one place to change and one place to measure: if you touch
   `rowMinHeight`, `rowHighlightInset` or the chrome, run `run-sidebar-click.sh`,
   which measures the pills and the steps between them.
-- **The transcript folds only three families, and folding is a pure function**: a
-  tool call with a card is the default; only `bash`, `edit`/`write` and `read`
-  become a folded line, and the list of names lives in `ToolFamily.of` — one
-  place, with the words (`label`/`pluralLabel`/`listedLabel`) and the icon beside
-  it. Adding a fourth family means adding a case and accepting that the user will
-  stop reading its calls. The *rule* stays in `TranscriptRows.group`: pure,
-  Foundation-only, no SwiftUI, because that is what lets `run-replay.sh` prove it
-  over every real session instead of over an example. Don't move that decision
-  into the view, and don't give a group an id that depends on its contents — a
-  streaming turn would re-key the row and fold it up again (§10).
+- **The transcript folds four quiet shapes, and folding is a pure function**: a
+  tool call with a card is the default; only `thinking`, `bash`, `edit`/`write`
+  and `read` become a folded line, and the list lives in `QuietFamily.of(_ item:)`
+  — one place, with the words (`label`/`pluralLabel`/`listed(count:)`) and the
+  icon beside it. Adding a fifth family means adding a case and accepting that the
+  user will stop reading those rows. The same function decides membership *and*
+  the title, so the two cannot disagree. The *rule* stays in `TranscriptRows.group`:
+  pure, Foundation-only, no SwiftUI, because that is what lets `run-replay.sh`
+  prove it over every real session instead of over an example. Don't move that
+  decision into the view, and don't give a group an id that depends on its contents
+  — a streaming turn would re-key the row and fold it up again (§10). Reasoning is
+  not a tool: a step's shape comes from `QuietFamily.of(item)`, never from
+  `toolName` alone (§10).
 - **A tool call's content is drawn in one place**: `ToolCallContent` renders
   arguments, file changes, output, the truncation notice, the failure sentence and
-  the structured result; the card and the folded rows add only their own headers.
+  the structured result; `QuietStepContent` chooses between that and a reasoning
+  step's text, and both the card and the folded rows add only their own headers.
   Change a tool's presentation there, once. Anything a user must not be able to
   miss stays *outside* the disclosure — that is why the failure sentence is part
   of the content and the running/failed pill is on the collapsed line — and any
@@ -1124,7 +1148,7 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 - **A folded row has no chevron, and its line says what opens**: the transcript has
   one way of saying "there is more under this" — a dimmed line, a `.plain` button
   over the whole row, a hover that lifts the dimming, and a tooltip naming the
-  action (`ToolGroupView`, `thinkingRow`). Do not add a disclosure glyph to a row,
+  action (`ToolGroupView`, `ToolActionRow`). Do not add a disclosure glyph to a row,
   and do not use `DisclosureGroup` for one: its chevron lands in the leading
   gutter, which both re-introduces the arrows and pushes the row's icon out of line
   with every other icon in the column. System rows that *are* a fact rather than a
@@ -1160,13 +1184,15 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 - [ ] `./Tools/SmokeTest/run.sh` → `RESULT: all checks passed`
 - [ ] `./Tools/SmokeTest/run-json.sh` → `RESULT: all checks passed`
 - [ ] `./Tools/SmokeTest/run-replay.sh` → `RESULT: all checks passed`, including
-      the folding checks. If you touched `TranscriptRows`, `ToolFamily`,
-      `ToolCallContent`, `ToolGroupView` or `ToolCallCard`, read its `folding:`
-      line: folded calls must still equal the total tool-call count for the
-      families it knows (4852 of 4852 here), `0` items lost, `0` folded rows from
-      another tool, `0` adjacent/split runs. A `watched:` count above zero means
-      there are real folded failures on disk — those need `ToolGroupView`'s red
-      pill, so they are the rows to look at when you open the app
+      the folding checks. If you touched `TranscriptRows`, `QuietFamily`,
+      `ToolCallContent`, `ToolGroupView`, `QuietStepContent` or `ToolCallCard`,
+      read its `folding:` line: `0` items lost, `0` folded rows from another tool,
+      `0` adjacent/split runs, and the `families` list must add up to every quiet
+      step in the session — the `reasoning folds with the steps it belongs to`
+      check is what proves the last one (3190 of 3190 here, 8132 steps in total).
+      A `watched:` count above zero means there are real folded failures on disk —
+      those need `ToolGroupView`'s red pill, so they are the rows to look at when
+      you open the app
 - [ ] `./Tools/SmokeTest/run-open.sh --small` → `RESULT: all checks passed`
 - [ ] `./Tools/SmokeTest/run-paths.sh` → `RESULT: all checks passed` (only if you
       touched `PiPaths`, trust, session discovery, or process launching)
@@ -1196,12 +1222,13 @@ Already closed by the harnesses (kept here so nobody re-opens them):
       height means a `NSViewRepresentable` is taking its maximum height again, and
       a wrong width means the padding and the width cap were swapped (§10)
 - [ ] The app launches and stays up for a few seconds with no crash report
-- [ ] Folded tool rows opened by eye: a run of commands reads as one dimmed line,
-      clicking it (anywhere along it) opens, a one-call group opens its content
-      directly while a many-call group opens a list, a running call keeps its
-      spinner, a folded failure keeps its red pill, no chevron is drawn on a folded
-      line or on `Thinking`, and a compaction is one `Compact context` line and
-      nothing else (§11 items 12–13)
+- [ ] Folded rows opened by eye: a run of steps reads as one dimmed line,
+      clicking it (anywhere along it) opens, a one-step group opens its content
+      directly while a many-step group opens a list, a running call keeps its
+      spinner, a folded failure keeps its red pill, no chevron is drawn on any
+      folded line (a `Thinking` step included), a `Thinking` line opened shows
+      reasoning text rather than an empty card, and a compaction is one
+      `Compact context` line and nothing else (§11 items 12–13)
 - [ ] `git status` shows **no** changes in `~/.pi/agent` (no `trust.json`, no new
       session files, no touched settings)
 - [ ] No `sh -c` / `Process` with a shell anywhere in the diff

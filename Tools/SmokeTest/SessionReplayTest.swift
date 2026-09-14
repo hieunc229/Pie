@@ -13,9 +13,9 @@
 //  It also proves the *folding* rule (`TranscriptRows.group`) over those same
 //  sessions. Folding is the one piece of the transcript's presentation that is a
 //  pure function of the items, so the claims it makes — nothing is lost, only
-//  neighbouring commands/edits/reads are folded, a fold is always maximal — are
-//  checked here against every turn that has ever run on this machine instead of
-//  against a hand-written example.
+//  neighbouring quiet steps (reasoning, commands, edits, reads) are folded, a fold
+//  is always maximal — are checked here against every turn that has ever run on
+//  this machine instead of against a hand-written example.
 //
 //  Sessions are opened read-only. The test never writes to ~/.pi/agent.
 //
@@ -80,7 +80,7 @@ enum SessionReplayTest {
         var foldedItems = 0
         var foldedSingletons = 0
         var foldedMultiway = 0
-        var foldedByFamily: [ToolFamily: Int] = [:]
+        var foldedByFamily: [QuietFamily: Int] = [:]
         var titlesByFamily: [String: Int] = [:]
         var adjacentGroups = 0
         var nonQuietFold = 0
@@ -88,6 +88,7 @@ enum SessionReplayTest {
         var lostItems = 0
         var missingItemRows = 0
         var emptyFoldedSummary = 0
+        var foldedThinking = 0
         var lostFailures = 0
 
         print("== replaying sessions ==")
@@ -197,8 +198,9 @@ enum SessionReplayTest {
                     foldedItems += group.count
                     if group.count == 1 { foldedSingletons += 1 } else { foldedMultiway += 1 }
                     for item in group {
-                        if let family = ToolFamily.of(item.toolName) {
+                        if let family = QuietFamily.of(item) {
                             foldedByFamily[family, default: 0] += 1
+                            if family == .thinking { foldedThinking += 1 }
                         } else {
                             nonQuietFold += 1
                         }
@@ -206,7 +208,11 @@ enum SessionReplayTest {
                         // folded call that failed has to be counted and
                         // accounted for in `ToolGroupView`'s status pill.
                         if item.toolStatus == .failure || item.toolStatus == .cancelled { lostFailures += 1 }
-                        if item.foldedSummary.isEmpty { emptyFoldedSummary += 1 }
+                        // A call is identified by the command or the path it ran.
+                        // Reasoning is identified by its family, so it is the one
+                        // folded row with no summary of its own — deliberately: a
+                        // truncated fragment of a first draft says nothing.
+                        if item.kind == .toolCall, item.foldedSummary.isEmpty { emptyFoldedSummary += 1 }
                     }
                     titlesByFamily[row.groupTitle, default: 0] += 1
                     // Two folded rows in a row means the fold stopped early: the
@@ -220,9 +226,8 @@ enum SessionReplayTest {
             for index in items.indices.dropFirst() {
                 let previous = items[index - 1]
                 let current = items[index]
-                guard previous.kind == .toolCall, current.kind == .toolCall,
-                      ToolFamily.of(previous.toolName) != nil,
-                      ToolFamily.of(current.toolName) != nil else { continue }
+                guard QuietFamily.of(previous) != nil,
+                      QuietFamily.of(current) != nil else { continue }
                 // They are adjacent *and* foldable, so they must share a row.
                 let shared = rows.contains { row in
                     guard case .group(let group) = row else { return false }
@@ -266,15 +271,17 @@ enum SessionReplayTest {
         // this machine rather than over an example written to pass.
         check("folding keeps every item", lostItems == 0 && missingItemRows == 0,
               "\(lostItems) item(s) lost, \(missingItemRows) unreachable through any row")
-        check("only command/edit/read rows fold", nonQuietFold == 0,
+        check("only thinking/command/edit/read rows fold", nonQuietFold == 0,
               "\(nonQuietFold) folded row(s) from another tool")
         check("a fold is one maximal run", adjacentGroups == 0 && splitRuns == 0,
               "\(adjacentGroups) adjacent group pair(s), \(splitRuns) run(s) split apart")
         check("every folded call has a line to identify it", emptyFoldedSummary == 0,
               "\(emptyFoldedSummary) with no command and no path")
+        check("reasoning folds with the steps it belongs to", foldedThinking == thinkingBlocks,
+              "\(foldedThinking) of \(thinkingBlocks) reasoning block(s) folded")
         check("folding touched real sessions", foldedItems > 0,
-              "\(foldedItems) call(s) folded out of \(toolCalls)")
-        print("  folding:   \(foldedItems) call(s) in \(foldRows) row(s) —"
+              "\(foldedItems) step(s) folded out of \(toolCalls) calls and \(thinkingBlocks) reasoning blocks")
+        print("  folding:   \(foldedItems) step(s) in \(foldRows) row(s) —"
               + " \(foldedSingletons) alone, \(foldedMultiway) in a run;"
               + " families " + foldedByFamily.sorted { $0.value > $1.value }
                 .map { "\($0.key.rawValue)=\($0.value)" }.joined(separator: " "))
