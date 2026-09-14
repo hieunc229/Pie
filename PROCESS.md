@@ -69,7 +69,7 @@ PiCode's own preferences.
 | Extension UI round trip against a live extension | ✅ `./Tools/SmokeTest/run-extension.sh` — all 35 checks pass, no model call |
 | Sidebar contents are real (no hidden project DB) | ✅ `./Tools/SmokeTest/run-index.sh` — 16 session files on disk → 8 projects, every path exists |
 | Providers, credentials, third-party providers | ✅ `./Tools/SmokeTest/run-providers.sh` — verified against a live `pi`, no credential of the user's is touched |
-| Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt delta |
+| Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt delta; projects are rows, so there is no section chevron |
 | Discovery / launch / trust / session index / git | ✅ implemented |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
@@ -178,13 +178,14 @@ the user.
   projection of `SessionIndex.loadAllProjects()`, grouped by each session's
   canonical `cwd`. Keep it that way.
 - **`run-sidebar-align.sh`** is the only harness that measures *pixels*. It
-  renders the real row and header layout in a window, captures that window
-  itself (no screen-recording permission needed), and compares the ink origin of
-  a session title with the ink origin of its project's name. It exists because
-  macOS insets list rows two points further than section headers, which no
-  amount of reading SwiftUI docs would tell you; it compiles against
-  `SidebarMetrics` extracted from `SidebarView.swift` so the numbers under test
-  are the shipped ones. It needs a GUI session (not SSH).
+  renders the real row layout in a window, captures that window itself (no
+  screen-recording permission needed), and compares the ink origin of a session
+  title with the ink origin of its project's name. It also checks the vertical
+  rhythm (a project has a margin before its chats; the chats are separate rows,
+  not one stacked row) and dumps `/tmp/picode-sidebar-look.png`, a mock of the
+  whole column, so a human can judge the colours a machine cannot. It compiles
+  against `SidebarStyle` extracted from `SidebarView.swift` so the numbers under
+  test are the shipped ones. It needs a GUI session (not SSH).
 - **`run-providers.sh`** exercises `PiProviderService` inside a throwaway
   `PI_CODING_AGENT_DIR` and then asks a live `pi` what it makes of the files:
   `0600` mode, masked fingerprints (no key ever printed), atomic writes with no
@@ -315,6 +316,7 @@ protocol logic in views.
 | **Extension commands get the patient `prompt` timeout** | Pi answers `prompt` only once the text has been handled, and an extension command is handled by its own handler, which may sit on a dialog for minutes. A normal prompt keeps the 60 s preflight budget; a slash command Pi reported as an extension command gets the same patient budget as `bash`. |
 | **PiCode writes exactly two kinds of Pi file** | `trust.json` (the same document `/trust` writes) and, only on an explicit click in Settings → Providers, `auth.json` and `models.json` in the shapes Pi documents. Everything else under Pi's config directory is read-only, and no credential is ever read back into the UI. Before adding a third, ask why the user cannot do it in `pi` itself. |
 | **The sidebar is a projection, not a database** | `SessionIndex.loadAllProjects()` reads Pi's session directory on every refresh; pins and "hidden" flags only decorate the result. `run-index.sh` guards this: add caching and the sidebar can start disagreeing with the terminal about what exists. |
+| **A project is a row, not a section header** | A `Section` in the sidebar list style is a collapsible group with a disclosure chevron — wrong for a list that mirrors what is on disk, and the reason a project used to look like a heading over its chats. As a row it also shares its chats' leading inset, which is what makes "a chat title starts where the project's name starts" exact instead of a two-point correction. `run-sidebar-align.sh` measures both the alignment and that the chats are separate rows. |
 
 ---
 
@@ -702,11 +704,19 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 - **Layout**: one type per file where practical; feature folders mirror the
   three-pane UI. New UI goes in the matching `Features/` folder.
 - **Sidebar rows**: a project and its chats are the same rank, so they share
-  `SidebarMetrics.rowFont` (regular, no bold header). A chat has no glyph; it is
-  indented by `SidebarMetrics.titleIndent` so its title starts where the project's
-  name starts. Both come from one place because the two-point difference between
-  header and row insets is measured, not derivable — verify with
-  `run-sidebar-align.sh` after changing the sidebar.
+  `SidebarStyle.rowFont` (regular, no bold header) and the primary text colour.
+  A chat has no glyph; it is indented by `SidebarStyle.titleIndent` so its title
+  starts where the project's name starts. A project is a **row**, never a
+  `Section`: the sidebar list style turns a section header into a collapsible
+  group with a disclosure chevron, and the sidebar is a projection of the disk,
+  not something to fold away. Rows also share the leading inset a section header
+  does not, which is why the indent no longer needs a correction — measure it
+  with `run-sidebar-align.sh` after changing the sidebar.
+- **Recessed controls on the sidebar**: the search field's fill has to be darker
+  than the sidebar material in *both* appearances, so it is a translucent black
+  with a per-appearance alpha (`SidebarStyle.searchFieldFill`) — `.quaternary`
+  goes the wrong way in dark mode. A custom fill also removes AppKit's focus
+  ring, so the field draws its own: keyboard focus must stay visible.
 - **Adding a command**: add the `RPCCommand` case (verify the wire name in Pi's
   `docs/rpc.md` *and* the installed bundle), add it to the wire-format case list
   in `Tools/SmokeTest/RPCSmokeTest.swift`, add a `PaletteCommand` case if it is

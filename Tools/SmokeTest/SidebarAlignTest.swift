@@ -9,9 +9,9 @@
 //  layout in a window, captures its own window (no screen-recording permission
 //  needed), and measures the two text origins.
 //
-//  It compiles against `SidebarMetrics` *extracted from the real
+//  It compiles against `SidebarStyle` *extracted from the real
 //  `SidebarView.swift`* by run-sidebar-align.sh, so the numbers under test are
-//  the shipped ones. The layout below mirrors `ProjectHeader` and `SessionRow`;
+//  the shipped ones. The layout below mirrors `ProjectRow` and `SessionRow`;
 //  if you change their structure, change it here too — `run-sidebar-align.sh`
 //  also greps the real source for the wiring this depends on.
 //
@@ -19,25 +19,77 @@
 import SwiftUI
 import AppKit
 
+/// The shape of one group, mirroring `ProjectGroup` + its sessions.
+private struct DemoProject: Identifiable {
+    let id: Int
+    let name: String
+    let chats: [String]
+}
+
 struct SidebarAlignDemo: View {
+    private let projects = [DemoProject(id: 0, name: "proj", chats: ["proj-aaa", "proj-bbb"])]
+
     var body: some View {
+        // The real structure: one `ForEach` over projects, each emitting its
+        // project row and then a `@ViewBuilder` of chat rows. If SwiftUI ever
+        // stopped flattening that builder into rows, the chats would collapse
+        // into a single row and the vertical rhythm measured here would change.
         List {
-            Section {
-                Text("proj-aaa").font(SidebarMetrics.rowFont)
-                    .padding(.leading, SidebarMetrics.titleIndent)
-                Text("proj-bbb").font(SidebarMetrics.rowFont)
-                    .padding(.leading, SidebarMetrics.titleIndent)
-            } header: {
-                HStack(spacing: SidebarMetrics.iconTextSpacing) {
-                    Image(systemName: "folder")
-                        .font(.system(size: SidebarMetrics.projectIconSize, weight: .regular))
-                        .frame(width: SidebarMetrics.projectIconSize, alignment: .leading)
-                    Text("proj").font(SidebarMetrics.rowFont)
-                    Spacer(minLength: 0)
-                }
+            ForEach(projects) { project in
+                projectRow(project)
+                chats(of: project)
             }
         }
         .listStyle(.sidebar)
+    }
+
+    private func projectRow(_ project: DemoProject) -> some View {
+        HStack(spacing: SidebarStyle.iconTextSpacing) {
+            Image(systemName: "folder")
+                .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                .frame(width: SidebarStyle.projectIconSize, alignment: .leading)
+            Text(project.name).font(SidebarStyle.rowFont)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, SidebarStyle.projectTopMargin)
+        .padding(.bottom, SidebarStyle.projectBottomMargin)
+    }
+
+    @ViewBuilder
+    private func chats(of project: DemoProject) -> some View {
+        ForEach(project.chats, id: \.self) { chat in
+            Text(chat).font(SidebarStyle.rowFont)
+                .padding(.leading, SidebarStyle.titleIndent)
+        }
+    }
+}
+
+/// A faithful-enough mock of the whole sidebar column so the harness can dump a
+/// PNG for a human to look at. It is not measured — `SidebarAlignDemo` is — but
+/// it is what answers "is that fill actually darker than the sidebar?".
+struct SidebarLookDemo: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .imageScale(.small)
+                Text("Search sessions").foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(SidebarStyle.searchFieldFill,
+                        in: RoundedRectangle(cornerRadius: SidebarStyle.searchFieldRadius, style: .continuous))
+            .padding(.horizontal, 10)
+            .padding(.top, 6)
+            .padding(.bottom, 10)
+            Divider()
+            SidebarAlignDemo()
+            Spacer(minLength: 0)
+        }
+        .frame(width: 268, height: 340)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -150,7 +202,41 @@ final class SidebarAlignDelegate: NSObject, NSApplicationDelegate {
               String(format: "delta %.1fpt", Double(delta)))
         check(iconPoints > 10, "the project glyph is drawn at full size",
               String(format: "%.1fpt wide", Double(iconPoints)))
-        finish()
+        // The chats must be rows of their own, not one row holding a stack: rows
+        // keep the list's own vertical rhythm, and only rows can highlight or be
+        // clicked one at a time.
+        if lines.count >= 3 {
+            let projectToChat = CGFloat(lines[1].first! - lines[0].first!) / scale
+            let chatToChat = CGFloat(lines[2].first! - lines[1].first!) / scale
+            check(projectToChat > chatToChat + 4,
+                  "a project has its own margin before its chats",
+                  String(format: "%.1fpt then %.1fpt between chats", Double(projectToChat), Double(chatToChat)))
+            check(chatToChat > 18 && chatToChat < 34,
+                  "the chats are separate rows, not one stacked row",
+                  String(format: "%.1fpt apart", Double(chatToChat)))
+        }
+        captureLook()
+    }
+
+    /// Write a picture of the column so a human can judge colour and rhythm, which
+    /// no assertion here can. Dumped next to nothing important: /tmp.
+    private func captureLook() {
+        let look = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 268, height: 340),
+                            styleMask: [.titled], backing: .buffered, defer: false)
+        look.contentView = NSHostingView(rootView: SidebarLookDemo())
+        look.orderFrontRegardless()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let id = CGWindowID(look.windowNumber)
+            if let image = CGWindowListCreateImage(.null, .optionIncludingWindow, id,
+                                                  [.boundsIgnoreFraming, .bestResolution]),
+               let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+                try? data.write(to: URL(fileURLWithPath: "/tmp/picode-sidebar-look.png"))
+                print("  note  wrote /tmp/picode-sidebar-look.png — look at it")
+            } else {
+                print("  note  could not write the look dump")
+            }
+            self.finish()
+        }
     }
 
     private func finish() {

@@ -12,33 +12,43 @@
 
 import SwiftUI
 
-/// Sidebar row metrics.
+/// Sidebar row metrics and colours.
 ///
 /// A project and its chats are the same rank of information, so they share one
-/// text size and one weight. That has to be an explicit size: semantic styles do
-/// not line up here (macOS puts `.callout` and `.body` at the same 13pt while a
-/// section header at `.caption` is smaller), and the point of the change is that
-/// a project reads no differently from the sessions under it.
-enum SidebarMetrics {
+/// text size, one weight and one colour. That has to be an explicit size:
+/// semantic styles do not line up here (macOS puts `.callout` and `.body` at the
+/// same 13pt while a section header at `.caption` is smaller).
+enum SidebarStyle {
     static let rowFont = Font.system(size: 14, weight: .regular)
     /// Slightly larger than the text, the way a Finder folder glyph sits next to
     /// its name. Fixed width so `titleIndent` is exact whatever the glyph's own
     /// metrics are.
     static let projectIconSize: CGFloat = 15
-    static let iconTextSpacing: CGFloat = 6
-    /// In the sidebar list style macOS insets *rows* two points further than it
-    /// insets section *headers* (measured at 240/320/400pt wide, macOS 15), so a
-    /// session title would sit two points right of its project's name. Subtract
-    /// it rather than fudging the icon, and re-measure with
-    /// `Tools/SmokeTest/run-sidebar-align.sh` if a macOS update moves it.
-    static let headerRowInsetDelta: CGFloat = 2
-    /// How far a session title must be inset to start where its project's *name*
-    /// starts rather than under the folder glyph.
-    static var titleIndent: CGFloat { projectIconSize + iconTextSpacing - headerRowInsetDelta }
+    static let iconTextSpacing: CGFloat = 10
+    /// Breathing room above a project — it has to separate the project from the
+    /// previous project's last chat — and below it, before its own chats.
+    static let projectTopMargin: CGFloat = 12
+    static let projectBottomMargin: CGFloat = 8
+    /// How far a chat title is inset so it starts where its project's *name*
+    /// starts rather than under the folder glyph. Exact because a project is a
+    /// row like a chat is, so both get the same leading inset (a `Section` header
+    /// does not: it sits two points further left, which is why this used to need
+    /// a correction). `Tools/SmokeTest/run-sidebar-align.sh` measures it.
+    static var titleIndent: CGFloat { projectIconSize + iconTextSpacing }
+
+    /// The search field's fill. It must read *darker* than the sidebar material
+    /// in either appearance; `.quaternary` would go the wrong way in dark mode,
+    /// so this is a translucent black with a different alpha per appearance.
+    static let searchFieldFill = Color(nsColor: NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        return NSColor(white: 0, alpha: isDark ? 0.35 : 0.06)
+    })
+    static let searchFieldRadius: CGFloat = 8
 }
 
 struct SidebarView: View {
     @Bindable var state: AppState
+    @FocusState private var isSearching: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,6 +80,7 @@ struct SidebarView: View {
                 .imageScale(.small)
             TextField("Search sessions", text: $state.sidebarQuery)
                 .textFieldStyle(.plain)
+                .focused($isSearching)
             if !state.sidebarQuery.isEmpty {
                 Button {
                     state.sidebarQuery = ""
@@ -81,8 +92,19 @@ struct SidebarView: View {
                 .accessibilityLabel("Clear search")
             }
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(SidebarStyle.searchFieldFill,
+                    in: RoundedRectangle(cornerRadius: SidebarStyle.searchFieldRadius, style: .continuous))
+        // The custom fill replaces AppKit's field chrome, so the focus ring has to
+        // be drawn back on: keyboard focus must stay visible.
+        .overlay {
+            RoundedRectangle(cornerRadius: SidebarStyle.searchFieldRadius, style: .continuous)
+                .strokeBorder(Color.accentColor.opacity(isSearching ? 0.9 : 0), lineWidth: 2)
+        }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
     }
 
     // MARK: - List
@@ -90,35 +112,8 @@ struct SidebarView: View {
     private var list: some View {
         List {
             ForEach(state.filteredProjects) { project in
-                Section {
-                    let ephemeral = ephemeralSession(for: project)
-                    if let ephemeral {
-                        SessionRow(
-                            state: state,
-                            session: ephemeral,
-                            controller: state.activeController,
-                            isSelected: true,
-                            isEphemeral: true
-                        )
-                    }
-                    ForEach(project.sessions) { session in
-                        SessionRow(
-                            state: state,
-                            session: session,
-                            controller: controller(for: session),
-                            isSelected: state.selectedSessionKey == session.filePath.map(AppState.key(forSessionPath:))
-                        )
-                    }
-                    if project.sessions.isEmpty && ephemeral == nil {
-                        Text("No sessions yet")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .padding(.leading, SidebarMetrics.titleIndent)
-                            .padding(.vertical, 2)
-                    }
-                } header: {
-                    ProjectHeader(state: state, project: project)
-                }
+                ProjectRow(state: state, project: project)
+                chats(of: project)
             }
         }
         .listStyle(.sidebar)
@@ -138,6 +133,42 @@ struct SidebarView: View {
                 }
                 .padding(16)
             }
+        }
+    }
+
+    /// The rows belonging to one project.
+    ///
+    /// These are plain rows rather than a `Section`: the sidebar list style turns
+    /// a section into a collapsible group with a disclosure chevron, and this list
+    /// is a fixed projection of what is on disk — there is nothing to collapse.
+    /// Rows also share the project's leading inset, which is what lets a chat
+    /// title line up with the project's name.
+    @ViewBuilder
+    private func chats(of project: ProjectGroup) -> some View {
+        let ephemeral = ephemeralSession(for: project)
+        if let ephemeral {
+            SessionRow(
+                state: state,
+                session: ephemeral,
+                controller: state.activeController,
+                isSelected: true,
+                isEphemeral: true
+            )
+        }
+        ForEach(project.sessions) { session in
+            SessionRow(
+                state: state,
+                session: session,
+                controller: controller(for: session),
+                isSelected: state.selectedSessionKey == session.filePath.map(AppState.key(forSessionPath:))
+            )
+        }
+        if project.sessions.isEmpty && ephemeral == nil {
+            Text("No sessions yet")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .padding(.leading, SidebarStyle.titleIndent)
+                .padding(.bottom, 4)
         }
     }
 
@@ -218,31 +249,38 @@ struct SidebarView: View {
     }
 }
 
-// MARK: - Project header
+// MARK: - Project row
 
-struct ProjectHeader: View {
+/// A project, as the first row of its own group of chats.
+///
+/// It reads exactly like a chat — same size, same weight, same primary colour — so
+/// the sidebar is one list of places you have worked, not a hierarchy with a
+/// shouted heading on top. The folder glyph and the indent are what say which
+/// chats belong to it.
+struct ProjectRow: View {
     @Bindable var state: AppState
     var project: ProjectGroup
 
     var body: some View {
-        HStack(spacing: SidebarMetrics.iconTextSpacing) {
+        HStack(spacing: SidebarStyle.iconTextSpacing) {
             Image(systemName: "folder")
-                .font(.system(size: SidebarMetrics.projectIconSize, weight: .regular))
-                .frame(width: SidebarMetrics.projectIconSize, alignment: .leading)
-                .foregroundStyle(.secondary)
+                .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                .frame(width: SidebarStyle.projectIconSize, alignment: .leading)
             Text(project.name)
-                .font(SidebarMetrics.rowFont)
+                .font(SidebarStyle.rowFont)
                 .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
             if project.isPinned {
                 Image(systemName: "pin.fill")
                     .imageScale(.small)
                     .foregroundStyle(.tertiary)
             }
             Spacer(minLength: 0)
-            Text("\(project.sessions.count)")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.tertiary)
         }
+        .foregroundStyle(.primary)
+        .padding(.top, SidebarStyle.projectTopMargin)
+        .padding(.bottom, SidebarStyle.projectBottomMargin)
+        .contentShape(Rectangle())
         .contextMenu {
             Button(project.isPinned ? "Unpin Project" : "Pin Project") {
                 state.togglePin(project: project)
@@ -281,7 +319,7 @@ struct SessionRow: View {
             // not re-state metadata the session view already shows.
             HStack(spacing: 8) {
                 Text(session.displayName)
-                    .font(SidebarMetrics.rowFont)
+                    .font(SidebarStyle.rowFont)
                     .lineLimit(1)
                     .foregroundStyle(.primary)
 
@@ -300,7 +338,7 @@ struct SessionRow: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            .padding(.leading, SidebarMetrics.titleIndent)
+            .padding(.leading, SidebarStyle.titleIndent)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

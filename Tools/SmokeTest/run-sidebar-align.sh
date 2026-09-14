@@ -16,11 +16,11 @@ rm -rf "$WORK"
 mkdir -p "$WORK"
 
 # Compile against the real metrics rather than a copy of the numbers.
-python3 - "$ROOT/PiCode/Features/Sidebar/SidebarView.swift" "$WORK/SidebarMetrics.swift" <<'PY'
+python3 - "$ROOT/PiCode/Features/Sidebar/SidebarView.swift" "$WORK/SidebarStyle.swift" <<'PY'
 import sys
 source, destination = sys.argv[1], sys.argv[2]
 text = open(source).read()
-start = text.index('enum SidebarMetrics')
+start = text.index('enum SidebarStyle')
 end = text.index('struct SidebarView')
 open(destination, 'w').write('import SwiftUI\n\n' + text[start:end])
 PY
@@ -36,12 +36,26 @@ check_source() {
     fi
 }
 SIDEBAR="$ROOT/PiCode/Features/Sidebar/SidebarView.swift"
-check_source "$SIDEBAR" '.frame(width: SidebarMetrics.projectIconSize' \
+check_source "$SIDEBAR" '.frame(width: SidebarStyle.projectIconSize' \
     "the project glyph has a fixed width, so the indent is exact"
-check_source "$SIDEBAR" '.padding(.leading, SidebarMetrics.titleIndent)' \
+check_source "$SIDEBAR" '.padding(.leading, SidebarStyle.titleIndent)' \
     "a session title is indented past the glyph"
-check_source "$SIDEBAR" '.font(SidebarMetrics.rowFont)' \
+check_source "$SIDEBAR" '.font(SidebarStyle.rowFont)' \
     "the shared row font is what both use"
+check_source "$SIDEBAR" '.background(SidebarStyle.searchFieldFill' \
+    "the search field uses the recessed rounded fill"
+if grep -qE 'Section[ ({]' "$SIDEBAR"; then
+    echo "  FAIL a project is still a Section (the sidebar turns those into a collapsible group with a chevron)"
+    fail=1
+else
+    echo "  ok   projects are rows, so there is no disclosure chevron"
+fi
+if grep -q 'project.sessions.count' "$SIDEBAR"; then
+    echo "  FAIL a project row still shows its session count"
+    fail=1
+else
+    echo "  ok   the session count is gone from the project row"
+fi
 if grep -q 'bubble.left' "$SIDEBAR"; then
     echo "  FAIL a session row still draws a chat glyph"
     fail=1
@@ -64,7 +78,7 @@ echo
 echo "== measure what macOS actually renders =="
 SDK="$(xcrun --show-sdk-path --sdk macosx)"
 swiftc -sdk "$SDK" -target "$(uname -m)-apple-macos14.0" -swift-version 5 \
-    "$WORK/SidebarMetrics.swift" "$ROOT/Tools/SmokeTest/SidebarAlignTest.swift" \
+    "$WORK/SidebarStyle.swift" "$ROOT/Tools/SmokeTest/SidebarAlignTest.swift" \
     -o "$WORK/sidebar-align" 2>&1 | grep -v "deprecated in macOS 14" || true
 
 "$WORK/sidebar-align"
