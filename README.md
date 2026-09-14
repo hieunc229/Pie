@@ -113,7 +113,8 @@ Render a chronological, virtualized conversation from Pi messages and events:
 - Model picker is populated by `get_available_models`; never ship a hard-coded catalog.
 - Thinking picker exposes only levels supported by the current model.
 - While idle, the primary action sends a prompt. While working, it becomes Stop.
-- While working, the user can choose **Steer now** or **Follow up**. Queued messages appear above the composer and can be restored for editing.
+- While working, `Return` steers the running turn and `Option+Return` queues a follow-up; both are also reachable from the Agent menu. Queued messages appear at the end of the transcript as their own rows, and Stop clears the queue, puts it back in the editor, and then aborts — `Command+.` is the hard stop that leaves the queue to Pi.
+- The box is the only filled shape in the composer: attachment, access/trust, model, thinking, and send/stop share one compact row under the editor, so the composer takes as little vertical space as one line plus that row.
 - Show the current project trust/access state beside the attachment control. Its popover must explain that Pi runs with the permissions of the current macOS user.
 - Drafts are stored by session in PiCode app storage, never injected into the Pi session until sent.
 

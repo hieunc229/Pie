@@ -60,11 +60,32 @@ struct WindowPixels {
     }
 
     /// A window's own content, at full resolution.
+    ///
+    /// Unused by the harnesses now, and kept with a warning: it asks the window
+    /// server what it last composited, so a window that is fully behind another
+    /// one — which a harness window is as soon as the real app is running — comes
+    /// back **entirely black**. Use `capture(_ view:)`.
     static func capture(_ window: NSWindow) -> WindowPixels? {
         let id = CGWindowID(window.windowNumber)
         guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, id,
                                                   [.boundsIgnoreFraming, .bestResolution]) else { return nil }
         return WindowPixels(image: image, scale: window.backingScaleFactor)
+    }
+
+    /// A view's content, drawn on the spot.
+    ///
+    /// Preferred when only a view (or a pane of it) is under test. A window
+    /// capture asks the window server for what it last composited, and a window
+    /// that is fully behind another one — which a harness window is, as soon as
+    /// the real app is running — can come back **entirely black**. Drawing the
+    /// view here cannot be occluded, and it also leaves the title bar and toolbar
+    /// out of the picture.
+    static func capture(_ view: NSView) -> WindowPixels? {
+        guard view.bounds.width >= 1, view.bounds.height >= 1,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let image = rep.cgImage, rep.pixelsWide > 0 else { return nil }
+        return WindowPixels(image: image, scale: CGFloat(rep.pixelsWide) / view.bounds.width)
     }
 
     func rgb(_ x: Int, _ y: Int) -> (r: Int, g: Int, b: Int) {

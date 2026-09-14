@@ -13,6 +13,13 @@
 import AppKit
 import SwiftUI
 
+/// Shape constants shared by the composer and its harness.
+enum ComposerMetrics {
+    /// Rounded enough that the box reads as one soft object next to the sidebar's
+    /// pills, small enough that a single line does not look like a capsule.
+    static let cornerRadius: CGFloat = 18
+}
+
 struct ComposerView: View {
     @Bindable var state: AppState
     var controller: PiSessionController
@@ -42,8 +49,7 @@ struct ComposerView: View {
                 BannerView(level: .warning, title: "Attachment not added", message: attachmentError, onDismiss: { self.attachmentError = nil })
             }
 
-            editorCard
-            controlRow
+            composerBox
         }
         .onAppear { loadDraft() }
         .onChange(of: controller.draftKey) { _, _ in loadDraft() }
@@ -66,8 +72,12 @@ struct ComposerView: View {
 
     // MARK: - Editor
 
-    private var editorCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
+    /// One rounded box: the editor on top, every control on one row beneath it.
+    /// The box is the only filled shape in the composer — there is no second
+    /// container behind it, so the whole thing reads as one object instead of a
+    /// card sitting inside a bar.
+    private var composerBox: some View {
+        VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topLeading) {
                 ComposerTextView(
                     text: $text,
@@ -77,31 +87,35 @@ struct ComposerView: View {
                     suggestionsActive: !suggestions.isEmpty,
                     isEnabled: controller.connection.isConnected,
                     onSend: { send() },
+                    onFollowUp: { send(delivery: .followUp) },
                     onEscape: handleEscape,
                     onMoveSuggestion: moveSuggestion,
                     onAcceptSuggestion: acceptCurrentSuggestion
                 )
-                .frame(minHeight: 56, maxHeight: 220)
+                .frame(minHeight: 26, maxHeight: 220)
 
                 if text.isEmpty {
                     Text(placeholder)
-                        .font(.body)
+                        .font(.system(size: 15))
                         .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 12)
+                        .padding(.leading, ComposerTextView.textInset.width)
+                        .padding(.top, ComposerTextView.textInset.height)
                         .allowsHitTesting(false)
                 }
             }
 
             if !attachments.isEmpty {
-                attachmentRow
+                attachmentRow.padding(.top, 6)
             }
+
+            controlRow.padding(.top, 5)
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 4)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 9)
+        .padding(.top, 6)
+        .padding(.bottom, 5)
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous)
                 .stroke(isDropTargeted ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: isDropTargeted ? 2 : 1)
         )
         .dropDestination(for: URL.self) { urls, _ in
@@ -147,91 +161,82 @@ struct ComposerView: View {
                     .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 6)
+            .padding(.horizontal, 2)
         }
     }
 
     // MARK: - Controls
 
+    /// Left: what goes into the prompt. Right: how Pi will run it. One row, and
+    /// no more: everything that used to sit here (a queue counter, a separate
+    /// interrupt, a steering/follow-up dropdown) is either redundant with Return
+    /// or lives on the stop button's own shortcut.
     private var controlRow: some View {
-        HStack(spacing: 10) {
-            Button {
+        HStack(spacing: 2) {
+            iconButton("paperclip", help: "Attach images or text files — drag and drop works too") {
                 chooseAttachments()
-            } label: {
-                Label("Attach", systemImage: "paperclip")
-                    .labelStyle(.iconOnly)
             }
-            .buttonStyle(.borderless)
-            .help("Attach images or text files")
+
+            ComposerAccessControl(controller: controller)
+
+            Spacer(minLength: 8)
 
             modelMenu
             thinkingMenu
-
-            if !controller.queue.isEmpty {
-                StatusPill(text: "\(controller.queue.steering.count + controller.queue.followUp.count) queued", systemImage: "list.bullet", tint: .secondary)
-            }
-
-            Spacer(minLength: 0)
-
-            if controller.hasPendingWork {
-                Button {
-                    Task {
-                        await controller.interrupt()
-                        text = controller.drafts.text(for: controller.draftKey)
-                    }
-                } label: {
-                    Label("Interrupt", systemImage: "escape")
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.borderless)
-                .help("Stop Pi and move queued messages back into the composer (esc)")
-
-                Button {
-                    Task { await controller.abort() }
-                } label: {
-                    Label("Stop", systemImage: "stop.circle.fill")
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.borderless)
-                .help("Stop the agent (⌘.)")
-            }
-
-            sendControls
+            primaryActionButton
         }
-        .padding(.horizontal, 2)
+        .font(.system(size: 12))
     }
 
-    @ViewBuilder
-    private var sendControls: some View {
-        if isStreamingRun {
-            HStack(spacing: 0) {
-                Button {
-                    send(delivery: .steer)
-                } label: {
-                    Label("Queue", systemImage: "arrow.turn.down.right")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canSend)
+    private func iconButton(_ systemImage: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12.5))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
 
-                Menu {
-                    Button("Send as steering message") { send(delivery: .steer) }
-                    Button("Send as follow-up") { send(delivery: .followUp) }
-                } label: {
-                    Image(systemName: "chevron.down")
+    /// Idle it sends; working it stops. Both are one button, in the place the
+    /// hand already is.
+    @ViewBuilder
+    private var primaryActionButton: some View {
+        if isStreamingRun {
+            Button {
+                Task {
+                    // The documented Stop: clear the queue, put what was queued
+                    // back in the box, then abort. `⌘.` in the menu is the
+                    // hard stop that leaves the queue to Pi.
+                    await controller.interrupt()
+                    text = controller.drafts.text(for: controller.draftKey)
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Choose how Pi should treat this message")
+            } label: {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(Color.accentColor))
+                    .contentShape(Circle())
             }
+            .buttonStyle(.plain)
+            .help("Stop Pi and put anything queued back in the box (esc; ⌘. aborts without restoring)")
         } else {
             Button {
                 send(delivery: .automatic)
             } label: {
-                Label("Send", systemImage: "arrow.up.circle.fill")
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(canSend ? Color.accentColor : Color(nsColor: .tertiaryLabelColor)))
+                    .contentShape(Circle())
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
             .disabled(!canSend)
+            .help("Send (⏎)")
         }
     }
 
@@ -264,6 +269,7 @@ struct ComposerView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .foregroundStyle(.secondary)
         .help("Model used for new prompts")
     }
 
@@ -294,6 +300,7 @@ struct ComposerView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .foregroundStyle(.secondary)
         .help("Thinking level Pi uses for this session")
     }
 

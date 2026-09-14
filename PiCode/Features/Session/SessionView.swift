@@ -50,7 +50,6 @@ struct SessionView: View {
             .padding(.horizontal, 14)
             .padding(.bottom, 12)
             .padding(.top, 8)
-            .background(.bar)
         }
         .overlay(alignment: .topTrailing) {
             NotificationStack(controller: controller)

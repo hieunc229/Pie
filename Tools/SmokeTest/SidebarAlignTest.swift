@@ -117,7 +117,11 @@ final class SidebarAlignDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func measure() {
-        guard let pixels = WindowPixels.capture(window) else {
+        // The view, not the window: a window capture asks the window server what
+        // it last composited, and this window is behind the real app whenever the
+        // app is running — then every measurement below reads solid black and
+        // reports "nothing there" instead of "the capture failed".
+        guard let content = window.contentView, let pixels = WindowPixels.capture(content) else {
             check(false, "the harness could render a window")
             return finish()
         }
@@ -237,7 +241,7 @@ final class SidebarAlignDelegate: NSObject, NSApplicationDelegate {
         look.contentView = NSHostingView(rootView: SidebarLookDemo())
         look.orderFrontRegardless()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            if let pixels = WindowPixels.capture(look), let data = pixels.pngData() {
+            if let content = look.contentView, let pixels = WindowPixels.capture(content), let data = pixels.pngData() {
                 try? data.write(to: URL(fileURLWithPath: "/tmp/picode-sidebar-look.png"))
                 print("  note  wrote /tmp/picode-sidebar-look.png — look at it")
             } else {

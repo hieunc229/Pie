@@ -13,6 +13,10 @@ import AppKit
 import SwiftUI
 
 struct ComposerTextView: NSViewRepresentable {
+    /// Where the text actually starts inside the view, exposed so the placeholder
+    /// overlay can put itself on exactly the same spot without a magic number.
+    static let textInset = NSSize(width: 2, height: 2)
+
     @Binding var text: String
     var placeholder: String
     var focusTick: Int
@@ -21,11 +25,19 @@ struct ComposerTextView: NSViewRepresentable {
     var isEnabled: Bool
 
     var onSend: () -> Void
+    var onFollowUp: () -> Void
     var onEscape: () -> Void
     var onMoveSuggestion: (Int) -> Void
     var onAcceptSuggestion: () -> Void
 
     final class Coordinator: NSObject, NSTextViewDelegate {
+        /// Command-Return does not reach a text view as a newline command at all
+        /// — measured, it arrives as `noop:`, a selector AppKit does not declare
+        /// in its headers. It is matched by name, and if a future macOS stops
+        /// sending it we simply fall through and do nothing, which is what
+        /// `noop:` means anyway.
+        private static let noopSelector = Selector(("noop:"))
+
         var parent: ComposerTextView
         weak var textView: NSTextView?
         var lastFocusTick = 0
@@ -40,31 +52,48 @@ struct ComposerTextView: NSViewRepresentable {
             parent.text = textView.string
         }
 
+        /// Which modifiers are down *now*. The selector alone cannot answer this:
+        /// a plain text view reports Shift-Return as plain `insertNewline:` and
+        /// Command-Return as `noop:`, so the modifiers are the only reliable
+        /// signal. `Tools/SmokeTest/run-composer.sh` pins this table down.
+        private var currentModifiers: NSEvent.ModifierFlags {
+            (NSApp.currentEvent?.modifierFlags ?? []).intersection(.deviceIndependentFlagsMask)
+        }
+
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             switch selector {
-            case #selector(NSResponder.insertNewline(_:)):
+            case #selector(NSResponder.insertNewline(_:)),
+                 #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)),
+                 Coordinator.noopSelector:
                 if parent.suggestionsActive {
                     parent.onAcceptSuggestion()
                     return true
                 }
-                if parent.sendKey == .returnKey {
-                    parent.onSend()
-                    return true
-                }
-                return false
 
-            case #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
-                // Shift-Return for the Return-sends mode; Command-Return for the
-                // Command-Return-sends mode.
-                if parent.suggestionsActive {
-                    parent.onAcceptSuggestion()
+                let modifiers = currentModifiers
+                if modifiers.contains(.option) {
+                    parent.onFollowUp()
                     return true
                 }
-                if parent.sendKey == .commandReturn {
+                // Shift always means "add a line", in both send-key modes.
+                if modifiers.contains(.shift) { return false }
+
+                switch parent.sendKey {
+                case .returnKey where !modifiers.contains(.command):
                     parent.onSend()
                     return true
+                case .commandReturn where modifiers.contains(.command):
+                    parent.onSend()
+                    return true
+                default:
+                    // The chord that does not send adds a line. Command-Return
+                    // reaches us as `noop:`, which would otherwise do nothing.
+                    if selector == Coordinator.noopSelector {
+                        textView.insertNewline(nil)
+                        return true
+                    }
+                    return false
                 }
-                return false
 
             case #selector(NSResponder.cancelOperation(_:)):
                 parent.onEscape()
@@ -109,8 +138,8 @@ struct ComposerTextView: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.textContainerInset = NSSize(width: 6, height: 6)
+        textView.font = .systemFont(ofSize: 15)
+        textView.textContainerInset = Self.textInset
         textView.drawsBackground = false
         textView.string = text
         textView.isEditable = isEnabled

@@ -72,6 +72,7 @@ PiCode's own preferences.
 | Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt alignment delta, glyph on the search margin, project→chat pitch 26.5pt against chat→chat 28.0pt (the 1.5pt residual is the list's, see §10) |
 | Sidebar rows behave (click a project to fold its chats; highlight on the search margin) | ✅ `./Tools/SmokeTest/run-sidebar-click.sh` — clicks a real row through the window's event path: 3 rows → 1 → 3; highlight 10.0pt in from both edges of a 268pt column |
 | Discovery / launch / trust / session index / git | ✅ implemented |
+| Composer: Return sends, Shift+Return is a line, box shape | ✅ `./Tools/SmokeTest/run-composer.sh` — real `ComposerTextView`, real key events: Return/Shift/Option/Command-Return in both send-key modes, and a measured corner |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
 | Transcript vs README spec | ✅ audited (§11); the gaps it found are fixed |
@@ -108,6 +109,7 @@ open /tmp/picode-dd/Build/Products/Debug/PiCode.app
 ./Tools/SmokeTest/run-index.sh    # the sidebar's projects are real files, not a hidden database
 ./Tools/SmokeTest/run-sidebar-align.sh  # sidebar row geometry, measured in pixels (GUI)
 ./Tools/SmokeTest/run-sidebar-click.sh  # clicking a project folds its chats, measured in pixels (GUI)
+./Tools/SmokeTest/run-composer.sh       # the composer's keys and box shape (GUI)
 ```
 
 The smoke test is the **acceptance gate for any change to `Models/`,
@@ -149,6 +151,11 @@ The other harnesses exist because they each caught a real bug:
   `get_state.messageCount == get_messages.count`, that `get_entries(since:)`
   returns exactly the entries after the cursor, and that the file is unchanged
   afterwards. It works on a **copy**, so a bug here cannot damage real history.
+  With no argument it picks the largest indexed session — but never the one this
+  process was spawned from (`PI_SESSION_FILE`), because an agent working in this
+  repo makes its own session the largest, and a multi-megabyte file that is
+  still being appended to does not page through inside the harness's 30s budget
+  (`get_entries` times out, which looks like a PiCode bug and is not).
 - **`run-paths.sh`** resolves `PiPaths` in a child process (environment variables
   are read once per process, so each case needs a fresh one) and then launches a
   throwaway `pi --mode rpc` in a temp config directory to confirm Pi really writes
@@ -209,6 +216,21 @@ the user.
     `NSBitmapImageRep(cgImage:).bitmapData` directly: the capture comes back
     alpha-*first* on this machine, so a dark grey pixel reads as a bright red one
     and a colour test measures the wrong rectangle while reporting success.
+  - Both capture the window's **content view**, not the window. See §10: a
+    window-server capture of a window behind another window is solid black, and
+    a harness can share the screen with the running app.
+- **`run-composer.sh`** is the composer's gate: it compiles `ComposerTextView`
+  against the real source, hosts it in a real window, and posts real key events —
+  Return, Shift-Return, Option-Return, Command-Return, Escape, in both
+  `SendKey` modes, with and without the suggestion list — asserting what the
+  composer asked the session to do *and* what the editor still contains, because
+  "sent" with a stray newline in the text is still wrong. The key mapping cannot
+  be guessed from selector names (§10), so the harness asserts the mapping itself.
+  It also measures the prompt box from a capture, against
+  `ComposerMetrics.cornerRadius`, and greps the view for the row order
+  (attach · access · model · thinking · send), the absence of the controls that
+  were deliberately removed, and the absence of a container background behind the
+  composer. Needs a GUI session.
 - **`run-providers.sh`** exercises `PiProviderService` inside a throwaway
   `PI_CODING_AGENT_DIR` and then asks a live `pi` what it makes of the files:
   `0600` mode, masked fingerprints (no key ever printed), atomic writes with no
@@ -320,7 +342,8 @@ protocol logic in views.
 | **Live assistant rows use the predicted base index** | So their IDs match the durable rows once they land. |
 | **`--session <path>` for existing sessions, else new** | Pi's documented way to resume. |
 | **Trust pinned per run with `--approve`/`--no-approve`** | Lets the user answer "trust this project?" once per launch without PiCode writing Pi's config behind their back. |
-| **`NSViewRepresentable` NSTextView composer** | Needed to decide what Return means per `PreferencesStore.SendKey` (`returnKey` vs `commandReturn`), to disable smart substitutions, and to support slash/`@path` completion without fighting SwiftUI's `TextField`. |
+| **`NSViewRepresentable` NSTextView composer** | Needed to decide what Return means per `PreferencesStore.SendKey` (`returnKey` vs `commandReturn`), to disable smart substitutions, and to support slash/`@path` completion without fighting SwiftUI's `TextField`. The decision reads the **event's modifiers**, not the selector: a plain text view reports Shift-Return as plain `insertNewline:` and Command-Return as `noop:`, so a selector-only switch sends on Shift-Return and makes Command-Return mode unsendable (both were shipped, both are now asserted by `run-composer.sh`). Shift always means "add a line", Option always means "queue a follow-up". |
+| **The composer is one box with one control row** | The editor, the attachment chips and the controls live in a single rounded shape at `ComposerMetrics.cornerRadius`, and nothing behind them draws a second one — no bar material under the composer area — so it reads as one object on the page. One row, in the order a prompt is assembled: attach · access · model · thinking · send. Everything that moved out of it is still reachable: steering and follow-ups are `Return`/`Option-Return`, queued messages are transcript rows and Stop puts them back in the editor (`interrupt()`, the documented Stop), and the hard abort is `⌘.` in the Agent menu. The access control is the one Pi actually has — project trust, explained in its popover as *project resources*, not sandboxing, because Pi always runs with the user's own permissions. |
 | **No `.keyboardShortcut(.return)` on Send** | It would double-fire with the text view's Return handling. |
 | **Images via RPC `images`; text files inlined as fenced `@path` blocks** | Pi only accepts images as attachments. Other files are inlined as Markdown so the model can read them, and the fenced block names the path. `AttachmentLoader` rejects anything that is neither an image nor text with a clear message. |
 | **Tree inspector is read-only** | `navigateTree` is SDK/extension-only, not RPC (§9). PiCode shows the tree, and offers Fork/Clone plus an explicit compatibility note. |
@@ -653,6 +676,40 @@ Consequences baked into the controller:
   requires that 'TableHeaderRowContent<…>' conform to 'View'" — pointing at the
   section, not the line. Discard the value (`_ = …`) and recompile before you
   start rewriting the view.
+- **AppKit's Return family, measured** (a real text view, real key events; asserted
+  by `run-composer.sh`):
+
+  | key | selector | `modifierFlags` |
+  | --- | --- | --- |
+  | Return | `insertNewline:` | none |
+  | Shift-Return | `insertNewline:` | `.shift` |
+  | Option-Return | `insertNewlineIgnoringFieldEditor:` | `.option` |
+  | Command-Return | `noop:` | `.command` |
+
+  Two traps: Shift-Return is *not* `insertNewlineIgnoringFieldEditor:` (so a
+  selector-only switch sends the prompt), and Command-Return is `noop:` — an
+  undeclared selector (`Selector(("noop:"))`), which a selector-only switch never
+  matches (so the Command-Return-sends mode could never send). Read
+  `NSApp.currentEvent?.modifierFlags` instead.
+- **SwiftUI's `.continuous` corner is not a circle** (measured, asserted by
+  `run-composer.sh`): the flat span at a rounded rect's top row is narrower than
+  `width - 2r`, so pixel-measuring the corner does not give the radius back.
+  Measured for a 300pt box, through `WindowPixels.capture(_ view:)`: radius 10 →
+  11.0pt inset, 14 → 16.0pt, 18 → 21.0pt, 22 → 26.0pt, corner height ≈ radius + 1.5
+  (`.circular` at 18 → 17.0pt, off the line). The harness converts a measurement
+  back with `1.25 * radius - 1.5`, tolerance 1.5pt — **calibrated for that capture
+  path**; a window-server capture of the same box reads 3.5pt wider.
+- **Do not photograph an occluded window**: `CGWindowListCreateImage` hands back
+  whatever the window server last composited, so a harness window that ends up
+  behind the real app captures **solid black** — and then an assertion like "the
+  box fill is visible" reports content missing rather than capture broken. All
+  three visual harnesses therefore draw the view instead
+  (`WindowPixels.capture(_ view:)`), which cannot be occluded and conveniently
+  leaves the title bar and toolbar out of the picture. Two consequences: the
+  composer's corner calibration is 3.5pt narrower than a window capture would
+  read, and a capture's y now starts at the content view's top edge — which is
+  also where a posted mouse event's coordinates start at the bottom, so a click
+  point is `contentHeight - distanceFromTop` (the title bar is in neither).
 - **Sidebar list layout, measured** (`run-sidebar-align.sh` / `run-sidebar-click.sh`,
   macOS 15, `.listStyle(.sidebar)`):
   - a `listRowBackground` fills the **whole column** — 0 to 140pt in a 140pt
@@ -726,14 +783,21 @@ Consequences baked into the controller:
    updates `sessionFile`/`sessionId` and the sidebar/ephemeral-row behaviour.
 7. **Accessibility pass**: keyboard focus visibility, VoiceOver labels on
    transcript rows and tool cards, Reduce Motion honored.
-8. **Click-to-fold a project by hand.** `run-sidebar-click.sh` now clicks a real
+8. **Paste an attachment into the composer.** `README.md` promises paste of
+   images and text files (twice: the composer section and the parity table), and
+   only the file picker and drag-and-drop exist. The editor is a plain
+   `NSTextView`, so this means overriding `paste(_:)`/`readSelection(from:)` in a
+   subclass: an image on the pasteboard becomes an `Attachment`, a string stays
+   text. Do not intercept plain text paste — `@path` references are typed, not
+   pasted, and a paste that silently becomes an attachment would surprise.
+9. **Click-to-fold a project by hand.** `run-sidebar-click.sh` now clicks a real
    row through the window's event path (3 rows → 1 → 3) in a
    `NavigationSplitView` sidebar, so the hit-testing half is proven. What is left
    is the human half: that the fold survives a relaunch, that the hover highlight
    looks right, that a running search un-folds a match instead of hiding it, and
    that folding the project whose session is open does not disturb the open
    session.
-9. Update this file when you finish any of the above.
+10. Update this file when you finish any of the above.
 
 Already closed by the harnesses (kept here so nobody re-opens them):
 
@@ -767,6 +831,17 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   instead. Rows also share the leading inset a section header does not, which is
   why the indent no longer needs a correction — measure it with
   `run-sidebar-align.sh` after changing the sidebar.
+- **The composer is one shape and one row**: the editor, its attachment chips and
+  its controls share a single rounded box (`ComposerMetrics.cornerRadius`) and
+  nothing behind them fills anything — no bar material under the composer area.
+  A new control goes on that row, left of the model picker if it is an *input*,
+  right of it if it configures the *run*; a new row is a design change, not an
+  addition. Every control there must earn its space: the send button doubles as
+  Stop rather than sitting next to one.
+- **Return-family keys are decided from the event, never the selector**: Shift
+  means "add a line", Option means "queue a follow-up", and the send chord comes
+  from `PreferencesStore.SendKey`. The selector alone is not enough (§10) — and
+  because the mapping is invisible in a diff, `run-composer.sh` asserts it.
 - **Vertical rhythm in the sidebar**: one chat sits as far below the previous
   chat as below its project's name (within 1.5pt — the list's own quirk, §10).
   Nothing gets an extra bottom margin to say "this is a heading": only
@@ -823,6 +898,9 @@ Already closed by the harnesses (kept here so nobody re-opens them):
       (only if you touched the sidebar layout; needs a GUI session)
 - [ ] `./Tools/SmokeTest/run-sidebar-click.sh` → `RESULT: all checks passed`
       (only if you touched the sidebar's rows or highlights; needs a GUI session)
+- [ ] `./Tools/SmokeTest/run-composer.sh` → `RESULT: all checks passed`
+      (only if you touched the composer, the Return key, or `PreferencesStore.SendKey`;
+      needs a GUI session)
 - [ ] The app launches and stays up for a few seconds with no crash report
 - [ ] `git status` shows **no** changes in `~/.pi/agent` (no `trust.json`, no new
       session files, no touched settings)

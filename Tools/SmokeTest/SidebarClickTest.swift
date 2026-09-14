@@ -104,9 +104,12 @@ final class SidebarClickDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Capture
 
+    /// The view, not the window: a window capture asks the window server what it
+    /// last composited, and this window sits behind the real app whenever the app
+    /// is running — then the pill is never found and the harness blames the view.
     private func capture() -> WindowPixels? {
-        guard let pixels = WindowPixels.capture(window) else { return nil }
-        return pixels
+        guard let content = window.contentView else { return nil }
+        return WindowPixels.capture(content)
     }
 
     /// The red pill's rectangle, in pixels.
@@ -184,8 +187,9 @@ final class SidebarClickDelegate: NSObject, NSApplicationDelegate {
                          yRange: pill.y.lowerBound..<pixels.height).count
     }
 
-    /// Window coordinates are bottom-left based, the capture's top-left, and the
-    /// capture starts at the window's top edge.
+    /// The capture's y counts down from the top of the *content view*, window
+    /// coordinates count up from the bottom of it, and the title bar is in
+    /// neither, so the two meet at the content height.
     private func clickPoint(in pill: (x: ClosedRange<Int>, y: ClosedRange<Int>), _ pixels: WindowPixels) -> NSPoint {
         let centre = CGFloat(pill.y.lowerBound + pill.y.upperBound) / 2
         return NSPoint(x: CGFloat(pill.x.lowerBound) / pixels.scale + 40,
