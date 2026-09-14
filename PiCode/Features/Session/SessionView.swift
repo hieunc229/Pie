@@ -10,8 +10,9 @@
 //  box, and the box never grows past two lines (§6). Nothing is rendered below
 //  the composer: the facts a footer used to repeat (runtime, model, thinking,
 //  context, tool counts, git branch, extension status) are in the inspector's
-//  Context pane, and the live ones — streaming, compacting, retrying, the queue —
-//  are in the transcript's own footer.
+//  Context pane. The live status — streaming, compacting, retrying — is in the
+//  transcript's own footer; the queue sits directly above the composer, because
+//  it is the next thing the user is about to send, not something to scroll past.
 //
 
 import SwiftUI
@@ -98,6 +99,10 @@ struct SessionView: View {
                 UntrustedProjectNotice(controller: controller)
             }
 
+            if !controller.queue.isEmpty {
+                queuedPrompts
+            }
+
             ComposerView(state: state, controller: controller, focusTick: composerFocusTick)
         }
         .padding(.top, 8)
@@ -105,6 +110,104 @@ struct SessionView: View {
         .background(GeometryReader { proxy in
             Color.clear.preference(key: ComposerHeightKey.self, value: proxy.size.height)
         })
+    }
+
+    // MARK: - Queue
+
+    /// Prompts typed while Pi was busy, in the order Pi will take them: steers
+    /// first, then follow-ups. They stack directly above the composer, so a
+    /// prompt that is still waiting its turn can never scroll out of sight — and
+    /// "one after another" is visible as a numbered list rather than implied.
+    private var queuedPrompts: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "text.append")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+                Text(queuedMessages.count == 1 ? "1 message queued" : "\(queuedMessages.count) messages queued")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button("Clear") { Task { await controller.clearQueue() } }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+                    .help("Drop everything Pi has queued")
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 7)
+            .padding(.bottom, 5)
+
+            queuedMessageList
+                .padding(.bottom, 5)
+        }
+        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(.separator.opacity(0.6))
+        )
+    }
+
+    /// A short queue grows to fit; a long one scrolls rather than shouldering the
+    /// composer off the bottom of the window.
+    @ViewBuilder
+    private var queuedMessageList: some View {
+        let rows = VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(queuedMessages.enumerated()), id: \.element.id) { index, message in
+                if index > 0 {
+                    Divider().padding(.leading, 32)
+                }
+                queuedMessageRow(position: index + 1, message)
+            }
+        }
+        if queuedMessages.count > 3 {
+            ScrollView { rows }
+                .frame(maxHeight: 140)
+        } else {
+            rows
+        }
+    }
+
+    private func queuedMessageRow(position: Int, _ message: QueuedPrompt) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("\(position)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.tertiary)
+                .frame(width: 16, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(message.text)
+                    .font(Typography.body)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                Text(message.kind.caption)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+    }
+
+    private var queuedMessages: [QueuedPrompt] {
+        controller.queue.steering.map { QueuedPrompt(id: $0.id, text: $0.text, kind: .steer) }
+            + controller.queue.followUp.map { QueuedPrompt(id: $0.id, text: $0.text, kind: .followUp) }
+    }
+
+    private struct QueuedPrompt: Identifiable {
+        enum Kind {
+            case steer, followUp
+
+            var caption: String {
+                switch self {
+                case .steer: return "steers this turn"
+                case .followUp: return "runs after this turn"
+                }
+            }
+        }
+
+        var id: UUID
+        var text: String
+        var kind: Kind
     }
 
     // MARK: - Connection

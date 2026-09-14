@@ -32,12 +32,13 @@ struct ConversationView: View {
                         if controller.items.isEmpty {
                             emptyState
                         } else {
-                            // `TranscriptRows.group` folds neighbouring commands,
-                            // edits and reads into one dimmed line; everything else
-                            // is one item per row. The rows are built from the same
-                            // array the controller holds, so a folded line grows in
-                            // place while a turn is streaming.
-                            ForEach(TranscriptRows.group(controller.items)) { row in
+                            // `TranscriptRows.group` folds a finished turn's
+                            // work into one “Worked for” line and leaves Pi's
+                            // answer in the open; while a turn is streaming it
+                            // folds runs of neighbouring steps instead. The rows
+                            // are built from the same array the controller holds,
+                            // so a line grows in place while a turn is streaming.
+                            ForEach(transcriptRows) { row in
                                 switch row {
                                 case .item(let item):
                                     TranscriptRowView(item: item, controller: controller)
@@ -128,53 +129,56 @@ struct ConversationView: View {
             if controller.isStreaming, controller.retryDescription == nil, !controller.isCompacting {
                 streamingRow
             }
-            if !controller.queue.isEmpty {
-                queuePreview
-            }
         }
     }
 
-    /// A running turn is one compact line: what Pi is doing, which model, and how
-    /// long it has been going. Expanding it shows the recent activity timeline
-    /// inline, so the user does not have to leave the transcript to find out why
-    /// nothing has appeared yet.
+    /// One line: that Pi is working, and how long the *whole turn* has taken. The
+    /// clock deliberately runs from `currentTurnStartedAt`, not
+    /// `streamingStartedAt` — the latter is cleared every time an assistant
+    /// message folds, so a turn with several messages looked like several short
+    /// ones. No disclosure triangle and no model name: the line states one fact,
+    /// and the activity timeline stays one click away on the line itself.
     private var streamingRow: some View {
-        DisclosureGroup(isExpanded: $isActivityExpanded) {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(recentActivity) { entry in
-                    ActivityRowView(entry: entry, showsTimestamp: true)
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { isActivityExpanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Pi is working")
+                        .font(.callout)
+                    if let started = controller.currentTurnStartedAt ?? controller.streamingStartedAt {
+                        TimelineView(.periodic(from: started, by: 1)) { context in
+                            Text(Format.duration(context.date.timeIntervalSince(started)))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
                 }
-                if recentActivity.isEmpty {
-                    Text("Nothing recorded yet.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
             }
-            .padding(.top, 6)
-            .padding(.leading, 2)
-        } label: {
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Pi is working")
-                    .font(.callout)
-                if let model = controller.streamingModel ?? controller.model?.displayName {
-                    Text(model)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if let started = controller.streamingStartedAt {
-                    TimelineView(.periodic(from: started, by: 1)) { context in
-                        Text(Format.duration(context.date.timeIntervalSince(started)))
-                            .font(.caption.monospacedDigit())
+            .buttonStyle(.plain)
+            .help(isActivityExpanded ? "Hide recent activity" : "Show recent activity")
+
+            if isActivityExpanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(recentActivity) { entry in
+                        ActivityRowView(entry: entry, showsTimestamp: true)
+                    }
+                    if recentActivity.isEmpty {
+                        Text("Nothing recorded yet.")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
+                .padding(.top, 6)
+                .padding(.leading, 2)
             }
-            .padding(.vertical, 2)
         }
-        .disclosureGroupStyle(.automatic)
-        .accessibilityLabel("Pi is working. Expand for recent activity.")
+        .accessibilityLabel("Pi is working. Activate to show recent activity.")
     }
 
     private var recentActivity: [ActivityEntry] {
@@ -194,46 +198,24 @@ struct ConversationView: View {
         }
     }
 
-    private var queuePreview: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if !controller.queue.steering.isEmpty {
-                Text("Queued steering messages")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                ForEach(controller.queue.steering) { message in
-                    queuedRow(message.text, icon: "arrow.turn.down.right")
-                }
-            }
-            if !controller.queue.followUp.isEmpty {
-                Text("Queued follow-ups")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                ForEach(controller.queue.followUp) { message in
-                    queuedRow(message.text, icon: "text.append")
-                }
-            }
-        }
-        .padding(.top, 4)
-    }
-
-    private func queuedRow(_ text: String, icon: String) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Image(systemName: icon)
-                .imageScale(.small)
-                .foregroundStyle(.secondary)
-            Text(text)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
-        }
-    }
-
     private var emptyState: some View {
         EmptyStateView(
             systemImage: "text.bubble",
             title: "Nothing here yet",
             message: "Ask Pi to do something below. PiCode streams Pi's real messages, tool calls, and diffs as they happen."
         )
+    }
+
+    // MARK: - Rows
+
+    /// The rows the transcript draws: `TranscriptRows`' layout, minus the runs
+    /// that have nothing to show. Reasoning is hidden, so a run that is only
+    /// reasoning would be a line that opens onto nothing.
+    private var transcriptRows: [TranscriptRow] {
+        TranscriptRows.group(controller.items).filter { row in
+            guard case .group(let items) = row else { return true }
+            return items.contains { $0.kind != .thinking }
+        }
     }
 
     // MARK: - Scrolling

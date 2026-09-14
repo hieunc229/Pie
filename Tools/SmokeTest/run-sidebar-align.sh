@@ -16,13 +16,14 @@ rm -rf "$WORK"
 mkdir -p "$WORK"
 
 # Compile against the real metrics rather than a copy of the numbers.
-python3 - "$ROOT/PiCode/Features/Sidebar/SidebarView.swift" "$WORK/SidebarStyle.swift" <<'PY'
+python3 - "$ROOT/PiCode/Features/Sidebar/SidebarView.swift" "$ROOT/PiCode/Shared/UI/Typography.swift" "$WORK/SidebarStyle.swift" <<'PY'
 import sys
-source, destination = sys.argv[1], sys.argv[2]
+source, typography, destination = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(source).read()
 start = text.index('enum SidebarStyle')
 end = text.index('struct SidebarView')
-open(destination, 'w').write('import SwiftUI\n\n' + text[start:end])
+shared = open(typography).read()
+open(destination, 'w').write('import SwiftUI\n\n' + shared + '\n' + text[start:end])
 PY
 
 echo "== the view wires the metrics the way the measurement assumes =="

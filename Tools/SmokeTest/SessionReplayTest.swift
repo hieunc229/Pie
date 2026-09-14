@@ -84,11 +84,17 @@ enum SessionReplayTest {
         var titlesByFamily: [String: Int] = [:]
         var adjacentGroups = 0
         var nonQuietFold = 0
+        var foldedNarration = 0
         var splitRuns = 0
         var lostItems = 0
         var missingItemRows = 0
         var emptyFoldedSummary = 0
         var foldedThinking = 0
+        var hiddenThinkingSteps = 0
+        var emptyRunRows = 0
+        var commandCallsWithoutText = 0
+        var readCallsWithoutPath = 0
+        var editCallsWithoutBlocks = 0
         var lostFailures = 0
 
         print("== replaying sessions ==")
@@ -197,10 +203,35 @@ enum SessionReplayTest {
                 case .group(let group):
                     foldedItems += group.count
                     if group.count == 1 { foldedSingletons += 1 } else { foldedMultiway += 1 }
+                    // Reasoning is folded but never drawn: `TranscriptRow.visibleSteps`
+                    // leaves it out of the steps the run opens onto, and a run with no
+                    // visible step at all is dropped by `ConversationView`. The harness
+                    // counts both so a regression that leaks reasoning back into a
+                    // title or a step list shows up here.
+                    let visible = TranscriptRow.group(group).visibleSteps
+                    hiddenThinkingSteps += group.count - visible.count
+                    if visible.isEmpty { emptyRunRows += 1 }
                     for item in group {
+                        if item.kind == .toolCall {
+                            // The action rows rebuild their content from the call's
+                            // arguments — a command's text, a read's path, an edit's
+                            // old/new halves. A call that carries none of those would
+                            // open onto nothing, so the harness counts them.
+                            switch QuietFamily.of(item) {
+                            case .command where item.commandText == nil: commandCallsWithoutText += 1
+                            case .read where item.toolFileDisplayName == nil: readCallsWithoutPath += 1
+                            case .edit where item.editBlocks.isEmpty: editCallsWithoutBlocks += 1
+                            default: break
+                            }
+                        }
                         if let family = QuietFamily.of(item) {
                             foldedByFamily[family, default: 0] += 1
                             if family == .thinking { foldedThinking += 1 }
+                        } else if item.kind == .assistant {
+                            // A finished turn folds Pi's notes between calls too, so
+                            // the whole turn is one "Worked for" line. Prose is the
+                            // one thing besides the quiet families that may fold.
+                            foldedNarration += 1
                         } else {
                             nonQuietFold += 1
                         }
@@ -214,7 +245,7 @@ enum SessionReplayTest {
                         // truncated fragment of a first draft says nothing.
                         if item.kind == .toolCall, item.foldedSummary.isEmpty { emptyFoldedSummary += 1 }
                     }
-                    titlesByFamily[row.groupTitle, default: 0] += 1
+                    titlesByFamily[row.headline, default: 0] += 1
                     // Two folded rows in a row means the fold stopped early: the
                     // run between them was folded too, so the boundary was
                     // invented rather than found.
@@ -271,18 +302,26 @@ enum SessionReplayTest {
         // this machine rather than over an example written to pass.
         check("folding keeps every item", lostItems == 0 && missingItemRows == 0,
               "\(lostItems) item(s) lost, \(missingItemRows) unreachable through any row")
-        check("only thinking/command/edit/read rows fold", nonQuietFold == 0,
-              "\(nonQuietFold) folded row(s) from another tool")
+        check("only process rows fold", nonQuietFold == 0,
+              "\(nonQuietFold) folded row(s) that were neither a step nor a note")
         check("a fold is one maximal run", adjacentGroups == 0 && splitRuns == 0,
               "\(adjacentGroups) adjacent group pair(s), \(splitRuns) run(s) split apart")
         check("every folded call has a line to identify it", emptyFoldedSummary == 0,
               "\(emptyFoldedSummary) with no command and no path")
         check("reasoning folds with the steps it belongs to", foldedThinking == thinkingBlocks,
               "\(foldedThinking) of \(thinkingBlocks) reasoning block(s) folded")
+        check("reasoning is hidden from every run", hiddenThinkingSteps == foldedThinking,
+              "\(hiddenThinkingSteps) of \(foldedThinking) folded reasoning block(s) hidden")
+        check("a run that is only reasoning is not a row", emptyRunRows > 0 && emptyRunRows <= foldedThinking,
+              "\(emptyRunRows) run(s) would draw nothing")
+        check("every folded action can draw its content",
+              commandCallsWithoutText == 0 && readCallsWithoutPath == 0 && editCallsWithoutBlocks == 0,
+              "\(commandCallsWithoutText) command(s) without text, \(readCallsWithoutPath) read(s) without a path, \(editCallsWithoutBlocks) edit(s) without blocks")
         check("folding touched real sessions", foldedItems > 0,
               "\(foldedItems) step(s) folded out of \(toolCalls) calls and \(thinkingBlocks) reasoning blocks")
         print("  folding:   \(foldedItems) step(s) in \(foldRows) row(s) —"
               + " \(foldedSingletons) alone, \(foldedMultiway) in a run;"
+              + " \(foldedNarration) folded note(s);"
               + " families " + foldedByFamily.sorted { $0.value > $1.value }
                 .map { "\($0.key.rawValue)=\($0.value)" }.joined(separator: " "))
         print("  folded lines: " + titlesByFamily.sorted { $0.value > $1.value }

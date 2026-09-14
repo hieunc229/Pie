@@ -57,7 +57,7 @@ check_absent "$PREFERENCES" 'case shiftReturn' "SendKey has no third mode the ha
 
 check_source "$COMPOSER" 'ComposerAccessControl(controller: controller)' "access/trust sits in the control row"
 check_source "$COMPOSER" 'iconButton("paperclip"' "attach sits in the control row"
-check_source "$COMPOSER" '.background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius' \
+check_source "$COMPOSER" 'in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius' \
     "the box is the only filled shape, at ComposerMetrics.cornerRadius"
 check_source "$COMPOSER" 'onFollowUp: { send(delivery: .followUp) }' "Option-Return can queue a follow-up"
 check_absent "$COMPOSER" 'Send as steering message' "the steering/follow-up dropdown is gone"
@@ -145,6 +145,7 @@ SWIFT
 
 SDK="$(xcrun --show-sdk-path --sdk macosx)"
 swiftc -sdk "$SDK" -target "$(uname -m)-apple-macos14.0" -swift-version 5 \
+    "$ROOT/PiCode/Shared/UI/Typography.swift" \
     "$WORK/SendKeyStub.swift" "$WORK/ComposerMetrics.swift" \
     "$ROOT/PiCode/Features/Composer/ComposerTextView.swift" \
     "$ROOT/PiCode/Features/Conversation/ConversationLayout.swift" \

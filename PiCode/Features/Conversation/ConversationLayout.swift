@@ -32,11 +32,15 @@ enum ConversationLayout {
     /// padding goes *inside* the cap (see `ConversationColumn`).
     static var maxColumnWidth: CGFloat { maxContentWidth + horizontalPadding * 2 }
 
-    /// How far content sits inside the line that owns it: a call inside the run
-    /// that holds it, a call's output under its own summary, and reasoning under
-    /// its `Thinking` label. One number, so a row that is folded two levels deep is
-    /// still indented by the same step as one folded once — and so the transcript
-    /// never spends two steps' worth of width on indentation.
+    /// How far a step's *content* sits inside the line that owns it: a call's
+    /// output under its own summary, reasoning under its `Thinking` line. One
+    /// number, so the transcript never spends two steps' worth of width on
+    /// indentation.
+    ///
+    /// It is not applied to the list of steps inside a run: a step's glyph belongs
+    /// in the same column as the run's own glyph, so the labels of a run and the
+    /// steps under it line up down the page. Indentation here means "this belongs to
+    /// the line above", not "this is one level deeper".
     static let nestedIndent: CGFloat = 15
 }
 

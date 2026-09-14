@@ -5,10 +5,11 @@
 //  Everything a tool call has to show once it is open: what it asked for, which
 //  files it touched, and what came back.
 //
-//  It is separate from `ToolCallCard` because two different rows draw it — the
-//  card a `grep` or a `task` still gets, and the folded line a command, an edit or
-//  a read gets (`ToolGroupView`) — and a read's file list or an edit's diffstat must
-//  not be able to drift between them.
+//  It is separate from `ToolCallCard` because two different rows draw it: the card
+//  a `grep`, a `task` or an unknown tool gets, and the folded line an orphaned
+//  result gets. The three repeating actions — a command, a read and an edit — are
+//  not drawn here; they get their own shape in `ActionContent` rather than the
+//  generic arguments-and-output form.
 //
 
 import SwiftUI
@@ -29,7 +30,7 @@ struct ToolCallContent: View {
             if showsArguments, let arguments = item.toolArguments {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Arguments")
-                        .font(.caption.weight(.semibold))
+                        .font(Typography.bodySemibold)
                         .foregroundStyle(.secondary)
                     SyntaxText(text: arguments.prettyDescription, language: SyntaxLanguage(identifier: "json"))
                         .padding(8)
@@ -52,7 +53,7 @@ struct ToolCallContent: View {
                                 openChange(change.path)
                             } label: {
                                 Text(change.path)
-                                    .font(.callout.monospaced())
+                                    .font(Typography.code)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                     .foregroundStyle(.primary)
@@ -70,7 +71,7 @@ struct ToolCallContent: View {
                             .buttonStyle(.borderless)
                             .help("Reveal in Finder")
                         }
-                        .font(.callout)
+                        .font(Typography.body)
                     }
                 }
             }
@@ -81,7 +82,7 @@ struct ToolCallContent: View {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
                     Text("Running…")
-                        .font(.callout)
+                        .font(Typography.body)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -92,11 +93,11 @@ struct ToolCallContent: View {
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
                     Text("Pi truncated this output. Full text saved at \(path.abbreviatingHomeDirectory).")
-                        .font(.caption)
+                        .font(Typography.body)
                         .foregroundStyle(.secondary)
                     Button("Reveal") { WorkspaceLauncher.reveal(path) }
                         .buttonStyle(.borderless)
-                        .font(.caption)
+                        .font(Typography.body)
                 }
             }
 
@@ -105,14 +106,14 @@ struct ToolCallContent: View {
             // header.
             if isFailure, item.toolOutput.map(\.isEmpty) ?? true {
                 Text("This tool reported a failure without output.")
-                    .font(.callout)
+                    .font(Typography.body)
                     .foregroundStyle(.red)
             }
 
             if showsDetails, let details = item.toolDetails, !details.isNull {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Structured result")
-                        .font(.caption.weight(.semibold))
+                        .font(Typography.bodySemibold)
                         .foregroundStyle(.secondary)
                     SyntaxText(text: details.prettyDescription, language: SyntaxLanguage(identifier: "json"))
                         .padding(8)
@@ -131,7 +132,7 @@ struct ToolCallContent: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Output")
-                        .font(.caption.weight(.semibold))
+                        .font(Typography.bodySemibold)
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                     if controller.isStreaming, item.toolStatus == .running {

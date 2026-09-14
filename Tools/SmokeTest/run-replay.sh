@@ -4,7 +4,7 @@
 # writes to ~/.pi/agent.
 #
 # Also checks the transcript's folding rule (`TranscriptRows.group`) over those
-# same sessions: nothing lost, only quiet tool calls folded, runs maximal.
+# same sessions: nothing lost, only a turn's own process folded, runs maximal.
 #
 #   ./Tools/SmokeTest/run-replay.sh
 set -euo pipefail

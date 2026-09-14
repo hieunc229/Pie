@@ -29,7 +29,7 @@ struct ToolCallCard: View {
 
             if !isInputExpanded, !item.toolInputSummary.isEmpty {
                 Text(item.toolInputSummary)
-                    .font(.callout.monospaced())
+                    .font(Typography.code)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .lineLimit(4)
@@ -69,7 +69,7 @@ struct ToolCallCard: View {
                 .foregroundStyle(statusTint)
 
             Text(item.toolName ?? "tool")
-                .font(.callout.weight(.semibold))
+                .font(Typography.bodySemibold)
 
             statusPill
 

@@ -358,7 +358,16 @@ final class PiSessionController {
         guard !body.isEmpty || !images.isEmpty else { return false }
 
         let busy = runtime.isBusy
-        addOptimisticUserItem(text: body)
+        // A message that goes into the queue is *not* part of the conversation
+        // yet: it has not been said, Pi has not seen it, and a transcript row for
+        // it would claim otherwise. It is shown in the queue above the composer
+        // until its turn comes, at which point Pi echoes it back and it enters the
+        // transcript like any other message. An idle send still gets an optimistic
+        // row, so pressing Return looks immediate.
+        let queuesForLater = busy || delivery != .automatic
+        if !queuesForLater {
+            addOptimisticUserItem(text: body)
+        }
 
         do {
             switch delivery {

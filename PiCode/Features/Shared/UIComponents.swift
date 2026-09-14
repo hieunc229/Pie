@@ -331,7 +331,7 @@ struct CollapsibleText: View {
                         isExpanded ? "Show less" : "Show \(lines - lineLimit) more lines",
                         systemImage: isExpanded ? "chevron.up" : "chevron.down"
                     )
-                    .font(.caption)
+                    .font(Typography.body)
                 }
                 .buttonStyle(.borderless)
             }
@@ -362,7 +362,7 @@ struct SyntaxText: View {
 
     var body: some View {
         Text(attributed)
-            .font(.system(.callout, design: .monospaced))
+            .font(Typography.code)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: !wraps)

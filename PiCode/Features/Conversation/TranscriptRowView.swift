@@ -7,21 +7,73 @@
 //
 
 import SwiftUI
+import AppKit
+
+/// The transcript's one fill.
+///
+/// The user's own message is the only thing in the column that is not the agent's
+/// output, so it is the only thing that gets a colour of its own: a pale blue.
+/// `.quaternary` cannot do this — it goes the wrong way in dark mode, the same
+/// reason the sidebar's search field names its own fill (§12) — so the appearance
+/// is asked for explicitly, and in dark mode the hue is kept and the light is
+/// dropped, because a fill that pale glares against a dark background.
+///
+/// It is deliberately *blue* rather than the accent colour: the accent follows the
+/// window's focus (and the user's system setting), and a message colour that
+/// changes when a window loses focus is not a message colour.
+enum TranscriptStyle {
+    /// The transcript has **one size** — the app's one reading size, shared with
+    /// the sidebar menu and the composer (`Typography.baseSize`). A conversation is
+    /// not a document: a heading larger than the paragraph under it, or an action
+    /// line smaller than the reply it sits between, makes the reader's eye jump for
+    /// no gain — and the reply is the thing being read. Headings keep their weight
+    /// and code keeps its monospace, but nothing in this column changes size, so a
+    /// turn reads as one piece of writing. Change it here and the content, the
+    /// actions and the folded lines all change together.
+    static let text: Font = Typography.body
+
+    /// Code, commands, paths and JSON: the same size as prose, in monospace.
+    static let code: Font = Typography.code
+
+    /// The transcript is read as prose, and prose wants more air between lines
+    /// than the system gives it. The target is 1.6× the base font's natural line
+    /// height, but `.lineSpacing` only adds the *extra* points on top of that
+    /// natural height — so the extra is derived from `Typography.baseSize` rather
+    /// than hardcoded, and stays honest if the reading size changes.
+    static let lineHeightMultiple: CGFloat = 1.6
+
+    /// A little more air between lines than the system default, wherever text wraps
+    /// — prose, reasoning, output. Monospaced output is the densest thing on the
+    /// page and the thing most likely to be read line by line, so it gets it too.
+    static var lineSpacing: CGFloat {
+        let natural = NSLayoutManager().defaultLineHeight(for: .systemFont(ofSize: Typography.baseSize))
+        return max(0, Typography.baseSize * lineHeightMultiple - natural)
+    }
+
+    static func userBubbleFill(_ scheme: ColorScheme) -> Color {
+        switch scheme {
+        case .dark: return Color(.sRGB, red: 0.20, green: 0.42, blue: 0.68, opacity: 0.40)
+        default: return Color(.sRGB, red: 0.84, green: 0.91, blue: 0.99, opacity: 1)
+        }
+    }
+}
 
 struct TranscriptRowView: View {
     var item: TranscriptItem
     var controller: PiSessionController
+
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
             switch item.kind {
             case .user: userRow
             case .assistant: assistantRow
-            // Reasoning is folded, and folded by `TranscriptRows` like any other
-            // quiet step: a `Thinking` between two commands is part of that run,
-            // and a `Thinking` on its own is a run of one. The row it draws is
-            // `ToolGroupView`'s, so there is one implementation of the line.
-            case .thinking: ToolGroupView(items: [item], controller: controller)
+            // Reasoning is never drawn. Inside a run it is part of the fold but not
+            // one of its steps (`TranscriptRow.visibleSteps`); on its own — which the
+            // grouping never produces, but a row built by hand might — it draws
+            // nothing at all rather than a line that opens onto a draft.
+            case .thinking: EmptyView()
             case .toolCall: ToolCallCard(item: item, controller: controller)
             case .toolResult: toolResultRow
             case .system: systemRow
@@ -36,26 +88,25 @@ struct TranscriptRowView: View {
 
     // MARK: - User
 
+    /// The user's own message: the text, and a fill, and nothing else.
+    ///
+    /// It used to carry a `You` badge, an avatar, a timestamp and a copy button,
+    /// and a reply used to carry the model's name, the token count, the cost and the
+    /// stop reason. None of that is the conversation: the transcript is what was
+    /// said, and everything else is a fact about the turn that the inspector's
+    /// Context pane and the message's own context menu already hold. Copy and branch
+    /// are on that menu, where they cost nothing until asked for.
     private var userRow: some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            HStack(spacing: 6) {
-                rowActions
-                Text("You")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Image(systemName: "person.fill")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-            }
-            Text(item.text)
-                .font(.body)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .multilineTextAlignment(.leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
+        Text(item.text)
+            .font(TranscriptStyle.text)
+            .lineSpacing(TranscriptStyle.lineSpacing)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(TranscriptStyle.userBubbleFill(colorScheme),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         // The spec calls for a compact prompt bubble on the trailing edge, so the
         // bubble hugs its text and is capped rather than spanning the transcript.
         .frame(maxWidth: 520, alignment: .trailing)
@@ -73,51 +124,22 @@ struct TranscriptRowView: View {
 
     // MARK: - Assistant
 
+    /// A reply is its content. No `sparkles`, no model name, no `streaming` pill, no
+    /// token/cost/stop-reason line — `toolUse` was the last of those and the least
+    /// useful: it named the mechanism of the turn in the middle of the answer.
     private var assistantRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                Text(item.modelName ?? controller.model?.displayName ?? "Assistant")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                if item.isStreaming {
-                    StatusPill(text: "streaming", tint: .secondary)
-                }
-                Spacer(minLength: 0)
-                rowActions
-            }
-
-            MarkdownView(text: item.text, isStreaming: item.isStreaming)
-
-            if let usage = item.usage, !usage.isEmpty, !item.isStreaming {
-                HStack(spacing: 10) {
-                    if usage.totalTokens > 0 {
-                        Label(Format.tokens(usage.totalTokens), systemImage: "number")
-                    }
-                    if usage.cost > 0 {
-                        Label(usage.cost.currencyString, systemImage: "dollarsign.circle")
-                    }
-                    if let stopReason = item.stopReason, stopReason != "stop" {
-                        Label(stopReason, systemImage: "flag")
+        MarkdownView(text: item.text, isStreaming: item.isStreaming)
+            .contextMenu {
+                Button("Copy Message") { WorkspaceLauncher.copyToPasteboard(item.text) }
+                // Pi forks at user messages (`get_fork_messages` returns user entries
+                // only), so an assistant reply branches from the message that asked
+                // for it — the text Pi hands back is that message, ready to edit.
+                if let entryId = item.forkEntryId {
+                    Button("Branch from the message above…") {
+                        Task { await controller.fork(fromEntryId: entryId) }
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(.tertiary)
             }
-        }
-        .contextMenu {
-            Button("Copy Message") { WorkspaceLauncher.copyToPasteboard(item.text) }
-            // Pi forks at user messages (`get_fork_messages` returns user entries
-            // only), so an assistant reply branches from the message that asked
-            // for it — the text Pi hands back is that message, ready to edit.
-            if let entryId = item.forkEntryId {
-                Button("Branch from the message above…") {
-                    Task { await controller.fork(fromEntryId: entryId) }
-                }
-            }
-        }
     }
 
     // MARK: - Tool result without a call
@@ -129,7 +151,7 @@ struct TranscriptRowView: View {
                     .imageScale(.small)
                     .foregroundStyle(.secondary)
                 Text("Tool result\(item.toolName.map { ": \($0)" } ?? "")")
-                    .font(.caption.weight(.semibold))
+                    .font(TranscriptStyle.text.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 rowActions
@@ -150,11 +172,12 @@ struct TranscriptRowView: View {
             VStack(alignment: .leading, spacing: 3) {
                 if let badge = item.badge {
                     Text(badge)
-                        .font(.caption.weight(.semibold))
+                        .font(TranscriptStyle.text.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
                 Text(MarkdownInline.attributed(item.text))
-                    .font(.callout)
+                    .font(TranscriptStyle.text)
+                    .lineSpacing(TranscriptStyle.lineSpacing)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -170,14 +193,15 @@ struct TranscriptRowView: View {
                 .foregroundStyle(.red)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Pi reported an error")
-                    .font(.callout.weight(.semibold))
+                    .font(TranscriptStyle.text.weight(.semibold))
                 Text(item.errorMessage ?? item.text)
-                    .font(.callout)
+                    .font(TranscriptStyle.text)
+                    .lineSpacing(TranscriptStyle.lineSpacing)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if let stopReason = item.stopReason {
                     Text("stop reason: \(stopReason)")
-                        .font(.caption.monospaced())
+                        .font(TranscriptStyle.code)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -201,7 +225,7 @@ struct TranscriptRowView: View {
                 .imageScale(.small)
                 .foregroundStyle(.secondary)
             Text(kind.label)
-                .font(.callout)
+                .font(TranscriptStyle.text)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
@@ -216,7 +240,7 @@ struct TranscriptRowView: View {
                 .imageScale(.small)
                 .foregroundStyle(.orange)
             Text(item.text)
-                .font(.callout)
+                .font(TranscriptStyle.text)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
@@ -226,7 +250,7 @@ struct TranscriptRowView: View {
         HStack(spacing: 8) {
             Rectangle().fill(.separator).frame(height: 1)
             Text(item.text)
-                .font(.caption)
+                .font(TranscriptStyle.text)
                 .foregroundStyle(.tertiary)
                 .fixedSize()
             Rectangle().fill(.separator).frame(height: 1)

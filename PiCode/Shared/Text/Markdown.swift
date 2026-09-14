@@ -322,9 +322,16 @@ enum MarkdownInline {
         let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
         guard !matches.isEmpty else { return text }
 
+        // A path inside an authored link's label or destination, or inside an
+        // inline code span, is already marked up. Rewriting it would turn
+        // `[path](picode://file?path=…)` into literal text, because the path in
+        // the URL is itself a match.
+        let protected = alreadyMarkedRanges(in: text)
+
         var result = ""
         var cursor = 0
         for match in matches {
+            guard !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { continue }
             let full = ns.substring(with: match.range)
             guard MarkdownInline.isLikelyFilePath(full) else { continue }
             result += ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
@@ -340,6 +347,15 @@ enum MarkdownInline {
         }
         result += ns.substring(from: cursor)
         return result
+    }
+
+    /// Spans that are already markdown: authored links and inline code. Returned as
+    /// `NSRange`s so the linker can skip any file path that falls inside one.
+    private static func alreadyMarkedRanges(in text: String) -> [NSRange] {
+        let pattern = #"\[[^\]]*\]\([^)]*\)|`[^`\n]*`"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let ns = text as NSString
+        return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).map(\.range)
     }
 
     /// Guards against turning prose numbers like `3.14` or versions into links.
@@ -364,16 +380,67 @@ enum MarkdownInline {
         guard var attributed = try? AttributedString(markdown: prepared, options: options) else {
             return AttributedString(text)
         }
-        // Inline code should be monospaced with a subtle background, matching the
-        // rest of the UI rather than the system default.
+        // Inline code is monospaced, matching the rest of the UI rather than the
+        // system default, at the same size as the prose around it — the transcript
+        // is one size, and code is not a second one. Its color is left alone so it
+        // reads the same as the surrounding text.
         let codeRuns = attributed.runs
             .filter { $0.inlinePresentationIntent?.contains(.code) == true }
             .map(\.range)
         for range in codeRuns {
-            attributed[range].font = .system(.body, design: .monospaced)
-            attributed[range].foregroundColor = Color(nsColor: .systemPink)
+            attributed[range].font = Typography.code
+        }
+        // A file link shows the file's own name, not the path the agent printed:
+        // `TranscriptRows.swift` reads better inline than
+        // `PiCode/Features/Conversation/TranscriptRows.swift`, and the path is still
+        // what the click carries.
+        attributed = shorteningFileLinkLabels(attributed)
+        // Links should read as links: plain blue, underlined, independent of the
+        // user's accent colour (which may not be blue at all).
+        let linkRuns = attributed.runs
+            .filter { $0.link != nil }
+            .map(\.range)
+        for range in linkRuns {
+            attributed[range].foregroundColor = .blue
+            attributed[range].underlineStyle = .single
         }
         return attributed
+    }
+
+    /// Rewrites the visible text of `picode://` file links that name a path, so the
+    /// link reads as just the file's own name. Only links whose label actually
+    /// carries a directory are touched, and only `picode://` ones: a hand-written
+    /// label (`[the parser](picode://…)`) and an external URL are left alone.
+    private static func shorteningFileLinkLabels(_ attributed: AttributedString) -> AttributedString {
+        var result = attributed
+        // Back to front, so shortening a later run cannot invalidate the range of an
+        // earlier one.
+        for run in attributed.runs.reversed() where run.link?.scheme == "picode" {
+            let label = String(attributed[run.range].characters)
+            guard let shortened = shortenedFileLinkLabel(label) else { continue }
+            var replacement = AttributedString(shortened)
+            replacement.setAttributes(run.attributes)
+            result.replaceSubrange(run.range, with: replacement)
+        }
+        return result
+    }
+
+    /// `PiCode/Features/Conversation/TranscriptRows.swift` → `TranscriptRows.swift`,
+    /// keeping a trailing `:42`. Returns `nil` when there is nothing to shorten, so
+    /// an already-bare name (or a non-path label) is left exactly as written.
+    private static func shortenedFileLinkLabel(_ label: String) -> String? {
+        let (path, line) = splitTrailingLineNumber(label)
+        guard path.contains("/") else { return nil }
+        let name = (path as NSString).lastPathComponent
+        guard !name.isEmpty, name != path else { return nil }
+        return line.map { "\(name):\($0)" } ?? name
+    }
+
+    private static func splitTrailingLineNumber(_ label: String) -> (path: String, line: String?) {
+        guard let colon = label.lastIndex(of: ":") else { return (label, nil) }
+        let suffix = label[label.index(after: colon)...]
+        guard !suffix.isEmpty, suffix.allSatisfy(\.isNumber) else { return (label, nil) }
+        return (String(label[..<colon]), String(suffix))
     }
 }
 

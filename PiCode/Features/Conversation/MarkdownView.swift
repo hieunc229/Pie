@@ -107,12 +107,14 @@ struct MarkdownView: View {
         case .heading(let level, let text):
             Text(inline(text))
                 .font(headingFont(level))
+                .lineSpacing(TranscriptStyle.lineSpacing)
                 .textSelection(.enabled)
                 .padding(.top, level <= 2 ? 4 : 0)
 
         case .paragraph(let text):
             Text(inline(text))
-                .font(.body)
+                .font(Typography.body)
+                .lineSpacing(TranscriptStyle.lineSpacing)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -134,7 +136,8 @@ struct MarkdownView: View {
                     .fill(.tertiary)
                     .frame(width: 3)
                 Text(inline(lines.joined(separator: "\n")))
-                    .font(.body)
+                    .font(Typography.body)
+                    .lineSpacing(TranscriptStyle.lineSpacing)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -150,7 +153,7 @@ struct MarkdownView: View {
         case .rawHTML(let raw):
             VStack(alignment: .leading, spacing: 4) {
                 Text("Raw HTML block")
-                    .font(.caption.weight(.semibold))
+                    .font(Typography.bodySemibold)
                     .foregroundStyle(.secondary)
                 SyntaxText(text: raw, language: SyntaxLanguage(family: .markup, label: "HTML"))
                     .foregroundStyle(.secondary)
@@ -166,11 +169,11 @@ struct MarkdownView: View {
     }
 
     private func headingFont(_ level: Int) -> Font {
+        // Headings keep their *weight*, not a size: the transcript is one column of
+        // one size (`TranscriptStyle`), and a heading that grows breaks it.
         switch level {
-        case 1: return .title2.weight(.semibold)
-        case 2: return .title3.weight(.semibold)
-        case 3: return .headline
-        default: return .subheadline.weight(.semibold)
+        case 1: return Typography.body.weight(.bold)
+        default: return Typography.bodySemibold
         }
     }
 
@@ -184,12 +187,13 @@ struct MarkdownView: View {
                             .foregroundStyle(item.isChecked == true ? Color.accentColor : Color.secondary)
                     } else {
                         Text(ordered ? "\(index + 1)." : "•")
-                            .font(.body.monospacedDigit())
+                            .font(Typography.body.monospacedDigit())
                             .foregroundStyle(.secondary)
                             .frame(minWidth: 16, alignment: .trailing)
                     }
                     Text(inline(item.text))
-                        .font(.body)
+                        .font(Typography.body)
+                        .lineSpacing(TranscriptStyle.lineSpacing)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -206,26 +210,23 @@ struct CodeBlockView: View {
     var code: String
     var isComplete: Bool = true
 
+    /// Code blocks start folded: a reply with three blocks in it is mostly code,
+    /// and the prose is what is being read. The header stays, so the block is still
+    /// named, still copyable, and one click from open.
+    @State private var isExpanded = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Text(language.label)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                if !isComplete {
-                    StatusPill(text: "streaming", systemImage: "ellipsis", tint: .secondary)
+            header
+
+            if isExpanded {
+                Divider()
+
+                ScrollView(.horizontal, showsIndicators: true) {
+                    SyntaxText(text: code, language: language, wraps: false)
+                        .padding(10)
                 }
-                Spacer(minLength: 0)
-                CopyButton(text: code, help: "Copy code")
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-
-            Divider()
-
-            ScrollView(.horizontal, showsIndicators: true) {
-                SyntaxText(text: code, language: language, wraps: false)
-                    .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
@@ -233,6 +234,42 @@ struct CodeBlockView: View {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .stroke(.separator.opacity(0.6))
         )
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text(language.label)
+                .font(Typography.body)
+                .foregroundStyle(.secondary)
+            if !isComplete {
+                StatusPill(text: "streaming", systemImage: "ellipsis", tint: .secondary)
+            }
+            if !isExpanded {
+                Text(lineCount == 1 ? "1 line" : "\(lineCount) lines")
+                    .font(Typography.body)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
+            } label: {
+                Label(isExpanded ? "Hide" : "Show",
+                      systemImage: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(Typography.body)
+            }
+            .buttonStyle(.borderless)
+            .help(isExpanded ? "Hide this code block" : "Show this code block")
+            .accessibilityLabel(isExpanded ? "Hide code" : "Show code")
+
+            CopyButton(text: code, help: "Copy code")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    private var lineCount: Int {
+        code.isEmpty ? 0 : code.split(separator: "\n", omittingEmptySubsequences: false).count
     }
 }
 
@@ -248,7 +285,8 @@ struct MarkdownTableView: View {
                 GridRow {
                     ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
                         Text(MarkdownInline.attributed(header))
-                            .font(.callout.weight(.semibold))
+                            .font(Typography.bodySemibold)
+                            .lineSpacing(TranscriptStyle.lineSpacing)
                             .textSelection(.enabled)
                     }
                 }
@@ -259,7 +297,8 @@ struct MarkdownTableView: View {
                     GridRow {
                         ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
                             Text(MarkdownInline.attributed(cell))
-                                .font(.callout)
+                                .font(Typography.body)
+                                .lineSpacing(TranscriptStyle.lineSpacing)
                                 .textSelection(.enabled)
                         }
                     }

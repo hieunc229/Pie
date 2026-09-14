@@ -19,16 +19,17 @@ import SwiftUI
 /// semantic styles do not line up here (macOS puts `.callout` and `.body` at the
 /// same 13pt while a section header at `.caption` is smaller).
 enum SidebarStyle {
-    /// One size for a project and for every chat under it. 13pt regular: a menu of
-    /// names, not a document, and nothing in it is a heading.
-    static let rowFont = Font.system(size: 13, weight: .regular)
+    /// One size for a project and for every chat under it — the app's one reading
+    /// size (`Typography.baseSize`). 13pt regular: a menu of names, not a document,
+    /// and nothing in it is a heading.
+    static let rowFont = Typography.body
     /// Left edge of the sidebar's own content: the search field's fill and the
     /// project glyph both start here.
     static let sidebarMargin: CGFloat = 10
     /// Slightly larger than the text, the way a Finder folder glyph sits next to
     /// its name. Fixed width *and* height so the glyph cannot make a project row
     /// taller than a chat row — the two must keep the same vertical rhythm.
-    static let projectIconSize: CGFloat = 15
+    static let projectIconSize: CGFloat = 11
     /// How far left of its row the project glyph is drawn. The list style insets
     /// rows about 19pt from the sidebar edge while the search field sits at 10, so
     /// the glyph is shifted by the difference to line up with the field; 9pt puts
@@ -80,7 +81,7 @@ enum SidebarStyle {
     /// size. `run-sidebar-align.sh` fails on a heavier weight appearing in this
     /// file.
     static let captionFont = Font.system(size: 11, weight: .regular)
-    static let messageFont = Font.system(size: 13, weight: .regular)
+    static let messageFont = Typography.body
     /// How far a chat title is inset so it starts where its project's *name*
     /// starts rather than under the folder glyph. Exact because a project is a
     /// row like a chat is, so both get the same leading inset (a `Section` header
@@ -165,7 +166,7 @@ struct SidebarView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
                 .imageScale(.small)
-            TextField("Search sessions", text: $state.sidebarQuery)
+            TextField("Search", text: $state.sidebarQuery)
                 .textFieldStyle(.plain)
                 .font(SidebarStyle.rowFont)
                 .focused($isSearching)

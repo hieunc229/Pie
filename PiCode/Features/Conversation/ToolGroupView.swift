@@ -2,19 +2,21 @@
 //  ToolGroupView.swift
 //  PiCode
 //
-//  The dimmed, folded line that the quiet rows get instead of a card.
+//  The dimmed, folded line that a turn's process gets instead of a card per step.
 //
-//  One line — "Thinking", "Run command", "Edited files", "Read files" — with the
-//  call's own summary beside it, closed by default. Clicking it opens the content;
-//  for a run of several steps, clicking it opens a *list* of those steps, and
-//  clicking one of them opens that step's output or reasoning. Two levels, because
-//  a turn that ran six commands has six outputs and showing all of them on one
-//  click is the noise this exists to remove.
+//  One line, closed by default. A finished turn's line is “Worked for 1m 12s”; a
+//  run that is still arriving keeps the family list — "Run command", "Edited
+//  files", "Read files" — with the call's own summary beside it. Clicking opens
+//  the content; for a run of several steps, clicking opens a *list* of those steps,
+//  and clicking one of them opens that step's terminal block, file or diff. Two
+//  levels, because a turn that ran six commands has six outputs and showing all of
+//  them on one click is the noise this exists to remove.
 //
-//  A reasoning step is one of the steps: inside an opened run it is a line that
-//  says `Thinking`, and opening it shows the reasoning. It is identified by its
-//  family rather than by a preview of the text, because reasoning is a messy first
-//  draft and a middle-truncated fragment of it on a collapsed line says nothing.
+//  Reasoning is not a step. It belongs to the run — it is why the run took the
+//  time it did, and it keeps the line live while it streams — but it is not drawn:
+//  `TranscriptRow.visibleSteps` leaves it out, and a run that is only reasoning is
+//  dropped by `ConversationView`. A note Pi wrote between two calls *is* a step,
+//  labelled `Said`, and opening it shows the note as prose.
 //
 //  Two things are deliberately *not* folded away:
 //
@@ -23,12 +25,13 @@
 //    * a command that is still running. The line keeps a spinner and its elapsed
 //      time, so "Pi is doing something" stays visible without being expanded.
 //
-//  There is no chevron. These lines are dimmed and short, and a column of little
-//  arrows down the left of the conversation is more furniture than the fold is
-//  worth; the line *is* the control — clicking anywhere along it opens it, the
-//  pointer lifts the dimming, and the tooltip names what will happen. That is the
-//  transcript's only way of saying "there is more under this": `TranscriptRowView`
-//  hands every quiet step here rather than drawing a line of its own.
+//  There is a chevron, and it says one thing: this line opens. A completed run is a
+//  single “Worked for 1m 12s” row, and the triangle is what tells the eye that the
+//  process is under it rather than that the row is itself the whole story. The line
+//  is still the control — clicking anywhere along it opens it, the pointer lifts the
+//  dimming, and the tooltip names what will happen — but the affordance is no longer
+//  carried by dimming alone. `TranscriptRowView` hands every quiet step here rather
+//  than drawing a line of its own.
 //
 
 import SwiftUI
@@ -42,24 +45,32 @@ struct ToolGroupView: View {
 
     private var row: TranscriptRow { .group(items) }
 
+    /// The steps the run draws. Reasoning is part of `items` — the run keeps its
+    /// duration and its live state from it — but it is not one of them.
+    private var steps: [TranscriptItem] { row.visibleSteps }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             header
 
             if isExpanded {
-                if items.count == 1, let item = items.first {
+                if steps.count == 1, let item = steps.first {
                     // One step: the content *is* the list, so it opens directly
                     // under the line rather than behind a second click.
                     QuietStepContent(item: item, controller: controller)
                         .padding(.top, 2)
                 } else {
+                    // The list is *not* indented: a step's glyph belongs in the same
+                    // column as the run's own glyph, so the run and everything under
+                    // it read as one block and the labels line up down the page. The
+                    // indent starts inside a step, where its content opens — see
+                    // `ToolActionRow`.
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(items) { item in
+                        ForEach(steps) { item in
                             ToolActionRow(item: item, controller: controller)
                         }
                     }
                     .padding(.top, 2)
-                    .padding(.leading, ConversationLayout.nestedIndent)
                 }
             }
         }
@@ -77,12 +88,12 @@ struct ToolGroupView: View {
                     .imageScale(.small)
                     .foregroundStyle(.secondary)
 
-                Text(row.groupTitle)
+                Text(headline)
                     // Dimmed, and *not* a heading: this line is a footnote to the
                     // conversation, which is the whole reason it is one line. Hovering
-                    // lifts the dimming, which is the only affordance offered — the
-                    // line is a click target with no chrome of its own.
-                    .font(.callout)
+                    // lifts the dimming, which is half the affordance — the chevron at
+                    // the far end is the other half.
+                    .font(Typography.body)
                     .foregroundStyle(isHovering ? Color.primary : Color.secondary)
 
                 summary
@@ -90,32 +101,41 @@ struct ToolGroupView: View {
                 Spacer(minLength: 0)
 
                 status
+
+                Image(systemName: "chevron.right")
+                    .imageScale(.small)
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .help(isExpanded ? "Hide the details of these steps" : "Show the details of these steps")
-        .accessibilityLabel("\(row.groupTitle), \(items.count) step\(items.count == 1 ? "" : "s")")
+        .accessibilityLabel("\(headline), \(steps.count) step\(steps.count == 1 ? "" : "s")")
     }
+
+    /// What the line says — that is `TranscriptRow`'s decision, not this view's,
+    /// so the smoke test can print the same words the transcript draws.
+    private var headline: String { row.headline }
 
     /// The one thing worth naming on a folded line: the command, or the file. Only
     /// when there is one call to name — a run of six has six answers, and its list
     /// is one click away.
     @ViewBuilder
     private var summary: some View {
-        if items.count == 1, let item = items.first {
+        if steps.count == 1, let item = steps.first {
             let text = item.foldedSummary
             if !text.isEmpty {
                 Text(text)
-                    .font(.callout.monospaced())
+                    .font(Typography.code)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
         } else {
-            Text("\(items.count) steps")
-                .font(.caption)
+            Text("\(steps.count) steps")
+                .font(Typography.body)
                 .foregroundStyle(.tertiary)
         }
     }
@@ -125,8 +145,8 @@ struct ToolGroupView: View {
     @ViewBuilder
     private var status: some View {
         if row.streamingThinkingItem != nil {
-            // Reasoning still arriving. Folding a `Thinking` row must not make it
-            // look finished, and the reasoning itself is what the fold hides.
+            // Reasoning still arriving. The reasoning itself is not drawn, but the
+            // line must not look finished while Pi is still working.
             ProgressView().controlSize(.small)
         } else if let running = items.last(where: { $0.toolStatus == .running }) {
             HStack(spacing: 6) {
@@ -163,11 +183,18 @@ struct ToolActionRow: View {
                         .imageScale(.small)
                         .foregroundStyle(statusTint)
 
-                    Text(title)
-                        .font(isThinking ? .callout : .callout.monospaced())
+                    Text(stepLabel)
+                        .font(Typography.body)
                         .foregroundStyle(isHovering ? Color.primary : Color.secondary)
                         .lineLimit(1)
-                        .truncationMode(.middle)
+
+                    if let summary = stepSummary {
+                        Text(summary)
+                            .font(Typography.code)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
 
                     Spacer(minLength: 0)
 
@@ -197,6 +224,8 @@ struct ToolActionRow: View {
             .onHover { isHovering = $0 }
 
             if isExpanded {
+                // The one indent: a step's content sits under the step, in from the
+                // glyph column it shares with everything else in the run.
                 QuietStepContent(item: item, controller: controller)
                     .padding(.leading, ConversationLayout.nestedIndent)
             }
@@ -205,16 +234,38 @@ struct ToolActionRow: View {
 
     private var family: QuietFamily? { QuietFamily.of(item) }
 
-    private var isThinking: Bool { family == .thinking }
+    private var isNarration: Bool { item.kind == .assistant }
 
-    /// The line's own text: the command or the path for a call, the family's name
-    /// for reasoning.
-    private var title: String {
-        isThinking ? "Thinking" : item.foldedSummary
+    /// The step's family name: "Run command", "Edited file", "Read file",
+    /// "Thinking", or "Said" for the notes Pi wrote between calls. Every action row
+    /// carries a label, so an opened run reads as a list of actions rather than a
+    /// list of bare file names.
+    private var stepLabel: String {
+        if isNarration { return "Said" }
+        return family?.stepLabel ?? "Action"
+    }
+
+    /// What the step names, beside its label. A command names itself; a read or an
+    /// edit names its file by the last path component, because the row is a line
+    /// and the path is not — the full path stays in the item's arguments. A note
+    /// gets its own opening words instead.
+    private var stepSummary: String? {
+        if isNarration {
+            let text = item.text.oneLinePreview(limit: 120)
+            return text.isEmpty ? nil : text
+        }
+        switch family {
+        case .read, .edit:
+            return item.toolFileDisplayName
+        default:
+            let text = item.foldedSummary
+            return text.isEmpty ? nil : text
+        }
     }
 
     private var familyIcon: String {
-        family?.systemImage ?? "wrench.and.screwdriver"
+        if isNarration { return "text.bubble" }
+        return family?.systemImage ?? "wrench.and.screwdriver"
     }
 
     /// Only the calls that changed something have numbers to show; a read's chip
@@ -237,46 +288,36 @@ struct ToolActionRow: View {
     }
 }
 
-/// What one quiet step has under its line when it is opened: the call's arguments,
-/// changes and output, or the reasoning itself.
+/// What one quiet step has under its line when it is opened: the terminal block a
+/// command ran, the file a read returned, the diff an edit made, or the prose of a
+/// note Pi wrote between calls.
 ///
 /// Both `ToolGroupView` and `ToolActionRow` draw it — a run of one step opens
 /// straight into it, a run of several opens into rows that open into it — so the
-/// two cannot drift apart.
+/// two cannot drift apart. The three repeating actions get their own shape rather
+/// than the generic arguments-and-output form: the arguments are Pi's bookkeeping,
+/// and the row above already says what ran and on what file.
 struct QuietStepContent: View {
     var item: TranscriptItem
     var controller: PiSessionController
 
     var body: some View {
-        if QuietFamily.of(item) == .thinking {
-            reasoning.contextMenu {
-                Button("Copy Reasoning") { WorkspaceLauncher.copyToPasteboard(item.text) }
-                if let entryId = item.forkEntryId {
-                    Button("Branch from the message above…") {
-                        Task { await controller.fork(fromEntryId: entryId) }
-                    }
-                }
+        switch QuietFamily.of(item) {
+        case .command:
+            CommandStepContent(item: item)
+        case .read:
+            ReadStepContent(item: item)
+        case .edit:
+            EditStepContent(item: item)
+        default:
+            if item.kind == .assistant {
+                // A note Pi wrote between two calls. It is prose, so it renders as
+                // prose; the fold is what hid it, not a different kind of row.
+                MarkdownView(text: item.text)
+                    .textSelection(.enabled)
+            } else {
+                ToolCallContent(item: item, controller: controller)
             }
-        } else {
-            ToolCallContent(item: item, controller: controller)
-        }
-    }
-
-    /// Reasoning is plain text, dimmed, and selectable: it is the model's own words
-    /// rather than output, so it gets no output box and no copy button beyond the
-    /// menu — the whole block is what one would copy.
-    @ViewBuilder
-    private var reasoning: some View {
-        if item.text.isEmpty {
-            Text("No reasoning text")
-                .font(.callout)
-                .foregroundStyle(.tertiary)
-        } else {
-            SyntaxText(text: item.text, language: .plain)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

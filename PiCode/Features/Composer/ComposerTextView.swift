@@ -17,7 +17,16 @@ struct ComposerTextView: NSViewRepresentable {
     /// overlay can put itself on exactly the same spot without a magic number.
     static let textInset = NSSize(width: 2, height: 2)
 
-    static let fontSize: CGFloat = 15
+    /// Same size as the transcript content and the sidebar menu — the app's one
+    /// reading size (`Typography.baseSize`), so the box you type into and the words
+    /// you are answering are set at the same scale.
+    static let fontSize: CGFloat = Typography.baseSize
+
+    /// The composer box has a fixed dark fill (#2a2b2b) in every appearance, so
+    /// the text and caret need fixed light colors too — the dynamic defaults
+    /// would render black-on-black in light mode.
+    static let textColor = NSColor(red: 0.92, green: 0.92, blue: 0.93, alpha: 1)
+    static let caretColor = NSColor(red: 0.92, green: 0.92, blue: 0.93, alpha: 1)
 
     /// How many lines the box shows before it scrolls instead of growing. Two
     /// lines is the whole budget: the composer floats over the transcript (§6),
@@ -180,6 +189,8 @@ struct ComposerTextView: NSViewRepresentable {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
         textView.font = .systemFont(ofSize: Self.fontSize)
+        textView.textColor = Self.textColor
+        textView.insertionPointColor = Self.caretColor
         textView.textContainerInset = Self.textInset
         textView.drawsBackground = false
         textView.string = text

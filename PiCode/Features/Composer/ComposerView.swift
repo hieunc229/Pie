@@ -131,7 +131,7 @@ struct ComposerView: View {
                 if text.isEmpty {
                     Text(placeholder)
                         .font(.system(size: ComposerTextView.fontSize))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Color(nsColor: ComposerTextView.textColor).opacity(0.45))
                         .padding(.leading, ComposerTextView.textInset.width)
                         .padding(.top, ComposerTextView.textInset.height)
                         .allowsHitTesting(false)
@@ -147,7 +147,7 @@ struct ComposerView: View {
         .padding(.horizontal, ComposerMetrics.boxHorizontalPadding)
         .padding(.top, ComposerMetrics.boxTopPadding)
         .padding(.bottom, ComposerMetrics.boxBottomPadding)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous))
+        .background(Color(red: 0x2a / 255, green: 0x2b / 255, blue: 0x2b / 255), in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous)
                 .stroke(isDropTargeted ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: isDropTargeted ? 2 : 1)

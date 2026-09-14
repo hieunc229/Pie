@@ -231,6 +231,54 @@ struct TranscriptItem: Identifiable, Equatable {
             return []
         }
     }
+
+    /// The path argument of a file tool, under any of the keys Pi sends. `edit`,
+    /// `read` and `write` all name the file here; the argument is relative when Pi
+    /// ran in the project, and absolute when it did not.
+    var toolFilePath: String? {
+        for key in ["file_path", "path", "filePath"] {
+            if let path = toolArguments?.string(key), !path.isEmpty { return path }
+        }
+        return nil
+    }
+
+    /// The bare name of the file a read or edit touched. The folded row shows this
+    /// rather than the path it was given: the path is long, it is in the item's
+    /// arguments, and the change chips elsewhere in the transcript already carry it
+    /// in full. A row that named the directory twice would say less, not more.
+    var toolFileDisplayName: String? {
+        guard let path = toolFilePath else { return nil }
+        return (path as NSString).lastPathComponent
+    }
+
+    /// The command a `bash` call ran, verbatim. The row and the terminal block are
+    /// the only places it is shown, so it is kept as Pi wrote it.
+    var commandText: String? {
+        guard let command = toolArguments?.string("command"), !command.isEmpty else { return nil }
+        return command
+    }
+
+    /// The two halves of every change an edit call made. Pi's `edit` sends an
+    /// `edits` array of `{oldText, newText}`; an older shape sent one pair at the
+    /// top level, and a `write` sends the whole file as `content`. All three arrive
+    /// here in one shape so the diff renderer has only one to draw.
+    var editBlocks: [(old: String, new: String)] {
+        guard kind == .toolCall else { return [] }
+        let blocks = toolArguments?.array("edits") ?? []
+        if !blocks.isEmpty {
+            return blocks.map { block in
+                (
+                    old: block.string("oldText") ?? block.string("old_string") ?? "",
+                    new: block.string("newText") ?? block.string("new_string") ?? ""
+                )
+            }
+        }
+        let old = toolArguments?.string("oldText") ?? toolArguments?.string("old_string") ?? ""
+        let new = toolArguments?.string("newText") ?? toolArguments?.string("new_string")
+            ?? toolArguments?.string("content")
+            ?? ""
+        return (old.isEmpty && new.isEmpty) ? [] : [(old: old, new: new)]
+    }
 }
 
 /// Pending steering and follow-up messages reported by `queue_update`.
