@@ -158,6 +158,7 @@ final class ComposerKeyDelegate: NSObject, NSApplicationDelegate {
             self.runKeyScenarios()
             self.runHeightChecks()
             self.runGeometryChecks()
+            self.runWidthChecks()
             self.report()
         }
     }
@@ -369,20 +370,81 @@ final class ComposerKeyDelegate: NSObject, NSApplicationDelegate {
               abs(corner - predicted) <= 1.5,
               detail: "inset \(corner) vs predicted \(predicted)")
         // The box is its editor, one control row and its own padding — nothing
-        // else. Two lines plus controls is 76pt; the old always-maximum editor
-        // made the same box 256pt tall.
-        let expected = ComposerMetrics.editorMaxHeight + 36
-        check("the box is exactly two lines plus the control row",
+        // else. At two lines that is `boxHeight(forEditor:)`; the old
+        // always-maximum editor made the same box 256pt tall.
+        let expected = ComposerMetrics.boxHeight(forEditor: ComposerMetrics.editorMaxHeight)
+        check("the box is exactly two lines plus its padding and the control row",
               abs(height - expected) <= 1.5,
               detail: "height \(height)pt vs expected \(expected)pt")
-        check("the box is short enough to float over the transcript",
-              height <= 80, detail: "height \(height)pt")
+        check("the box grew with its padding and is still far shorter than 220pt",
+              height > 76 && height < 96, detail: "height \(height)pt")
 
         if let png = pixels.pngData() {
             let path = "/tmp/picode-composer-box.png"
             try? png.write(to: URL(fileURLWithPath: path))
             print("  wrote \(path)")
         }
+    }
+
+    // MARK: Width
+
+    /// The box and the transcript's rows must be the same width, at a wide pane
+    /// and at a narrow one. The composer is an overlay, so it inherits nothing:
+    /// before `ConversationColumn` it was as wide as the pane while the rows
+    /// stopped at 860pt, and at a narrow size it was 44pt wider than the text.
+    private func runWidthChecks() {
+        print()
+        print("== the box's width against the transcript's rows ==")
+
+        for width in [1300.0, 500.0] {
+            window.setContentSize(NSSize(width: width, height: 260))
+            window.contentView = NSHostingView(rootView: WidthProbe())
+            pump(0.5)
+
+            guard let content = window.contentView, let pixels = WindowPixels.capture(content) else {
+                check("the width probe rendered at \(Int(width))pt", false)
+                return
+            }
+            let green = extent(pixels) { r, g, b in g > 140 && r < 120 && b < 120 }
+            let white = extent(pixels) { r, g, b in r > 235 && g > 235 && b > 235 }
+            guard let green, let white else {
+                check("both the row and the box were painted at \(Int(width))pt", false,
+                      detail: "row \(green != nil), box \(white != nil)")
+                return
+            }
+
+            let rowWidth = CGFloat(green.x.upperBound - green.x.lowerBound + 1) / pixels.scale
+            let boxWidth = CGFloat(white.x.upperBound - white.x.lowerBound + 1) / pixels.scale
+            let rowLeft = CGFloat(green.x.lowerBound) / pixels.scale
+            let boxLeft = CGFloat(white.x.lowerBound) / pixels.scale
+            let expected = min(width, ConversationLayout.maxContentWidth) - 2 * ConversationLayout.horizontalPadding
+
+            print(String(format: "  at %.0fpt: row %.1fpt from x %.1f, box %.1fpt from x %.1f (expected %.1f)",
+                         width, rowWidth, rowLeft, boxWidth, boxLeft, expected))
+            check("the box is as wide as a transcript row at \(Int(width))pt",
+                  abs(boxWidth - rowWidth) <= 1,
+                  detail: "box \(boxWidth)pt vs row \(rowWidth)pt")
+            check("the box starts where the rows start at \(Int(width))pt",
+                  abs(boxLeft - rowLeft) <= 1,
+                  detail: "box x \(boxLeft) vs row x \(rowLeft)")
+            check("the shared column is what decides the width at \(Int(width))pt",
+                  abs(boxWidth - expected) <= 1,
+                  detail: "box \(boxWidth)pt vs ConversationLayout \(expected)pt")
+        }
+    }
+
+    /// The bounding box of every pixel that passes `matches`.
+    private func extent(_ pixels: WindowPixels,
+                        _ matches: (Int, Int, Int) -> Bool) -> (x: ClosedRange<Int>, y: ClosedRange<Int>)? {
+        var xs: [Int] = [], ys: [Int] = []
+        for y in 0..<pixels.height {
+            for x in 0..<pixels.width {
+                let (r, g, b) = pixels.rgb(x, y)
+                if matches(r, g, b) { xs.append(x); ys.append(y) }
+            }
+        }
+        guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else { return nil }
+        return (minX...maxX, minY...maxY)
     }
 
     // MARK: Reporting
@@ -417,8 +479,9 @@ final class ComposerKeyDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// The composer's box shape, isolated: white fill on a red page, with the same
-/// radius and roughly the same content height as the real composer.
+/// The composer's box shape, isolated: white fill on a red page. Every number
+/// comes from `ComposerMetrics`, so this cannot drift away from the real box —
+/// when it did, the harness measured a shape the app no longer drew.
 struct BoxProbe: View {
     var body: some View {
         ZStack {
@@ -426,17 +489,54 @@ struct BoxProbe: View {
             VStack(alignment: .leading, spacing: 0) {
                 Color.clear.frame(height: ComposerMetrics.editorMaxHeight)
                 HStack(spacing: 2) {
-                    Color.clear.frame(width: 22, height: 20)
+                    Color.clear.frame(width: 22, height: ComposerMetrics.controlRowHeight)
                     Spacer(minLength: 8)
-                    Color.clear.frame(width: 22, height: 20)
+                    Color.clear.frame(width: 22, height: ComposerMetrics.controlRowHeight)
                 }
-                .padding(.top, 5)
+                .padding(.top, ComposerMetrics.editorControlGap)
             }
-            .padding(.horizontal, 9)
-            .padding(.top, 6)
-            .padding(.bottom, 5)
+            .padding(.horizontal, ComposerMetrics.boxHorizontalPadding)
+            .padding(.top, ComposerMetrics.boxTopPadding)
+            .padding(.bottom, ComposerMetrics.boxBottomPadding)
             .background(Color.white, in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous))
             .padding(24)
+        }
+    }
+}
+
+/// Two things that must line up, on a red page at a wide size: a painted
+/// "transcript row" and the composer box, both laid out in the real
+/// `ConversationColumn`. The row is green and the box white so one capture can
+/// measure both.
+struct WidthProbe: View {
+    var body: some View {
+        ZStack {
+            Color(.sRGB, red: 1, green: 0, blue: 0, opacity: 1)
+            VStack(alignment: .leading, spacing: 20) {
+                ConversationColumn {
+                    Color.green.frame(height: 12)
+                }
+
+                // The composer's own container, exactly as `SessionView` builds
+                // it: the column, then the stack's vertical padding.
+                ConversationColumn {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Color.clear.frame(height: ComposerMetrics.editorMaxHeight)
+                        HStack(spacing: 2) {
+                            Color.clear.frame(width: 22, height: ComposerMetrics.controlRowHeight)
+                            Spacer(minLength: 8)
+                            Color.clear.frame(width: 22, height: ComposerMetrics.controlRowHeight)
+                        }
+                        .padding(.top, ComposerMetrics.editorControlGap)
+                    }
+                    .padding(.horizontal, ComposerMetrics.boxHorizontalPadding)
+                    .padding(.top, ComposerMetrics.boxTopPadding)
+                    .padding(.bottom, ComposerMetrics.boxBottomPadding)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous))
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+                }
+            }
         }
     }
 }

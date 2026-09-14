@@ -60,6 +60,10 @@ struct SessionView: View {
     /// The gradient and the composer share one bottom-aligned stack so the fade
     /// sits *behind* the box, in the same colours, and clicks anywhere on it go
     /// through to the transcript.
+    ///
+    /// The box is put in `ConversationColumn`, the same column the transcript's
+    /// rows are in, so it is exactly as wide as the text it floats over instead
+    /// of as wide as the pane.
     private var floatingComposer: some View {
         ZStack(alignment: .bottom) {
             LinearGradient(colors: [backdrop.opacity(0), backdrop],
@@ -67,9 +71,9 @@ struct SessionView: View {
                 .frame(height: composerHeight + 28)
                 .allowsHitTesting(false)
 
-            composerStack
+            ConversationColumn { composerStack }
+                .onPreferenceChange(ComposerHeightKey.self) { composerHeight = $0 }
         }
-        .onPreferenceChange(ComposerHeightKey.self) { composerHeight = $0 }
     }
 
     /// The widgets an extension set. Both placements are drawn above the box:
@@ -96,9 +100,8 @@ struct SessionView: View {
 
             ComposerView(state: state, controller: controller, focusTick: composerFocusTick)
         }
-        .padding(.horizontal, 14)
         .padding(.top, 8)
-        .padding(.bottom, 12)
+        .padding(.bottom, 16)
         .background(GeometryReader { proxy in
             Color.clear.preference(key: ComposerHeightKey.self, value: proxy.size.height)
         })

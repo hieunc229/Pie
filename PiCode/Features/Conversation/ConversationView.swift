@@ -25,28 +25,30 @@ struct ConversationView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 20) {
-                    if controller.items.isEmpty {
-                        emptyState
-                    } else {
-                        ForEach(controller.items) { item in
-                            TranscriptRowView(item: item, controller: controller)
-                                .id(item.id)
+                // The rows' column, shared with the floating composer
+                // (`ConversationColumn`), so the box lines up with the text.
+                ConversationColumn {
+                    LazyVStack(alignment: .leading, spacing: 20) {
+                        if controller.items.isEmpty {
+                            emptyState
+                        } else {
+                            ForEach(controller.items) { item in
+                                TranscriptRowView(item: item, controller: controller)
+                                    .id(item.id)
+                            }
                         }
+
+                        statusFooter
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id(bottomAnchor)
+                            .onAppear { isPinnedToBottom = true }
+                            .onDisappear { isPinnedToBottom = false }
                     }
-
-                    statusFooter
-
-                    Color.clear
-                        .frame(height: 1)
-                        .id(bottomAnchor)
-                        .onAppear { isPinnedToBottom = true }
-                        .onDisappear { isPinnedToBottom = false }
+                    .padding(.top, 18)
+                    .padding(.bottom, 8 + bottomInset)
                 }
-                .padding(.horizontal, 22)
-                .padding(.top, 18)
-                .padding(.bottom, 8 + bottomInset)
-                .frame(maxWidth: 860, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
             .background(Color(nsColor: .textBackgroundColor))

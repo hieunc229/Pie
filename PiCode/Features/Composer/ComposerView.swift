@@ -13,16 +13,44 @@
 import AppKit
 import SwiftUI
 
-/// Shape and height constants shared by the composer and its harness.
+/// Shape, padding and height constants shared by the composer and its harness.
+///
+/// They are here, and not inline in the view, so the harness can *predict* the
+/// box's height and width instead of hard-coding a number that then drifts: it
+/// asserts the measured box against `boxHeight(forEditor:)` and against
+/// `ConversationLayout.textColumnWidth`.
 enum ComposerMetrics {
     /// Rounded enough that the box reads as one soft object next to the sidebar's
     /// pills, small enough that a single line does not look like a capsule.
     static let cornerRadius: CGFloat = 18
 
+    /// The box's own padding. Roomy on purpose: the prompt should sit in the box
+    /// rather than press against its edge, and the text starts another
+    /// `ComposerTextView.textInset.width` in from here.
+    static let boxHorizontalPadding: CGFloat = 12
+    static let boxTopPadding: CGFloat = 9
+    static let boxBottomPadding: CGFloat = 8
+
+    /// Between the editor and the control row, and a little more before an
+    /// attachment chip row when one is showing.
+    static let editorControlGap: CGFloat = 7
+    static let attachmentGap: CGFloat = 8
+
+    /// What one control row takes. Not a guess: the harness measures the drawn
+    /// box against `boxHeight(forEditor:)`, so a control that grows taller than
+    /// this is caught rather than silently absorbed.
+    static let controlRowHeight: CGFloat = 20
+
     /// The editor's own height, so the box stops growing after two lines and
     /// starts scrolling instead.
     static var editorMinHeight: CGFloat { ComposerTextView.height(forLines: 1) }
     static var editorMaxHeight: CGFloat { ComposerTextView.height(forLines: ComposerTextView.visibleLines) }
+
+    /// The box's height for an editor of `editorHeight` — the number the harness
+    /// checks the rendered box against. Attachments add a row on top.
+    static func boxHeight(forEditor editorHeight: CGFloat) -> CGFloat {
+        editorHeight + boxTopPadding + editorControlGap + controlRowHeight + boxBottomPadding
+    }
 }
 
 struct ComposerView: View {
@@ -111,14 +139,14 @@ struct ComposerView: View {
             }
 
             if !attachments.isEmpty {
-                attachmentRow.padding(.top, 6)
+                attachmentRow.padding(.top, ComposerMetrics.attachmentGap)
             }
 
-            controlRow.padding(.top, 5)
+            controlRow.padding(.top, ComposerMetrics.editorControlGap)
         }
-        .padding(.horizontal, 9)
-        .padding(.top, 6)
-        .padding(.bottom, 5)
+        .padding(.horizontal, ComposerMetrics.boxHorizontalPadding)
+        .padding(.top, ComposerMetrics.boxTopPadding)
+        .padding(.bottom, ComposerMetrics.boxBottomPadding)
         .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous)

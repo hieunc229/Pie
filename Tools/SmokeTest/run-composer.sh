@@ -30,6 +30,7 @@ COMPOSER="$ROOT/PiCode/Features/Composer/ComposerView.swift"
 TEXTVIEW="$ROOT/PiCode/Features/Composer/ComposerTextView.swift"
 SESSION="$ROOT/PiCode/Features/Session/SessionView.swift"
 CONVERSATION="$ROOT/PiCode/Features/Conversation/ConversationView.swift"
+COLUMN="$ROOT/PiCode/Features/Conversation/ConversationLayout.swift"
 
 echo "== the composer is wired the way this harness measures =="
 fail=0
@@ -72,6 +73,22 @@ check_source "$SESSION" '.overlay(alignment: .bottom) { floatingComposer }' "the
 check_source "$SESSION" 'bottomInset: composerHeight' "the transcript is told how tall the overlay is"
 check_source "$CONVERSATION" 'bottomInset: CGFloat = 0' "the transcript takes a bottom inset"
 check_source "$CONVERSATION" '.padding(.bottom, 8 + bottomInset)' "the inset is room after the last row, not a margin on it"
+
+# The box's width is the transcript's width. The composer is an overlay, so it
+# inherits nothing: it has to be put in the same column explicitly, and both
+# sides have to use the one constant.
+check_source "$SESSION" 'ConversationColumn { composerStack }' "the composer is laid out in the transcript's column"
+check_source "$CONVERSATION" 'ConversationColumn {' "the transcript's rows are laid out in that column"
+check_source "$COLUMN" 'static var textColumnWidth' "the column's width is derived, not repeated"
+# The box's height must be *derivable*, and the box must be padded with the
+# metrics rather than with literals — otherwise the probe below measures a shape
+# the app stopped drawing.
+check_source "$COMPOSER" 'static func boxHeight(forEditor' "the box's height is derivable, so the harness can predict it"
+check_source "$COMPOSER" '.padding(.horizontal, ComposerMetrics.boxHorizontalPadding)' "the box's side padding is a metric"
+check_source "$COMPOSER" '.padding(.top, ComposerMetrics.boxTopPadding)' "the box's top padding is a metric"
+check_source "$COMPOSER" '.padding(.bottom, ComposerMetrics.boxBottomPadding)' "the box's bottom padding is a metric"
+check_source "$COMPOSER" 'controlRow.padding(.top, ComposerMetrics.editorControlGap)' "the gap above the control row is a metric"
+check_absent "$COMPOSER" '.padding(.horizontal, 9)' "no literal box padding is left behind"
 
 # The editor must report its own height. Without `sizeThatFits` SwiftUI hands the
 # view its maximum allowed height, so the box is that tall whatever is in it.
@@ -130,6 +147,7 @@ SDK="$(xcrun --show-sdk-path --sdk macosx)"
 swiftc -sdk "$SDK" -target "$(uname -m)-apple-macos14.0" -swift-version 5 \
     "$WORK/SendKeyStub.swift" "$WORK/ComposerMetrics.swift" \
     "$ROOT/PiCode/Features/Composer/ComposerTextView.swift" \
+    "$ROOT/PiCode/Features/Conversation/ConversationLayout.swift" \
     "$ROOT/Tools/SmokeTest/WindowPixels.swift" \
     "$ROOT/Tools/SmokeTest/ComposerKeyTest.swift" \
     -o "$WORK/composer" 2>&1 | grep -v "deprecated in macOS 14" || true
