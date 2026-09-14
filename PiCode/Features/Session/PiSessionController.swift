@@ -109,6 +109,11 @@ final class PiSessionController {
     private(set) var entries: [PiSessionEntry] = []
     private(set) var tree: [PiTreeNode] = []
     private(set) var leafId: String?
+    /// Last entry id PiCode has seen; the cursor for cheap incremental refreshes.
+    private var lastEntryId: String?
+    /// True while Pi is walking a long session history. The tree pane shows this
+    /// because a first load on a big session takes tens of seconds.
+    private(set) var isLoadingEntries = false
     private(set) var stats: PiSessionStats?
     private(set) var availableModels: [PiModel] = []
     private(set) var thinkingLevels: [String] = []
@@ -732,6 +737,10 @@ final class PiSessionController {
 
     private var refreshTask: Task<Void, Never>?
 
+    /// Refreshes everything the UI needs after a launch, a session switch, or a
+    /// fork. Ordering matters: the cheap calls that fill the transcript come
+    /// first, and the session history walk (which can take tens of seconds on a
+    /// long session) happens last so the conversation is readable immediately.
     func refreshAll() async {
         guard connection.isConnected else { return }
         refreshTask?.cancel()
@@ -743,8 +752,8 @@ final class PiSessionController {
             await self.refreshThinkingLevels()
             await self.refreshCommands()
             await self.refreshStats()
-            await self.refreshTree()
             await self.refreshForkPoints()
+            await self.refreshEntries()
         }
         refreshTask = task
         await task.value
@@ -811,14 +820,50 @@ final class PiSessionController {
         stats = PiSessionStats(json: response.data)
     }
 
-    func refreshTree() async {
-        guard let response = try? await request(.getTree) else { return }
-        tree = response.data?.array("tree")?.map(PiTreeNode.init(json:)) ?? []
-        leafId = response.data?.string("leafId")
-        if let response = try? await request(.getEntries(since: nil)) {
-            entries = response.data?.array("entries")?.map(PiSessionEntry.init(json:)) ?? []
-            leafId = response.data?.string("leafId") ?? leafId
+    /// Loads the session's entries and rebuilds the tree from them.
+    ///
+    /// PiCode deliberately never calls `get_tree`: it is derived here instead.
+    /// Pi's `get_tree` walks the whole session and took ~32s on a 787-entry
+    /// session, and because Pi answers one request at a time that stall also
+    /// delays the user's next prompt.
+    ///
+    /// A *full* `get_entries` is expensive too (~20s for the same 787 entries,
+    /// and Pi does not cache it), so it only happens once per session — after
+    /// that the durable cursor from the last entry id makes each refresh
+    /// effectively free (measured at 0.01s). That matters because this runs after
+    /// every settled turn. If the cursor is rejected, the full fetch is retried.
+    func refreshEntries() async {
+        guard !isLoadingEntries else { return }
+        isLoadingEntries = true
+        defer { isLoadingEntries = false }
+
+        if let cursor = lastEntryId, !entries.isEmpty {
+            if let response = try? await request(.getEntries(since: cursor), timeout: 120),
+               let data = response.data {
+                let newEntries = data.array("entries")?.map(PiSessionEntry.init(json:)) ?? []
+                if !newEntries.isEmpty {
+                    entries.append(contentsOf: newEntries)
+                    lastEntryId = newEntries.last?.id
+                }
+                leafId = data.string("leafId") ?? leafId
+                tree = PiTreeNode.buildTree(from: entries, leafId: leafId)
+                rebuildBaseItems()
+                return
+            }
+            // The cursor failed (for example Pi restarted with a different
+            // session); fall through to a full reload.
         }
+        await loadAllEntries()
+    }
+
+    /// One full read of the session history. Called once per session, then kept
+    /// up to date with `get_entries(since:)`.
+    private func loadAllEntries() async {
+        guard let response = try? await request(.getEntries(since: nil), timeout: 120) else { return }
+        entries = response.data?.array("entries")?.map(PiSessionEntry.init(json:)) ?? []
+        leafId = response.data?.string("leafId")
+        lastEntryId = entries.last?.id
+        tree = PiTreeNode.buildTree(from: entries, leafId: leafId)
         rebuildBaseItems()
     }
 
@@ -960,7 +1005,7 @@ final class PiSessionController {
                 await self.refreshMessages()
                 await self.refreshState()
                 await self.refreshStats()
-                await self.refreshTree()
+                await self.refreshEntries()
                 await self.refreshForkPoints()
                 await self.refreshLastAssistantText()
                 await self.refreshGit()
@@ -1064,7 +1109,7 @@ final class PiSessionController {
             Task { [weak self] in
                 guard let self else { return }
                 await self.refreshMessages()
-                await self.refreshTree()
+                await self.refreshEntries()
                 await self.refreshStats()
                 await self.refreshState()
             }
@@ -1439,6 +1484,7 @@ final class PiSessionController {
         entries = []
         tree = []
         leafId = nil
+        lastEntryId = nil
         stats = nil
         forkPoints = []
         queue = QueueSnapshot()

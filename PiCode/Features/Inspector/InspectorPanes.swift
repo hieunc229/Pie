@@ -470,7 +470,21 @@ struct TreePane: View {
         VStack(spacing: 0) {
             header
             Divider()
-            if controller.tree.isEmpty {
+            if controller.tree.isEmpty && controller.isLoadingEntries {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("Reading this session's history…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Pi walks the whole session for this list, so long sessions take a while.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if controller.tree.isEmpty {
                 EmptyStateView(
                     systemImage: "arrow.triangle.branch",
                     title: "No tree yet",
@@ -488,7 +502,9 @@ struct TreePane: View {
             footer
         }
         .task {
-            if controller.tree.isEmpty { await controller.refreshTree() }
+            if controller.tree.isEmpty && !controller.isLoadingEntries {
+                await controller.refreshEntries()
+            }
             if controller.forkPoints.isEmpty { await controller.refreshForkPoints() }
         }
     }
@@ -500,8 +516,13 @@ struct TreePane: View {
                     .font(.callout.weight(.semibold))
                 StatusPill(text: "\(count(controller.tree)) entries", tint: .secondary)
                 Spacer(minLength: 0)
+                if controller.isLoadingEntries {
+                    ProgressView()
+                        .controlSize(.small)
+                        .help("Pi is reading the session history")
+                }
                 Button {
-                    Task { await controller.refreshTree() }
+                    Task { await controller.refreshEntries() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
@@ -715,11 +736,22 @@ struct ContextPane: View {
                 if let usage = stats.contextUsage {
                     ContextUsageBar(usage: usage)
                 }
+                // These counters come from `get_session_stats` and cover the whole
+                // session history — every branch, including messages that were
+                // compacted away. `contextUsage` above is the live context window,
+                // the only number that reflects what the model sees right now.
+                Text("Session totals")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 KeyValueRow(key: "Input", value: Format.tokens(stats.tokens.input))
                 KeyValueRow(key: "Output", value: Format.tokens(stats.tokens.output))
                 KeyValueRow(key: "Cache read", value: Format.tokens(stats.tokens.cacheRead))
                 KeyValueRow(key: "Cache write", value: Format.tokens(stats.tokens.cacheWrite))
                 KeyValueRow(key: "Cost", value: stats.cost.currencyString)
+                Text("Totals include compacted history and abandoned branches.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text("Pi has not reported usage yet.")
                     .font(.caption)

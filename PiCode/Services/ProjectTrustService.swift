@@ -157,9 +157,10 @@ struct ProjectTrustService {
     private func write(store: [String: Bool]) throws {
         var object: [String: JSONValue] = [:]
         for (key, value) in store { object[key] = .bool(value) }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        var data = try encoder.encode(JSONValue.object(object))
+        // Written through the shared scanner so trust.json matches the rest of
+        // PiCode's output (sorted keys, one trailing newline) without relying on
+        // the recursive `Codable` conformance.
+        var data = Data(JSONScanner.serialize(.object(object), pretty: true).utf8)
         data.append(0x0A)
         try FileManager.default.createDirectory(
             at: PiPaths.agentDirectory,

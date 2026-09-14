@@ -286,6 +286,11 @@ enum RPCCommand {
     case getCommands
     case getSessionStats
     case getEntries(since: String?)
+    /// The session as a tree of entries. PiCode does not call this: it builds the
+    /// tree locally from `get_tree`'s underlying entries (`PiTreeNode.buildTree`),
+    /// because Pi walks the whole session here (measured ~32s for 787 entries) and
+    /// that stall blocks Pi's request queue. Kept because it is part of the RPC
+    /// surface and the smoke tests verify Pi still answers it.
     case getTree
     case getForkMessages
     case getLastAssistantText
@@ -625,6 +630,16 @@ struct PiTreeNode: Identifiable, Equatable {
 
     var id: String { entry.id }
 
+    init(entry: PiSessionEntry,
+         children: [PiTreeNode] = [],
+         label: String? = nil,
+         labelTimestamp: Date? = nil) {
+        self.entry = entry
+        self.children = children
+        self.label = label
+        self.labelTimestamp = labelTimestamp
+    }
+
     init(json: JSONValue) {
         entry = PiSessionEntry(json: json.object("entry") ?? .null)
         children = json.array("children")?.map(PiTreeNode.init(json:)) ?? []
@@ -632,6 +647,48 @@ struct PiTreeNode: Identifiable, Equatable {
         if let iso = json.string("labelTimestamp") {
             labelTimestamp = ISO8601DateFormatter.piCode.date(from: iso)
         }
+    }
+
+    /// Builds the tree Pi's `get_tree` would return, from entries PiCode has
+    /// already fetched.
+    ///
+    /// The tree is pure `parentId` structure, so deriving it locally is exact and
+    /// instant — whereas `get_tree` walks the whole session inside Pi and took
+    /// ~32s for a 787-entry session, blocking Pi's request queue (including the
+    /// user's next prompt). Entries are in append order, which is the order both
+    /// Pi and this function use for siblings. Entries whose parent is missing are
+    /// roots, matching Pi's handling of orphaned chains.
+    static func buildTree(from entries: [PiSessionEntry], leafId: String?) -> [PiTreeNode] {
+        let known = Set(entries.map(\.id))
+        var childrenByParent: [String: [PiSessionEntry]] = [:]
+        var roots: [PiSessionEntry] = []
+        for entry in entries {
+            if let parentId = entry.parentId, known.contains(parentId) {
+                childrenByParent[parentId, default: []].append(entry)
+            } else {
+                roots.append(entry)
+            }
+        }
+
+        // `label` entries are separate nodes that name another entry.
+        var labels: [String: (text: String, timestamp: Date?)] = [:]
+        for entry in entries where entry.type == "label" {
+            if let targetId = entry.targetId, let text = entry.label {
+                labels[targetId] = (text, entry.timestamp)
+            }
+        }
+
+        func makeNode(_ entry: PiSessionEntry) -> PiTreeNode {
+            let label = labels[entry.id]
+            return PiTreeNode(
+                entry: entry,
+                children: (childrenByParent[entry.id] ?? []).map(makeNode),
+                label: label?.text,
+                labelTimestamp: label?.timestamp
+            )
+        }
+
+        return roots.map(makeNode)
     }
 
     /// Depth-first flattening with depth, used for the outline list.

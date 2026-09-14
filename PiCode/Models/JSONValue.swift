@@ -13,6 +13,12 @@
 import Foundation
 
 /// Any JSON value. Unknown/extra fields in RPC payloads survive round trips.
+///
+/// `Codable` conformance exists for small, shallow stores. **Do not** use
+/// `JSONDecoder`/`JSONEncoder` with `JSONValue` for RPC or session payloads:
+/// Pi's payloads nest deeply (a session tree nests once per entry) and the
+/// recursive `Decodable` path overflows the stack. Use `JSONCoding.decode` and
+/// `JSONScanner.serialize`, which keep an explicit stack.
 enum JSONValue: Codable, Hashable, Sendable {
     case null
     case bool(Bool)
@@ -122,7 +128,17 @@ extension JSONValue {
     func object(_ key: String) -> JSONValue? { self[key] }
 
     /// Compact single-line rendering, used for tool input summaries.
+    ///
+    /// Recursive, but depth-limited: `prettyDescription` (iterative) is the safe
+    /// way to render arbitrary payloads, and this guard keeps a hostile or
+    /// unexpectedly deep value from overflowing the stack while it is being
+    /// summarised inside a view.
     var compactDescription: String {
+        compactDescription(depth: 0)
+    }
+
+    private func compactDescription(depth: Int) -> String {
+        guard depth < 64 else { return "…" }
         switch self {
         case .null: return "null"
         case .bool(let value): return value ? "true" : "false"
@@ -130,22 +146,18 @@ extension JSONValue {
             if value.rounded() == value { return String(Int(value)) }
             return String(value)
         case .string(let value): return value
-        case .array(let value): return "[" + value.map(\.compactDescription).joined(separator: ", ") + "]"
+        case .array(let value):
+            return "[" + value.map { $0.compactDescription(depth: depth + 1) }.joined(separator: ", ") + "]"
         case .object(let value):
             let keys = value.keys.sorted()
-            return "{" + keys.map { "\($0): \(value[$0]!.compactDescription)" }.joined(separator: ", ") + "}"
+            let body = keys.map { "\($0): \(value[$0]!.compactDescription(depth: depth + 1))" }
+            return "{" + body.joined(separator: ", ") + "}"
         }
     }
 
     /// Multi-line indented rendering, used for raw tool payloads.
     var prettyDescription: String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        guard let data = try? encoder.encode(self),
-              let string = String(data: data, encoding: .utf8) else {
-            return compactDescription
-        }
-        return string
+        JSONScanner.serialize(self, pretty: true)
     }
 }
 
@@ -154,16 +166,19 @@ extension JSONValue {
 enum JSONCoding {
     static let decoder = JSONDecoder()
 
+    /// Parses one RPC message or JSONL record.
+    ///
+    /// Uses the iterative scanner rather than `JSONDecoder`: Pi's payloads can be
+    /// deeply nested (a session tree nests once per entry) and the recursive
+    /// decoder overflows the stack on those.
     static func decode(_ data: Data) throws -> JSONValue {
-        try JSONDecoder().decode(JSONValue.self, from: data)
+        try JSONScanner.parse(data)
     }
 
     /// Encodes one JSONL record. Records are always terminated by a single LF
     /// and never contain raw newlines inside strings.
     static func line(_ value: JSONValue) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.withoutEscapingSlashes]
-        var data = try encoder.encode(value)
+        var data = Data(JSONScanner.serialize(value).utf8)
         data.append(0x0A)
         return data
     }

@@ -60,8 +60,11 @@ PiCode's own preferences.
 | Area | State |
 | --- | --- |
 | Xcode project (macOS 14 target, Swift 5 mode) | ✅ builds: `** BUILD SUCCEEDED **` |
-| `swiftc -typecheck` over all 47 sources | ✅ clean |
+| `swiftc -typecheck` over all sources | ✅ clean |
 | RPC layer vs real `pi` (v0.85.1) | ✅ `./Tools/SmokeTest/run.sh` — all checks pass |
+| JSON boundary (reads + writes) | ✅ `./Tools/SmokeTest/run-json.sh` — scanner matches Foundation on every real session line, 20k-deep nesting safe |
+| Session replay over all real sessions | ✅ `./Tools/SmokeTest/run-replay.sh` — 7.4k lines, no bad rows/ids/roles |
+| Resuming a real session (`--session`) | ✅ `./Tools/SmokeTest/run-open.sh` — read-only verified byte-for-byte |
 | Discovery / launch / trust / session index / git | ✅ implemented |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
@@ -88,6 +91,12 @@ open /tmp/picode-dd/Build/Products/Debug/PiCode.app
 
 # 3. Exercise the RPC layer against the real binary (no model calls, no credits)
 ./Tools/SmokeTest/run.sh
+
+# 4. The other harnesses (all read-only, no credits)
+./Tools/SmokeTest/run-json.sh     # JSON scanner vs Foundation + deep nesting
+./Tools/SmokeTest/run-replay.sh   # every real session file through the transcript builder
+./Tools/SmokeTest/run-open.sh     # resume the biggest real session (copy) and re-read it
+./Tools/SmokeTest/run-open.sh --small   # smallest session; also diffs the tree vs get_tree
 ```
 
 The smoke test is the **acceptance gate for any change to `Models/`,
@@ -112,6 +121,27 @@ Why the smoke test compiles only `Models/`, `Services/`, `Shared/`: those files
 are Foundation-only by design (§5) so they can be built without SwiftUI. Keep it
 that way — if you need a new service, don't import SwiftUI in it.
 
+The other three harnesses exist because they each caught a real bug:
+
+- **`run-json.sh`** cross-checks `JSONScanner` against Foundation on every line
+  of every real session, plus escapes, malformed input, round trips, and 20k-deep
+  nesting. It exists because `JSONDecoder` + recursive `JSONValue` crashed on
+  Pi's deeply nested `get_tree` response (see §10) — do not "simplify" the
+  scanner back to `JSONDecoder`.
+- **`run-replay.sh`** pushes every real session file through
+  `JSONLDecoder → PiSessionEntry → TranscriptBuilder` and asserts: no undecodable
+  lines, no duplicate/empty row ids, no unknown roles or entry types, and every
+  tool result matched to a call by `toolCallId`.
+- **`run-open.sh`** resumes a real session exactly the way the sidebar does
+  (`pi --mode rpc --session <copy>`), asserts Pi resumed *that* session, that the
+  locally built tree matches Pi's `get_tree` (small sessions), that
+  `get_state.messageCount == get_messages.count`, that `get_entries(since:)`
+  returns exactly the entries after the cursor, and that the file is unchanged
+  afterwards. It works on a **copy**, so a bug here cannot damage real history.
+
+Nothing above sends a model prompt. Keep it that way: PiCode's budget belongs to
+the user.
+
 ### Environment (this machine)
 
 - macOS 15.3.2, Xcode 16.4, Swift 6.1.2 (language mode 5), arm64.
@@ -135,6 +165,8 @@ PiCode/
 │                              Menus, shortcuts, palette, and toolbar ALL route through it.
 ├── Models/                    (Foundation only)
 │   ├── JSONValue.swift        the JSON model + JSONCoding (decode/line encoder)
+│   ├── JSONScanner.swift      iterative JSON reader/writer (stack-safe on deep
+│   │                          payloads; sorted keys) — backs JSONCoding
 │   ├── RPCModels.swift        RPCCommand/RPCResponse, PiModel, PiCommand, PiMessage,
 │   │                          PiSessionEntry, PiTreeNode, PiForkPoint, PiSessionState,
 │   │                          PiSessionStats, PiUsage, ExtensionUIRequest, compatibility notices
@@ -215,6 +247,9 @@ protocol logic in views.
 | **"Changes" pane excludes `.read` file touches** | A changes list that includes reads is not a changes list. Session changes and git changes are offered as two sources of the same pane. |
 | **Transcript errors are always visible** | Never behind a disclosure. |
 | **`PiDiagnosticsLog` is in-memory and opt-in** | It can contain file contents and prompts. Capped ring buffer, never written to disk; only rendered when `recordRPCPayloads` is on. |
+| **The session tree is built locally, never fetched** | `get_tree` costs ~32 s on a 787-entry session and blocks Pi's request queue (so it delays the user's next prompt). The tree is pure `parentId` structure, so `PiTreeNode.buildTree` derives it from entries instantly and matches Pi's output exactly (`run-open.sh --small` proves it). |
+| **Entries are read once, then followed with a cursor** | A full `get_entries` costs ~20 s and Pi does not cache it, while `get_entries(since:lastId)` costs ~0.01 s. One full read per session, incremental appends after every turn — nothing on the hot path stalls the next prompt. |
+| **Hand-written iterative JSON scanner** | `JSONDecoder` + recursive `JSONValue` crashed (SIGBUS) on Pi's nested `get_tree` payload. The scanner is stack-safe at any depth and faster than the `try?`-chain decoder; it also makes outgoing payloads deterministic (sorted keys). |
 
 ---
 
@@ -362,6 +397,34 @@ partial content is assembled from `message_start` + deltas and reconciled on
   read-only and offers Fork/Clone; `/trust` is mirrored by PiCode's own trust UI
   writing Pi's `trust.json`.
 
+### Read-path costs (measured on this machine, v0.85.1)
+
+Pi answers one request at a time, so a slow read does not just stall the pane
+that asked for it — it delays the user's next prompt. Measured on a real 5.5 MB
+session with 787 entries / 144 messages in context:
+
+| Command | Cost | How PiCode uses it |
+| --- | --- | --- |
+| `get_tree` | **~32 s** | **Never called.** The tree is built locally from entries. |
+| `get_entries` (full) | **~20 s**, no caching | Once per session, and last in `refreshAll()` so the transcript paints first. |
+| `get_entries(since: <id>)` | **0.00–0.01 s** | After every settled turn and after compaction. |
+| `get_messages` | ~0.25 s | Every refresh. |
+| `get_fork_messages` | ~0.00 s | With the tree/fork UI. |
+| `get_session_stats` | ~0.00 s | Usage pane. |
+
+Consequences baked into the controller:
+
+- `PiTreeNode.buildTree(from:leafId:)` derives the tree from entries in `parentId`
+  order. It is verified against Pi's own `get_tree` on small sessions by
+  `run-open.sh --small`. Never reintroduce a `get_tree` call.
+- `PiSessionController.refreshEntries()` keeps `lastEntryId` as a durable cursor:
+  one full read per session, then `since:` appends forever. If the cursor is
+  rejected (Pi restarted on a different session), it falls back to a full read.
+  `isLoadingEntries` guards against two concurrent full walks and drives the tree
+  pane's progress state.
+- A first load on a long session therefore takes ~20 s of *background* time. That
+  is Pi's cost, not a PiCode bug; the tree pane says so instead of looking stuck.
+
 ---
 
 ## 10. Hard-won API facts (so you don't rediscover them)
@@ -371,7 +434,21 @@ partial content is assembled from `message_start` + deltas and reconciled on
   use the accessors (`string(_:)`, `int(_:)`, `double(_:)`, `bool(_:)`,
   `array(_:)`, `object(_:)`, `…Value`, `isNull`, `prettyDescription`) and build
   values as `.number(Double(x))`, `.object([...])`.
-- Decoding goes through `JSONCoding.decode(_:)` / `JSONCoding.line(_:)`.
+- Decoding goes through `JSONCoding.decode(_:)` / `JSONCoding.line(_:)`, which are
+  backed by **`JSONScanner`** (iterative, hand-written). `JSONDecoder`/
+  `JSONEncoder` with `JSONValue` **overflows the stack** on deeply nested payloads:
+  `get_tree` nests one level per session entry, and a 145-entry session crashed a
+  smoke test with SIGBUS inside `_CodingPathNode.path`. Keep the `Codable`
+  conformance for small typed stores only (§5) and never route RPC or session
+  data through it. The scanner also gives deterministic sorted keys on the wire.
+- Two deliberate scanner differences from `JSONSerialization`, both harmless for
+  Pi's output and safer than failing: duplicate object keys keep the last value,
+  and lone UTF-16 surrogates become U+FFFD instead of rejecting the record.
+- `get_session_stats` totals cover the **whole session history** (every branch,
+  including compacted-away messages) while `get_state.messageCount` is the
+  **active branch**. On the test session: 780 total vs 144 in context, 23 user vs
+  4 user. Show them as different things; only `contextUsage` describes the live
+  context window.
 - `PiSessionState` fields: `model`, `thinkingLevel`, `isStreaming`, `isCompacting`,
   `steeringMode`, `followUpMode`, `sessionFile`, `sessionId`, `sessionName`,
   `autoCompactionEnabled`, `autoRetryEnabled`, `messageCount`,
@@ -431,6 +508,18 @@ partial content is assembled from `message_start` + deltas and reconciled on
    transcript rows and tool cards, Reduce Motion honored.
 8. Update this file when you finish any of the above.
 
+Already closed by the harnesses (kept here so nobody re-opens them):
+
+- ~~Reloaded sessions lose compaction/branch markers~~ — verified against a real
+  compacted session: `get_messages` includes the summary, and the transcript
+  renders a compaction row after resume (`run-open.sh`).
+- ~~`SessionReplayTest` orphan check was vacuous~~ — it now matches `toolResult`
+  messages to calls by `toolCallId` (3754 of 3754 matched).
+- ~~Deeply nested RPC payloads crash the app~~ — the iterative scanner replaced
+  `JSONDecoder` on that path (§10).
+- ~~`get_tree` stalls the app on long sessions~~ — the tree is built locally, and
+  entries are followed with a cursor instead of re-read (§9).
+
 ---
 
 ## 12. Conventions
@@ -458,6 +547,10 @@ partial content is assembled from `message_start` + deltas and reconciled on
 - [ ] `swiftc -typecheck` clean (§3 step 1)
 - [ ] `xcodebuild` → `** BUILD SUCCEEDED **`
 - [ ] `./Tools/SmokeTest/run.sh` → `RESULT: all checks passed`
+- [ ] `./Tools/SmokeTest/run-json.sh` → `RESULT: all checks passed`
+- [ ] `./Tools/SmokeTest/run-replay.sh` → `RESULT: all checks passed`
+- [ ] `./Tools/SmokeTest/run-open.sh --small` → `RESULT: all checks passed`
+- [ ] The app launches and stays up for a few seconds with no crash report
 - [ ] `git status` shows **no** changes in `~/.pi/agent` (no `trust.json`, no new
       session files, no touched settings)
 - [ ] No `sh -c` / `Process` with a shell anywhere in the diff
