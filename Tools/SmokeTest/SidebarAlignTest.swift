@@ -44,10 +44,15 @@ struct SidebarAlignDemo: View {
     }
 
     private func projectRow(_ project: DemoProject) -> some View {
+        // Geometry only: the real row wraps this in a Button that folds the chats,
+        // which does not change any of the numbers below.
         HStack(spacing: SidebarStyle.iconTextSpacing) {
             Image(systemName: "folder")
                 .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
-                .frame(width: SidebarStyle.projectIconSize, alignment: .leading)
+                .frame(width: SidebarStyle.projectIconSize,
+                       height: SidebarStyle.projectIconSize,
+                       alignment: .leading)
+                .offset(x: -SidebarStyle.projectIconShift)
             Text(project.name).font(SidebarStyle.rowFont)
             Spacer(minLength: 0)
         }
@@ -179,6 +184,16 @@ final class SidebarAlignDelegate: NSObject, NSApplicationDelegate {
             return finish()
         }
 
+        /// The vertical ink span inside one x range on one line: how a line's
+        /// *centre* is found without letting a tall glyph or a descender drag it
+        /// around. The y candidates are the line's own rows — the same x column is
+        /// shared by every line, so scanning the whole image would find them all.
+        func inkSpan(_ range: ClosedRange<Int>, on line: [Int]) -> ClosedRange<Int>? {
+            let ys = line.filter { y in range.contains(where: { isText($0, y) }) }
+            guard let first = ys.first, let last = ys.last else { return nil }
+            return first...last
+        }
+
         let headerRuns = runs(on: lines[0])
         let rowRuns = runs(on: lines[1])
         // Printed always: when the alignment drifts, this is what tells you which
@@ -202,18 +217,28 @@ final class SidebarAlignDelegate: NSObject, NSApplicationDelegate {
               String(format: "delta %.1fpt", Double(delta)))
         check(iconPoints > 10, "the project glyph is drawn at full size",
               String(format: "%.1fpt wide", Double(iconPoints)))
-        // The chats must be rows of their own, not one row holding a stack: rows
-        // keep the list's own vertical rhythm, and only rows can highlight or be
-        // clicked one at a time.
+        let glyphInk = CGFloat(headerRuns[0].lowerBound) / scale
+        check(abs(glyphInk - SidebarStyle.sidebarMargin) <= 1.5,
+              "the project glyph lines up with the search field's left edge",
+              String(format: "glyph ink %.1fpt against margin %.1fpt", Double(glyphInk), Double(SidebarStyle.sidebarMargin)))
+
+        // The rhythm: a chat must sit as far below its project's *name* as it sits
+        // below another chat. The glyph is excluded from the project's span — it is
+        // taller than the text and would drag the centre upwards.
         if lines.count >= 3 {
-            let projectToChat = CGFloat(lines[1].first! - lines[0].first!) / scale
-            let chatToChat = CGFloat(lines[2].first! - lines[1].first!) / scale
-            check(projectToChat > chatToChat + 4,
-                  "a project has its own margin before its chats",
-                  String(format: "%.1fpt then %.1fpt between chats", Double(projectToChat), Double(chatToChat)))
-            check(chatToChat > 18 && chatToChat < 34,
-                  "the chats are separate rows, not one stacked row",
-                  String(format: "%.1fpt apart", Double(chatToChat)))
+            let labelSpan = inkSpan(headerRuns[1].lowerBound...headerRuns[headerRuns.count - 1].upperBound, on: lines[0])
+            let firstChatSpan = inkSpan(rowRuns.first!.lowerBound...runs(on: lines[1]).last!.upperBound, on: lines[1])
+            let secondChatSpan = inkSpan(runs(on: lines[2]).first!.lowerBound...runs(on: lines[2]).last!.upperBound, on: lines[2])
+            if let labelSpan, let firstChatSpan, let secondChatSpan {
+                func centre(_ span: ClosedRange<Int>) -> Double { Double(span.lowerBound + span.upperBound) / 2 }
+                let projectToChat = (centre(firstChatSpan) - centre(labelSpan)) / Double(scale)
+                let chatToChat = (centre(secondChatSpan) - centre(firstChatSpan)) / Double(scale)
+                check(abs(projectToChat - chatToChat) <= 1.5,
+                      "a chat sits the same distance below a project's name as below another chat",
+                      String(format: "%.1fpt then %.1fpt", projectToChat, chatToChat))
+            } else {
+                check(false, "the project name and both chats have measurable ink")
+            }
         }
         captureLook()
     }

@@ -156,7 +156,7 @@ final class AppState {
         }
     }
 
-    init() {}
+    init() { collapsedProjects = preferences.collapsedProjects }
 
     // MARK: - Launch sequence
 
@@ -360,6 +360,33 @@ final class AppState {
         preferences.hiddenSessions.insert(session.id)
         preferences.persist()
         await refreshIndex()
+    }
+
+    /// Projects whose chats are folded away, mirrored from preferences so the
+    /// sidebar redraws when it changes (`PreferencesStore` is not observable).
+    private(set) var collapsedProjects: Set<String>
+
+    func isCollapsed(project: ProjectGroup) -> Bool {
+        collapsedProjects.contains(project.path)
+    }
+
+    /// Fold a project's chats away, or bring them back. The sidebar is a
+    /// projection of Pi's session directory, so this hides rows and nothing else:
+    /// no session file is read, written or deleted, and the project row stays put.
+    func toggleCollapsed(project: ProjectGroup) {
+        if collapsedProjects.contains(project.path) {
+            collapsedProjects.remove(project.path)
+        } else {
+            collapsedProjects.insert(project.path)
+        }
+        preferences.collapsedProjects = collapsedProjects
+        preferences.persist()
+    }
+
+    /// A project stays open while a search is running: a match hidden inside a
+    /// fold would look like a broken result.
+    func showsChats(of project: ProjectGroup) -> Bool {
+        sidebarQuery.trimmingCharacters(in: .whitespaces).isEmpty || !isCollapsed(project: project)
     }
 
     func togglePin(project: ProjectGroup) {

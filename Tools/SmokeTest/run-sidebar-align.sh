@@ -44,13 +44,19 @@ check_source "$SIDEBAR" '.font(SidebarStyle.rowFont)' \
     "the shared row font is what both use"
 check_source "$SIDEBAR" '.background(SidebarStyle.searchFieldFill' \
     "the search field uses the recessed rounded fill"
+check_source "$SIDEBAR" 'state.toggleCollapsed(project: project)' \
+    "clicking a project folds its chats (no chevron to click)"
+check_source "$SIDEBAR" 'state.showsChats(of: project)' \
+    "a folded project hides its chats"
+check_source "$SIDEBAR" '.offset(x: -SidebarStyle.projectIconShift)' \
+    "the project glyph is shifted onto the search field's margin"
 if grep -qE 'Section[ ({]' "$SIDEBAR"; then
     echo "  FAIL a project is still a Section (the sidebar turns those into a collapsible group with a chevron)"
     fail=1
 else
     echo "  ok   projects are rows, so there is no disclosure chevron"
 fi
-if grep -q 'project.sessions.count' "$SIDEBAR"; then
+if grep -qF 'Text("\(project.sessions.count)")' "$SIDEBAR"; then
     echo "  FAIL a project row still shows its session count"
     fail=1
 else

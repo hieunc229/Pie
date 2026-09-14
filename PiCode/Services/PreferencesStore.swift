@@ -54,6 +54,9 @@ final class PreferencesStore {
     var pinnedSessions: Set<String>
     /// Session ids whose sidebar entry was dismissed. Never deletes the file.
     var hiddenSessions: Set<String>
+    /// Projects whose chats are folded away in the sidebar. A decoration like a
+    /// pin: it hides rows, it never touches a session file.
+    var collapsedProjects: Set<String>
     var lastProjectPath: String?
     var reducedMotionOverride: Bool?
 
@@ -74,6 +77,7 @@ final class PreferencesStore {
         pinnedProjects = Set(defaults.stringArray(forKey: Keys.pinnedProjects) ?? [])
         pinnedSessions = Set(defaults.stringArray(forKey: Keys.pinnedSessions) ?? [])
         hiddenSessions = Set(defaults.stringArray(forKey: Keys.hiddenSessions) ?? [])
+        collapsedProjects = Set(defaults.stringArray(forKey: Keys.collapsedProjects) ?? [])
         lastProjectPath = defaults.string(forKey: Keys.lastProject)
         reducedMotionOverride = defaults.object(forKey: Keys.reducedMotion) as? Bool
     }
@@ -92,6 +96,7 @@ final class PreferencesStore {
         defaults.set(Array(pinnedProjects), forKey: Keys.pinnedProjects)
         defaults.set(Array(pinnedSessions), forKey: Keys.pinnedSessions)
         defaults.set(Array(hiddenSessions), forKey: Keys.hiddenSessions)
+        defaults.set(Array(collapsedProjects), forKey: Keys.collapsedProjects)
         defaults.set(lastProjectPath, forKey: Keys.lastProject)
         defaults.set(reducedMotionOverride, forKey: Keys.reducedMotion)
     }
@@ -114,6 +119,7 @@ final class PreferencesStore {
         static let pinnedProjects = "pinnedProjects"
         static let pinnedSessions = "pinnedSessions"
         static let hiddenSessions = "hiddenSessions"
+        static let collapsedProjects = "collapsedProjects"
         static let lastProject = "lastProjectPath"
         static let reducedMotion = "reducedMotionOverride"
     }

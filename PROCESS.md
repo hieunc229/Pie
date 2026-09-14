@@ -69,7 +69,7 @@ PiCode's own preferences.
 | Extension UI round trip against a live extension | ✅ `./Tools/SmokeTest/run-extension.sh` — all 35 checks pass, no model call |
 | Sidebar contents are real (no hidden project DB) | ✅ `./Tools/SmokeTest/run-index.sh` — 16 session files on disk → 8 projects, every path exists |
 | Providers, credentials, third-party providers | ✅ `./Tools/SmokeTest/run-providers.sh` — verified against a live `pi`, no credential of the user's is touched |
-| Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt delta; projects are rows, so there is no section chevron |
+| Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt alignment delta, glyph on the search margin, project→chat pitch equal to chat→chat |
 | Discovery / launch / trust / session index / git | ✅ implemented |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
@@ -179,13 +179,16 @@ the user.
   canonical `cwd`. Keep it that way.
 - **`run-sidebar-align.sh`** is the only harness that measures *pixels*. It
   renders the real row layout in a window, captures that window itself (no
-  screen-recording permission needed), and compares the ink origin of a session
-  title with the ink origin of its project's name. It also checks the vertical
-  rhythm (a project has a margin before its chats; the chats are separate rows,
-  not one stacked row) and dumps `/tmp/picode-sidebar-look.png`, a mock of the
-  whole column, so a human can judge the colours a machine cannot. It compiles
-  against `SidebarStyle` extracted from `SidebarView.swift` so the numbers under
-  test are the shipped ones. It needs a GUI session (not SSH).
+  screen-recording permission needed), and checks four things: a chat title
+  starts at the same x as its project's name, the project glyph's ink lands on
+  `SidebarStyle.sidebarMargin` (the search field's left edge), a chat sits as far
+  below a project's name as below another chat (measured from ink *centres*, so a
+  tall glyph or a descender cannot skew it), and the glyph is not truncated. It
+  also dumps `/tmp/picode-sidebar-look.png`, a mock of the whole column, so a
+  human can judge the colours a machine cannot. It compiles against
+  `SidebarStyle` extracted from `SidebarView.swift` so the numbers under test are
+  the shipped ones, and greps the view for the wiring those numbers assume. It
+  needs a GUI session (not SSH).
 - **`run-providers.sh`** exercises `PiProviderService` inside a throwaway
   `PI_CODING_AGENT_DIR` and then asks a live `pi` what it makes of the files:
   `0600` mode, masked fingerprints (no key ever printed), atomic writes with no
@@ -249,7 +252,7 @@ PiCode/
 │   └── Text/ANSI.swift, Markdown.swift, SyntaxHighlighter.swift   (semantic colors only)
 ├── Features/
 │   ├── Root/            RootView (3-pane + inspector + overlay host), SetupViews (onboarding)
-│   ├── Sidebar/         SidebarView: projects → sessions, search, pin/hide/delete
+│   ├── Sidebar/         SidebarView (project rows fold their chats), search, pin/hide/delete
 │   ├── Session/         PiSessionController (the brain), SessionView, TranscriptBuilder,
 │   │                    TranscriptExporter
 │   ├── Conversation/    ConversationView, MarkdownView, TranscriptRowView, ToolCallCard
@@ -316,7 +319,7 @@ protocol logic in views.
 | **Extension commands get the patient `prompt` timeout** | Pi answers `prompt` only once the text has been handled, and an extension command is handled by its own handler, which may sit on a dialog for minutes. A normal prompt keeps the 60 s preflight budget; a slash command Pi reported as an extension command gets the same patient budget as `bash`. |
 | **PiCode writes exactly two kinds of Pi file** | `trust.json` (the same document `/trust` writes) and, only on an explicit click in Settings → Providers, `auth.json` and `models.json` in the shapes Pi documents. Everything else under Pi's config directory is read-only, and no credential is ever read back into the UI. Before adding a third, ask why the user cannot do it in `pi` itself. |
 | **The sidebar is a projection, not a database** | `SessionIndex.loadAllProjects()` reads Pi's session directory on every refresh; pins and "hidden" flags only decorate the result. `run-index.sh` guards this: add caching and the sidebar can start disagreeing with the terminal about what exists. |
-| **A project is a row, not a section header** | A `Section` in the sidebar list style is a collapsible group with a disclosure chevron — wrong for a list that mirrors what is on disk, and the reason a project used to look like a heading over its chats. As a row it also shares its chats' leading inset, which is what makes "a chat title starts where the project's name starts" exact instead of a two-point correction. `run-sidebar-align.sh` measures both the alignment and that the chats are separate rows. |
+| **A project is a row, not a section header** | A `Section` in the sidebar list style is a collapsible group with a disclosure chevron — wrong for a list that mirrors what is on disk. The row *is* the disclosure: clicking it folds its chats (`AppState.toggleCollapsed`, persisted as a decoration; a running search always wins so a match is never hidden inside a fold). As a row it also shares its chats' leading inset, which is what makes "a chat title starts where the project's name starts" exact instead of a two-point correction. The glyph is drawn `projectIconShift` (9pt, measured) to the left of its row so it lands on the search field's margin, and that shift is drawing-only, so the name — and therefore every chat title under it — does not move. |
 
 ---
 
@@ -610,8 +613,13 @@ Consequences baked into the controller:
 - `PreferencesStore` owns: `appearance`, `sendKey`, `showInspector`, `showSidebar`,
   `defaultThinkingLevel`, `defaultModelQualifiedID`, `confirmBeforeDeletingSessions`,
   `notificationsEnabled`, `recordRPCPayloads`, `extraLaunchArguments`,
-  `pinnedProjects`, `pinnedSessions`, `hiddenSessions`, `lastProjectPath`,
-  `reducedMotionOverride`. Anything else is not persisted yet — add it here.
+  `pinnedProjects`, `pinnedSessions`, `hiddenSessions`, `collapsedProjects`,
+  `lastProjectPath`, `reducedMotionOverride`. Anything else is not persisted
+  yet — add it here. `PreferencesStore` is **not** observable, so anything the UI
+  must redraw on is mirrored into `AppState` (`collapsedProjects` is seeded in
+  `AppState.init` and written back on every toggle; `isInspectorVisible` is the
+  older computed-property style and is the reason a "did the pane redraw?" bug is
+  possible there).
 - `AppState.InspectorTab` is `String, CaseIterable, Identifiable` and exposes
   `label`/`systemImage` (not `title`).
 - `PiDiagnosticsLog.limit` is internal so Settings can describe it in help text.
@@ -678,7 +686,14 @@ Consequences baked into the controller:
    updates `sessionFile`/`sessionId` and the sidebar/ephemeral-row behaviour.
 7. **Accessibility pass**: keyboard focus visibility, VoiceOver labels on
    transcript rows and tool cards, Reduce Motion honored.
-8. Update this file when you finish any of the above.
+8. **Click-to-fold a project by hand.** The state logic
+   (`AppState.toggleCollapsed` / `showsChats`, persisted in `PreferencesStore`)
+   and the view wiring are checked by `run-sidebar-align.sh`, but nobody has
+   clicked a real project row in the app: confirm the fold survives a relaunch,
+   that hovering shows the row highlight, that a running search un-folds a match
+   instead of hiding it, and that folding the project whose session is open does
+   not disturb the open session.
+9. Update this file when you finish any of the above.
 
 Already closed by the harnesses (kept here so nobody re-opens them):
 
@@ -708,10 +723,15 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   A chat has no glyph; it is indented by `SidebarStyle.titleIndent` so its title
   starts where the project's name starts. A project is a **row**, never a
   `Section`: the sidebar list style turns a section header into a collapsible
-  group with a disclosure chevron, and the sidebar is a projection of the disk,
-  not something to fold away. Rows also share the leading inset a section header
-  does not, which is why the indent no longer needs a correction — measure it
-  with `run-sidebar-align.sh` after changing the sidebar.
+  group with a disclosure chevron, and a project is folded by clicking the row
+  instead. Rows also share the leading inset a section header does not, which is
+  why the indent no longer needs a correction — measure it with
+  `run-sidebar-align.sh` after changing the sidebar.
+- **Vertical rhythm in the sidebar**: one chat sits as far below the previous
+  chat as below its project's name. Nothing gets an extra bottom margin to say
+  "this is a heading" — only `projectTopMargin` separates two projects — and the
+  project glyph gets a fixed *height* as well as width so a 15pt folder cannot
+  make its row taller than a text row.
 - **Recessed controls on the sidebar**: the search field's fill has to be darker
   than the sidebar material in *both* appearances, so it is a translucent black
   with a per-appearance alpha (`SidebarStyle.searchFieldFill`) — `.quaternary`

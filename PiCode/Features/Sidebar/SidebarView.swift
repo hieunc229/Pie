@@ -20,15 +20,29 @@ import SwiftUI
 /// same 13pt while a section header at `.caption` is smaller).
 enum SidebarStyle {
     static let rowFont = Font.system(size: 14, weight: .regular)
+    /// Left edge of the sidebar's own content: the search field's fill and the
+    /// project glyph both start here.
+    static let sidebarMargin: CGFloat = 10
     /// Slightly larger than the text, the way a Finder folder glyph sits next to
-    /// its name. Fixed width so `titleIndent` is exact whatever the glyph's own
-    /// metrics are.
+    /// its name. Fixed width *and* height so the glyph cannot make a project row
+    /// taller than a chat row — the two must keep the same vertical rhythm.
     static let projectIconSize: CGFloat = 15
+    /// How far left of its row the project glyph is drawn. The list style insets
+    /// rows about 19pt from the sidebar edge while the search field sits at 10, so
+    /// the glyph is shifted by the difference to line up with the field; the shift
+    /// is drawing-only, which leaves the project name (and therefore every chat
+    /// title under it) exactly where it was. Measured, not derived:
+    /// `run-sidebar-align.sh` fails if the glyph drifts off `sidebarMargin`.
+    static let projectIconShift: CGFloat = 9
+    /// Gap between the folder glyph and the project name.
     static let iconTextSpacing: CGFloat = 10
     /// Breathing room above a project — it has to separate the project from the
     /// previous project's last chat — and below it, before its own chats.
     static let projectTopMargin: CGFloat = 12
-    static let projectBottomMargin: CGFloat = 8
+    /// No extra room under a project: a chat sits the same distance below its
+    /// project's name as it does below another chat. Only the top margin and the
+    /// glyph say where one project's chats stop and the next start.
+    static let projectBottomMargin: CGFloat = 0
     /// How far a chat title is inset so it starts where its project's *name*
     /// starts rather than under the folder glyph. Exact because a project is a
     /// row like a chat is, so both get the same leading inset (a `Section` header
@@ -102,7 +116,7 @@ struct SidebarView: View {
             RoundedRectangle(cornerRadius: SidebarStyle.searchFieldRadius, style: .continuous)
                 .strokeBorder(Color.accentColor.opacity(isSearching ? 0.9 : 0), lineWidth: 2)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, SidebarStyle.sidebarMargin)
         .padding(.top, 6)
         .padding(.bottom, 10)
     }
@@ -139,36 +153,38 @@ struct SidebarView: View {
     /// The rows belonging to one project.
     ///
     /// These are plain rows rather than a `Section`: the sidebar list style turns
-    /// a section into a collapsible group with a disclosure chevron, and this list
-    /// is a fixed projection of what is on disk — there is nothing to collapse.
-    /// Rows also share the project's leading inset, which is what lets a chat
-    /// title line up with the project's name.
+    /// a section into a collapsible group with a disclosure chevron, and a project
+    /// is folded by clicking it instead (see `ProjectRow`). Rows also share the
+    /// project's leading inset, which is what lets a chat title line up with the
+    /// project's name.
     @ViewBuilder
     private func chats(of project: ProjectGroup) -> some View {
         let ephemeral = ephemeralSession(for: project)
-        if let ephemeral {
-            SessionRow(
-                state: state,
-                session: ephemeral,
-                controller: state.activeController,
-                isSelected: true,
-                isEphemeral: true
-            )
-        }
-        ForEach(project.sessions) { session in
-            SessionRow(
-                state: state,
-                session: session,
-                controller: controller(for: session),
-                isSelected: state.selectedSessionKey == session.filePath.map(AppState.key(forSessionPath:))
-            )
-        }
-        if project.sessions.isEmpty && ephemeral == nil {
-            Text("No sessions yet")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .padding(.leading, SidebarStyle.titleIndent)
-                .padding(.bottom, 4)
+        if state.showsChats(of: project) {
+            if let ephemeral {
+                SessionRow(
+                    state: state,
+                    session: ephemeral,
+                    controller: state.activeController,
+                    isSelected: true,
+                    isEphemeral: true
+                )
+            }
+            ForEach(project.sessions) { session in
+                SessionRow(
+                    state: state,
+                    session: session,
+                    controller: controller(for: session),
+                    isSelected: state.selectedSessionKey == session.filePath.map(AppState.key(forSessionPath:))
+                )
+            }
+            if project.sessions.isEmpty && ephemeral == nil {
+                Text("No sessions yet")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, SidebarStyle.titleIndent)
+                    .padding(.bottom, 4)
+            }
         }
     }
 
@@ -256,32 +272,57 @@ struct SidebarView: View {
 /// It reads exactly like a chat — same size, same weight, same primary colour — so
 /// the sidebar is one list of places you have worked, not a hierarchy with a
 /// shouted heading on top. The folder glyph and the indent are what say which
-/// chats belong to it.
+/// chats belong to it, and clicking the row folds them away, which is why there is
+/// no disclosure chevron: the row itself is the disclosure.
 struct ProjectRow: View {
     @Bindable var state: AppState
     var project: ProjectGroup
 
+    @State private var isHovering = false
+
     var body: some View {
-        HStack(spacing: SidebarStyle.iconTextSpacing) {
-            Image(systemName: "folder")
-                .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
-                .frame(width: SidebarStyle.projectIconSize, alignment: .leading)
-            Text(project.name)
-                .font(SidebarStyle.rowFont)
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-            if project.isPinned {
-                Image(systemName: "pin.fill")
-                    .imageScale(.small)
-                    .foregroundStyle(.tertiary)
+        Button {
+            state.toggleCollapsed(project: project)
+        } label: {
+            HStack(spacing: SidebarStyle.iconTextSpacing) {
+                Image(systemName: "folder")
+                    .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                    // Fixed height as well as width: a taller glyph would make the
+                    // row taller than a chat row and change the rhythm below it.
+                    .frame(width: SidebarStyle.projectIconSize,
+                           height: SidebarStyle.projectIconSize,
+                           alignment: .leading)
+                    // Drawing-only, so the name stays put while the glyph lines up
+                    // with the search field.
+                    .offset(x: -SidebarStyle.projectIconShift)
+                Text(project.name)
+                    .font(SidebarStyle.rowFont)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+                if project.isPinned {
+                    Image(systemName: "pin.fill")
+                        .imageScale(.small)
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .foregroundStyle(.primary)
+            .contentShape(Rectangle())
         }
-        .foregroundStyle(.primary)
+        .buttonStyle(.plain)
         .padding(.top, SidebarStyle.projectTopMargin)
         .padding(.bottom, SidebarStyle.projectBottomMargin)
-        .contentShape(Rectangle())
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isHovering ? Color.primary.opacity(0.05) : .clear)
+        )
+        .onHover { isHovering = $0 }
+        .accessibilityValue(state.isCollapsed(project: project) ? "chats hidden" : "chats shown")
         .contextMenu {
+            Button(state.isCollapsed(project: project) ? "Show Chats" : "Hide Chats") {
+                state.toggleCollapsed(project: project)
+            }
+            Divider()
             Button(project.isPinned ? "Unpin Project" : "Pin Project") {
                 state.togglePin(project: project)
             }
@@ -293,7 +334,13 @@ struct ProjectRow: View {
             Button("Reveal in Finder") { WorkspaceLauncher.reveal(project.path) }
             Button("Copy Path") { state.copyToPasteboard(project.path) }
         }
-        .help(project.displayPath)
+        .help(helpText)
+    }
+
+    private var helpText: String {
+        let fold = state.isCollapsed(project: project) ? "Click to show its chats" : "Click to hide its chats"
+        let chats = project.sessions.count == 1 ? "1 chat" : "\(project.sessions.count) chats"
+        return "\(project.displayPath) — \(chats). \(fold)."
     }
 }
 
