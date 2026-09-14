@@ -29,6 +29,7 @@ PREFERENCES="$ROOT/PiCode/Services/PreferencesStore.swift"
 COMPOSER="$ROOT/PiCode/Features/Composer/ComposerView.swift"
 TEXTVIEW="$ROOT/PiCode/Features/Composer/ComposerTextView.swift"
 SESSION="$ROOT/PiCode/Features/Session/SessionView.swift"
+CONVERSATION="$ROOT/PiCode/Features/Conversation/ConversationView.swift"
 
 echo "== the composer is wired the way this harness measures =="
 fail=0
@@ -62,6 +63,21 @@ check_absent "$COMPOSER" 'Send as steering message' "the steering/follow-up drop
 check_absent "$COMPOSER" 'queued", systemImage: "list.bullet"' "the queue pill is gone"
 check_absent "$COMPOSER" 'Label("Interrupt"' "the separate interrupt button is gone"
 check_absent "$SESSION" '.background(.bar)' "there is no container background behind the composer"
+
+# Nothing may be rendered below the composer, and the composer must float over the
+# transcript rather than push it up. Both are structure: they compile either way.
+check_absent "$SESSION" 'ExtensionStatusBar' "no status line under the composer"
+check_source "$SESSION" 'placement: .belowEditor' "a widget Pi placed below the editor is still shown (above the box, since nothing is below it)"
+check_source "$SESSION" '.overlay(alignment: .bottom) { floatingComposer }' "the composer is an overlay on the transcript"
+check_source "$SESSION" 'bottomInset: composerHeight' "the transcript is told how tall the overlay is"
+check_source "$CONVERSATION" 'bottomInset: CGFloat = 0' "the transcript takes a bottom inset"
+check_source "$CONVERSATION" '.padding(.bottom, 8 + bottomInset)' "the inset is room after the last row, not a margin on it"
+
+# The editor must report its own height. Without `sizeThatFits` SwiftUI hands the
+# view its maximum allowed height, so the box is that tall whatever is in it.
+check_source "$TEXTVIEW" 'func sizeThatFits' "the editor reports the height it needs"
+check_source "$TEXTVIEW" 'static let visibleLines = 2' "the editor stops at two lines"
+check_source "$COMPOSER" 'ComposerMetrics.editorMaxHeight' "the editor is clamped to the two-line metric"
 
 # Order on the row: paperclip left, model/thinking right. A move is exactly the
 # kind of change that leaves the code compiling and the layout wrong.

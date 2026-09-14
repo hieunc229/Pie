@@ -70,9 +70,10 @@ PiCode's own preferences.
 | Sidebar contents are real (no hidden project DB) | ✅ `./Tools/SmokeTest/run-index.sh` — 16 session files on disk → 8 projects, every path exists |
 | Providers, credentials, third-party providers | ✅ `./Tools/SmokeTest/run-providers.sh` — verified against a live `pi`, no credential of the user's is touched |
 | Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt alignment delta, glyph on the search margin, project→chat pitch 26.5pt against chat→chat 28.0pt (the 1.5pt residual is the list's, see §10) |
-| Sidebar rows behave (click a project to fold its chats; highlight on the search margin) | ✅ `./Tools/SmokeTest/run-sidebar-click.sh` — clicks a real row through the window's event path: 3 rows → 1 → 3; highlight 10.0pt in from both edges of a 268pt column |
+| Sidebar rows behave (click a project to fold its chats; highlight on the search margin) | ✅ `./Tools/SmokeTest/run-sidebar-click.sh` — clicks a real row through the window's event path: 3 rows → 1 → 3; highlight 10.0pt in from both edges of a 268pt column. (Its row counting broke once for a reason that had nothing to do with the sidebar: a material is invisible to a `cacheDisplay` capture — §10.) |
 | Discovery / launch / trust / session index / git | ✅ implemented |
-| Composer: Return sends, Shift+Return is a line, box shape | ✅ `./Tools/SmokeTest/run-composer.sh` — real `ComposerTextView`, real key events: Return/Shift/Option/Command-Return in both send-key modes, and a measured corner |
+| Composer: Return sends, Shift+Return is a line, box shape and the two-line clamp | ✅ `./Tools/SmokeTest/run-composer.sh` — real `ComposerTextView`, real key events: Return/Shift/Option/Command-Return in both send-key modes; box measured at 76.0pt (two lines plus the control row) and the editor measured at 22.0/40.0/40.0/40.0pt for 1/2/3/5 lines |
+| Composer floats over the transcript, nothing below it | ⚠️ structure only: `run-composer.sh` asserts the overlay, the inset and the absence of a footer in the source. Nobody has watched a long session scroll under the box — see §11 |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
 | Transcript vs README spec | ✅ audited (§11); the gaps it found are fixed |
@@ -219,6 +220,14 @@ the user.
   - Both capture the window's **content view**, not the window. See §10: a
     window-server capture of a window behind another window is solid black, and
     a harness can share the screen with the running app.
+  - `run-sidebar-click.sh` paints its own flat backdrop
+    (`.scrollContentBackground(.hidden)` plus one `Color` behind the whole
+    split view) and measures `isText` against the modal brightness *inside the
+    column*. A sidebar `List` uses a material, materials do not appear in a
+    `cacheDisplay` capture (they resolve to transparent → black), and a capture
+    that holds two surfaces has no single backdrop — the harness reported
+    "three rows → found 1" for exactly that reason, having counted the whole
+    column as one band of ink (§10).
 - **`run-composer.sh`** is the composer's gate: it compiles `ComposerTextView`
   against the real source, hosts it in a real window, and posts real key events —
   Return, Shift-Return, Option-Return, Command-Return, Escape, in both
@@ -226,11 +235,21 @@ the user.
   composer asked the session to do *and* what the editor still contains, because
   "sent" with a stray newline in the text is still wrong. The key mapping cannot
   be guessed from selector names (§10), so the harness asserts the mapping itself.
-  It also measures the prompt box from a capture, against
-  `ComposerMetrics.cornerRadius`, and greps the view for the row order
+  It then sets text of 1, 2, 3 and 5 lines in the real editor and measures the
+  height SwiftUI gave it (22/40/40/40pt), because a `NSViewRepresentable` with no
+  size of its own is handed its maximum height and the box was silently a
+  constant 220pt tall (§10).
+  It also measures the prompt box from a capture — 372×76pt, against
+  `ComposerMetrics.cornerRadius` and against two lines plus the control row — and
+  greps the sources for the structure that compiles either way: the row order
   (attach · access · model · thinking · send), the absence of the controls that
-  were deliberately removed, and the absence of a container background behind the
-  composer. Needs a GUI session.
+  were deliberately removed, no container background behind the composer, the
+  composer as an `.overlay` on the transcript with its height handed to
+  `ConversationView.bottomInset`, and no footer (no `ExtensionStatusBar`) under
+  it. Needs a GUI session.
+  What it cannot see: the overlay from the outside. Rendering the real
+  `SessionView` needs a live controller, so "the last row ends above the box and
+  earlier rows pass under it" rests on the code shape plus one manual look (§11).
 - **`run-providers.sh`** exercises `PiProviderService` inside a throwaway
   `PI_CODING_AGENT_DIR` and then asks a live `pi` what it makes of the files:
   `0600` mode, masked fingerprints (no key ever printed), atomic writes with no
@@ -348,6 +367,8 @@ protocol logic in views.
 | **Images via RPC `images`; text files inlined as fenced `@path` blocks** | Pi only accepts images as attachments. Other files are inlined as Markdown so the model can read them, and the fenced block names the path. `AttachmentLoader` rejects anything that is neither an image nor text with a clear message. |
 | **Tree inspector is read-only** | `navigateTree` is SDK/extension-only, not RPC (§9). PiCode shows the tree, and offers Fork/Clone plus an explicit compatibility note. |
 | **Terminal pane runs Pi's `bash` RPC** | It is *not* a real shell. It shows what the agent ran and lets the user run one-off commands through the same tool. For an interactive shell, "Open in Terminal" opens a real one. |
+| **The composer floats, and stops at two lines** | Two separate changes with the same goal: the composer should be a small object on the page, not a panel that owns the bottom of the window. (1) The editor is clamped to `ComposerMetrics.editorMaxHeight` (40pt = two lines at 18pt) and scrolls past that — measured, 1/2/3/5 lines give 22/40/40/40pt. (2) The transcript runs the full height of the column and the composer is drawn over it as an `.overlay(alignment: .bottom)`, so the last row passes *under* the box with a fade above it. Both need `ConversationView.bottomInset = composerHeight + 16`: the overlay takes no space, so without the inset the final row would be permanently hidden. The height is real, not a constant — `ComposerHeightKey` reports the measured overlay height back through a preference. |
+| **Nothing is rendered below the composer** | The footer status line (`ExtensionStatusBar`: runtime, model, thinking, trust, branch, context %, tool count, extension statuses) and the below-editor extension widget strip are gone. None of it was unique: the transcript has its own system rows for streaming/compacting/retrying/queue, the Context pane has model/thinking/context/tool counts/statuses/widgets, `InspectorView` shows the branch, and the window subtitle shows the model. A footer under a floating composer also re-anchors it to the bottom edge, which is the look the two-line clamp exists to avoid. Above-editor widgets, banners, trust prompts and the connection notice are kept; a widget an extension sets with placement `belowEditor` is drawn in the same stack above the box rather than dropped, since PiCode no longer has a place below it. |
 | **Inspector → composer references via `AppState.composerInsertion`** | A stateless one-shot handoff (set string → composer consumes and clears). Avoids reaching into the composer's `@State` across the view tree. |
 | **"Changes" pane excludes `.read` file touches** | A changes list that includes reads is not a changes list. Session changes and git changes are offered as two sources of the same pane. |
 | **Transcript errors are always visible** | Never behind a disclosure. |
@@ -691,6 +712,27 @@ Consequences baked into the controller:
   undeclared selector (`Selector(("noop:"))`), which a selector-only switch never
   matches (so the Command-Return-sends mode could never send). Read
   `NSApp.currentEvent?.modifierFlags` instead.
+- **A `NSViewRepresentable` with no size of its own is handed its maximum
+  height.** `ComposerTextView` wrapped an `NSScrollView`, which reports no
+  intrinsic size, so the `.frame(minHeight: 26, maxHeight: 220)` was not a
+  *range* the editor grew through — it was a constant 220pt box with a 26pt
+  editor floating in it. The user's complaint ("make it shorter") had this as its
+  root cause, and it is invisible in code review because the modifier reads like
+  a clamp. Fix: implement
+  `sizeThatFits(_:nsView:context:)`, lay out the container, and return
+  `min(max(usedRect.height + insets, height(forLines: 1)), height(forLines: visibleLines))`.
+  `run-composer.sh` now measures the editor at 1/2/3/5 lines, so a regression
+  shows up as a number rather than as "the box looks tall again".
+- **Do not resize the text container inside `sizeThatFits`.** The obvious
+  "make sure the width is current" line —
+  `container.containerSize = NSSize(width: proposal.width ?? …, height: .greatestFiniteMagnitude)`
+  — invalidates layout *while* SwiftUI is asking for a size, and the answers come
+  back stale and oscillating: measured, 1 and 2 lines were right (22pt, 40pt) and
+  then 3 and 5 lines reported **22pt** again, so the box collapsed as you typed.
+  `widthTracksTextView` already keeps the container as wide as the view; leave it
+  alone. (The probe that isolated this instrumented the scroll view's frame *and*
+  the text view's `usedRect`; seeing `used 54pt` inside a `22pt` box is what
+  identified the stale answer.)
 - **SwiftUI's `.continuous` corner is not a circle** (measured, asserted by
   `run-composer.sh`): the flat span at a rounded rect's top row is narrower than
   `width - 2r`, so pixel-measuring the corner does not give the radius back.
@@ -699,6 +741,20 @@ Consequences baked into the controller:
   (`.circular` at 18 → 17.0pt, off the line). The harness converts a measurement
   back with `1.25 * radius - 1.5`, tolerance 1.5pt — **calibrated for that capture
   path**; a window-server capture of the same box reads 3.5pt wider.
+- **A material does not survive a `cacheDisplay` capture, and a two-surface
+  capture has no single backdrop.** `WindowPixels` picks "ink" by comparing a
+  pixel to the capture's most common brightness. Two ways that quietly breaks:
+  (1) a sidebar `List`'s material draws as transparent offscreen and resolves to
+  black, so *every* pixel looks darker than the backdrop — one harness read a
+  whole column as a single 428pt "line of text"; (2) when the capture holds a
+  sidebar and a detail column with different colours, the modal brightness is
+  whichever covers more pixels, and the other surface becomes all-ink. Fixes,
+  both applied: paint a flat backdrop in a mock instead of relying on a material
+  (`.scrollContentBackground(.hidden)` + one `Color` behind the split view), and
+  measure ink against `background(in:yRange:)` — the modal brightness of the
+  region under test — rather than the whole image. The failure looked like a
+  behaviour bug ("clicking the project does not bring the chats back"); it was a
+  capture bug.
 - **Do not photograph an occluded window**: `CGWindowListCreateImage` hands back
   whatever the window server last composited, so a harness window that ends up
   behind the real app captures **solid black** — and then an assertion like "the
@@ -790,14 +846,21 @@ Consequences baked into the controller:
    subclass: an image on the pasteboard becomes an `Attachment`, a string stays
    text. Do not intercept plain text paste — `@path` references are typed, not
    pasted, and a paste that silently becomes an attachment would surprise.
-9. **Click-to-fold a project by hand.** `run-sidebar-click.sh` now clicks a real
+9. **The floating composer, seen once by a human.** The structure is asserted
+   but the overlay has never been looked at on screen (no screen-recording
+   permission here, and rendering the real `SessionView` needs a live
+   controller). Open a session long enough to scroll and check four things: the
+   last row ends above the box, earlier rows pass *behind* it and fade, the fade
+   matches the transcript background in both light and dark appearance, and the
+   box does not jump as the editor grows from one line to two.
+10. **Click-to-fold a project by hand.** `run-sidebar-click.sh` now clicks a real
    row through the window's event path (3 rows → 1 → 3) in a
    `NavigationSplitView` sidebar, so the hit-testing half is proven. What is left
    is the human half: that the fold survives a relaunch, that the hover highlight
    looks right, that a running search un-folds a match instead of hiding it, and
    that folding the project whose session is open does not disturb the open
    session.
-10. Update this file when you finish any of the above.
+11. Update this file when you finish any of the above.
 
 Already closed by the harnesses (kept here so nobody re-opens them):
 
@@ -838,6 +901,15 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   right of it if it configures the *run*; a new row is a design change, not an
   addition. Every control there must earn its space: the send button doubles as
   Stop rather than sitting next to one.
+- **The composer stays small and stays an overlay**: two lines, then it scrolls;
+  it is drawn over the transcript, and the transcript is told
+  (`ConversationView.bottomInset`) because an overlay reserves no space. Nothing
+  is added *below* the composer — that was a deliberate removal, and any new
+  session state belongs in the transcript's system rows or the inspector, not in
+  a footer. If you change the composer's height or padding, change
+  `ComposerHeightKey`'s consumer too, and re-run `run-composer.sh`: the box's
+  height is asserted against `ComposerMetrics.editorMaxHeight`, not a magic
+  number.
 - **Return-family keys are decided from the event, never the selector**: Shift
   means "add a line", Option means "queue a follow-up", and the send chord comes
   from `PreferencesStore.SendKey`. The selector alone is not enough (§10) — and
@@ -899,8 +971,12 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 - [ ] `./Tools/SmokeTest/run-sidebar-click.sh` → `RESULT: all checks passed`
       (only if you touched the sidebar's rows or highlights; needs a GUI session)
 - [ ] `./Tools/SmokeTest/run-composer.sh` → `RESULT: all checks passed`
-      (only if you touched the composer, the Return key, or `PreferencesStore.SendKey`;
-      needs a GUI session)
+      (only if you touched the composer, the Return key, `PreferencesStore.SendKey`,
+      `SessionView`'s bottom area, or the transcript's bottom inset; needs a GUI
+      session). If you changed the composer's height or padding, check that the
+      measured editor heights are still 22/40/40/40pt and that the box still
+      measures `editorMaxHeight + 36` — a wrong number there means a
+      `NSViewRepresentable` is taking its maximum height again (§10)
 - [ ] The app launches and stays up for a few seconds with no crash report
 - [ ] `git status` shows **no** changes in `~/.pi/agent` (no `trust.json`, no new
       session files, no touched settings)

@@ -2,18 +2,39 @@
 //  SessionView.swift
 //  PiCode
 //
-//  One active session: transcript, extension chrome, trust gate, and composer.
+//  One active session: transcript, trust gate, and the composer.
 //
-//  Ordering mirrors Pi's own TUI so nothing appears in an unexpected place:
-//  widgets above the editor sit above the composer, status lines below it.
+//  The composer *floats over* the transcript rather than sitting under it. It is
+//  the only thing at the bottom of the window, and the transcript keeps the whole
+//  height behind it — so a long conversation is never pushed up by the prompt
+//  box, and the box never grows past two lines (§6). Nothing is rendered below
+//  the composer: the facts a footer used to repeat (runtime, model, thinking,
+//  context, tool counts, git branch, extension status) are in the inspector's
+//  Context pane, and the live ones — streaming, compacting, retrying, the queue —
+//  are in the transcript's own footer.
 //
 
 import SwiftUI
+
+/// How tall the floating composer turned out to be, so the transcript can leave
+/// exactly that much room at the bottom of its content.
+private struct ComposerHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
 
 struct SessionView: View {
     @Bindable var state: AppState
     var controller: PiSessionController
     var composerFocusTick: Int
+
+    @State private var composerHeight: CGFloat = 0
+
+    /// The transcript's own backdrop, so the fade under the composer hides
+    /// scrolled-away rows in the colour they were already drawn on.
+    private var backdrop: Color { Color(nsColor: .textBackgroundColor) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,33 +44,9 @@ struct SessionView: View {
                     .padding(.top, 10)
             }
 
-            ConversationView(state: state, controller: controller)
-
-            VStack(spacing: 8) {
-                ExtensionWidgetStrip(controller: controller, placement: .aboveEditor)
-
-                if let notice = controller.compatibilityNotices.last {
-                    BannerView(
-                        level: .info,
-                        title: "Pi offered a surface PiCode cannot render: \(notice.surface)",
-                        message: notice.detail
-                    )
-                }
-
-                if needsTrustDecision {
-                    ProjectTrustPrompt(controller: controller)
-                } else if controller.trustState == .untrusted {
-                    UntrustedProjectNotice(controller: controller)
-                }
-
-                ComposerView(state: state, controller: controller, focusTick: composerFocusTick)
-
-                ExtensionStatusBar(controller: controller)
-                ExtensionWidgetStrip(controller: controller, placement: .belowEditor)
-            }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 12)
-            .padding(.top, 8)
+            ConversationView(state: state, controller: controller,
+                             bottomInset: composerHeight + 16)
+                .overlay(alignment: .bottom) { floatingComposer }
         }
         .overlay(alignment: .topTrailing) {
             NotificationStack(controller: controller)
@@ -57,6 +54,57 @@ struct SessionView: View {
         }
         .animation(.easeInOut(duration: 0.18), value: controller.trustState)
     }
+
+    // MARK: - Floating composer
+
+    /// The gradient and the composer share one bottom-aligned stack so the fade
+    /// sits *behind* the box, in the same colours, and clicks anywhere on it go
+    /// through to the transcript.
+    private var floatingComposer: some View {
+        ZStack(alignment: .bottom) {
+            LinearGradient(colors: [backdrop.opacity(0), backdrop],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: composerHeight + 28)
+                .allowsHitTesting(false)
+
+            composerStack
+        }
+        .onPreferenceChange(ComposerHeightKey.self) { composerHeight = $0 }
+    }
+
+    /// The widgets an extension set. Both placements are drawn above the box:
+    /// PiCode has nothing below the composer any more (§6), and a widget that is
+    /// received but never shown is worse than one in the other slot.
+    private var composerStack: some View {
+        VStack(spacing: 8) {
+            ExtensionWidgetStrip(controller: controller, placement: .aboveEditor)
+            ExtensionWidgetStrip(controller: controller, placement: .belowEditor)
+
+            if let notice = controller.compatibilityNotices.last {
+                BannerView(
+                    level: .info,
+                    title: "Pi offered a surface PiCode cannot render: \(notice.surface)",
+                    message: notice.detail
+                )
+            }
+
+            if needsTrustDecision {
+                ProjectTrustPrompt(controller: controller)
+            } else if controller.trustState == .untrusted {
+                UntrustedProjectNotice(controller: controller)
+            }
+
+            ComposerView(state: state, controller: controller, focusTick: composerFocusTick)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: ComposerHeightKey.self, value: proxy.size.height)
+        })
+    }
+
+    // MARK: - Connection
 
     private var showsConnectionBanner: Bool {
         switch controller.connection {

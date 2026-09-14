@@ -98,14 +98,31 @@ struct WindowPixels {
         return (r + g + b) / 3
     }
 
+    /// The most common brightness inside a region. A capture can hold two
+    /// surfaces with two different backdrops — a sidebar and the detail column
+    /// behind it — and then the whole-image `background` is whichever one covers
+    /// more pixels, which is a coin flip that silently makes every pixel of the
+    /// other one "ink".
+    func background(in xRange: Range<Int>, yRange: Range<Int>? = nil) -> Int {
+        var histogram = [Int](repeating: 0, count: 256)
+        for y in (yRange ?? 0..<height) where y >= 0 && y < height {
+            for x in xRange where x >= 0 && x < width {
+                let (r, g, b) = rgb(x, y)
+                histogram[(r + g + b) / 3] += 1
+            }
+        }
+        return histogram.enumerated().max { $0.element < $1.element }!.offset
+    }
+
     /// Ink: neutral in colour and far from the backdrop. Both halves matter — the
     /// neutrality is what keeps a coloured highlight or a red pill out of a count
     /// of text lines.
-    func isText(_ x: Int, _ y: Int) -> Bool {
+    func isText(_ x: Int, _ y: Int, backdrop: Int? = nil) -> Bool {
         let (r, g, b) = rgb(x, y)
         guard abs(r - g) < 24, abs(g - b) < 24 else { return false }
         let value = (r + g + b) / 3
-        return background > 128 ? value < background - 40 : value > background + 40
+        let backdrop = backdrop ?? background
+        return backdrop > 128 ? value < backdrop - 40 : value > backdrop + 40
     }
 
     /// Rows of text, as bands of y. A dot over a "j" or an accent sits a couple of
@@ -116,11 +133,12 @@ struct WindowPixels {
     func textLines(gap: Int = 2,
                    minimumHeight: Int = 6,
                    xRange: Range<Int>? = nil,
-                   yRange: Range<Int>? = nil) -> [[Int]] {
+                   yRange: Range<Int>? = nil,
+                   backdrop: Int? = nil) -> [[Int]] {
         let xs = xRange ?? 0..<width
         let ys = yRange ?? 0..<height
         var lines: [[Int]] = []
-        for y in ys where xs.contains(where: { isText($0, y) }) {
+        for y in ys where xs.contains(where: { isText($0, y, backdrop: backdrop) }) {
             if let last = lines.last, let previous = last.last, y - previous <= gap {
                 lines[lines.count - 1].append(y)
             } else {

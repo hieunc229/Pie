@@ -11,6 +11,11 @@ import SwiftUI
 struct ConversationView: View {
     @Bindable var state: AppState
     var controller: PiSessionController
+    /// Room to leave at the end of the transcript for the floating composer. The
+    /// composer is an overlay, so without this its own height would cover the
+    /// last row — the padding goes *after* the bottom anchor, so "jump to latest"
+    /// still lands the newest message above the box.
+    var bottomInset: CGFloat = 0
 
     @State private var isPinnedToBottom = true
     @State private var isActivityExpanded = false
@@ -40,7 +45,7 @@ struct ConversationView: View {
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 18)
-                .padding(.bottom, 8)
+                .padding(.bottom, 8 + bottomInset)
                 .frame(maxWidth: 860, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }

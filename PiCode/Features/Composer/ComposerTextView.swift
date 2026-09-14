@@ -17,6 +17,24 @@ struct ComposerTextView: NSViewRepresentable {
     /// overlay can put itself on exactly the same spot without a magic number.
     static let textInset = NSSize(width: 2, height: 2)
 
+    static let fontSize: CGFloat = 15
+
+    /// How many lines the box shows before it scrolls instead of growing. Two
+    /// lines is the whole budget: the composer floats over the transcript (§6),
+    /// and every line it grows is a line of the conversation it covers.
+    static let visibleLines = 2
+
+    /// One line of this view's own font, as AppKit lays it out. Derived rather
+    /// than hardcoded: the font is what decides it, and a metric that silently
+    /// stops matching the font is how a "two line" box ends up showing one and a
+    /// half lines.
+    static let lineHeight = ceil(NSLayoutManager().defaultLineHeight(for: .systemFont(ofSize: fontSize)))
+
+    /// The height this view needs to show `lines` lines, insets included.
+    static func height(forLines lines: Int) -> CGFloat {
+        CGFloat(lines) * lineHeight + textInset.height * 2
+    }
+
     @Binding var text: String
     var placeholder: String
     var focusTick: Int
@@ -121,6 +139,29 @@ struct ComposerTextView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
+    /// The height the editor actually wants: as many lines as are in it, never
+    /// more than `visibleLines`.
+    ///
+    /// Without this the view reports no size of its own and SwiftUI hands it the
+    /// largest height allowed, so the box was always as tall as `maxHeight` —
+    /// measured, a one-line prompt sat in a 220pt box (see §10).
+    ///
+    /// The text container is deliberately left alone here. Setting its size inside
+    /// this call (to "make sure" the width is current) invalidates layout while
+    /// SwiftUI is asking, and the heights come back stale: measured, a three-line
+    /// prompt reported its one-line height and the box collapsed as you typed.
+    /// `widthTracksTextView` already keeps the container the right width.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        guard let textView = nsView.documentView as? NSTextView,
+              let container = textView.textContainer,
+              let layout = textView.layoutManager else { return nil }
+        layout.ensureLayout(for: container)
+        let used = layout.usedRect(for: container).height
+        let height = min(max(used + Self.textInset.height * 2, Self.height(forLines: 1)),
+                         Self.height(forLines: Self.visibleLines))
+        return CGSize(width: proposal.width ?? nsView.frame.width, height: height)
+    }
+
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -138,7 +179,7 @@ struct ComposerTextView: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
-        textView.font = .systemFont(ofSize: 15)
+        textView.font = .systemFont(ofSize: Self.fontSize)
         textView.textContainerInset = Self.textInset
         textView.drawsBackground = false
         textView.string = text

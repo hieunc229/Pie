@@ -13,11 +13,16 @@
 import AppKit
 import SwiftUI
 
-/// Shape constants shared by the composer and its harness.
+/// Shape and height constants shared by the composer and its harness.
 enum ComposerMetrics {
     /// Rounded enough that the box reads as one soft object next to the sidebar's
     /// pills, small enough that a single line does not look like a capsule.
     static let cornerRadius: CGFloat = 18
+
+    /// The editor's own height, so the box stops growing after two lines and
+    /// starts scrolling instead.
+    static var editorMinHeight: CGFloat { ComposerTextView.height(forLines: 1) }
+    static var editorMaxHeight: CGFloat { ComposerTextView.height(forLines: ComposerTextView.visibleLines) }
 }
 
 struct ComposerView: View {
@@ -75,7 +80,8 @@ struct ComposerView: View {
     /// One rounded box: the editor on top, every control on one row beneath it.
     /// The box is the only filled shape in the composer — there is no second
     /// container behind it, so the whole thing reads as one object instead of a
-    /// card sitting inside a bar.
+    /// card sitting inside a bar. It is also deliberately short: two lines of
+    /// text, then the controls (§6).
     private var composerBox: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topLeading) {
@@ -92,11 +98,11 @@ struct ComposerView: View {
                     onMoveSuggestion: moveSuggestion,
                     onAcceptSuggestion: acceptCurrentSuggestion
                 )
-                .frame(minHeight: 26, maxHeight: 220)
+                .frame(minHeight: ComposerMetrics.editorMinHeight, maxHeight: ComposerMetrics.editorMaxHeight)
 
                 if text.isEmpty {
                     Text(placeholder)
-                        .font(.system(size: 15))
+                        .font(.system(size: ComposerTextView.fontSize))
                         .foregroundStyle(.tertiary)
                         .padding(.leading, ComposerTextView.textInset.width)
                         .padding(.top, ComposerTextView.textInset.height)

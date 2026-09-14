@@ -42,7 +42,7 @@ The supplied ChatGPT Codex screenshot establishes the visual hierarchy:
 - A wide transcript column with generous spacing and clear user/assistant separation.
 - Collapsible work-duration and activity sections instead of a permanently noisy console.
 - File-change cards with additions/deletions and a direct path into review.
-- A large, rounded composer pinned to the bottom with attachment, access/trust, model, thinking, and send/stop controls.
+- A large, rounded composer floating over the bottom of the transcript with attachment, access/trust, model, thinking, and send/stop controls.
 
 PiCode should also support the system light appearance. Use semantic macOS colors and materials rather than hard-coded screenshot colors. Prefer native controls, SF Symbols, system typography, reduced-motion support, and visible keyboard focus.
 
@@ -62,11 +62,11 @@ Use a three-column `NavigationSplitView`:
 │   Session 2      │ - errors and extension UI            │                     │
 │ Project B        │                                      │                     │
 │                  ├──────────────────────────────────────┤                     │
-│ Settings         │ Composer · model · thinking · send   │                     │
+│ Settings         │ ╭─ composer floats over transcript ─╮ │                     │
 └──────────────────┴──────────────────────────────────────┴─────────────────────┘
 ```
 
-The inspector is optional and closed by default on smaller windows. The transcript must remain usable when both sidebars are hidden.
+The composer floats over the transcript: rows scroll behind it and fade under the box, and nothing is drawn below it. The inspector is optional and closed by default on smaller windows. The transcript must remain usable when both sidebars are hidden.
 
 ### Sidebar
 
@@ -105,7 +105,7 @@ Render a chronological, virtualized conversation from Pi messages and events:
 
 ### Composer
 
-- Multiline editor that grows to a sensible maximum height.
+- Multiline editor that grows to two lines and then scrolls, so the composer stays a small object floating over the transcript.
 - `Return` sends; `Shift+Return` inserts a newline. Allow the mapping to be changed in Settings.
 - `@` opens fuzzy file search for the current project and inserts file attachments/references.
 - `/` opens command completion populated by Pi's `get_commands`, including extension commands, prompt templates, and `/skill:*` commands.
@@ -114,7 +114,8 @@ Render a chronological, virtualized conversation from Pi messages and events:
 - Thinking picker exposes only levels supported by the current model.
 - While idle, the primary action sends a prompt. While working, it becomes Stop.
 - While working, `Return` steers the running turn and `Option+Return` queues a follow-up; both are also reachable from the Agent menu. Queued messages appear at the end of the transcript as their own rows, and Stop clears the queue, puts it back in the editor, and then aborts — `Command+.` is the hard stop that leaves the queue to Pi.
-- The box is the only filled shape in the composer: attachment, access/trust, model, thinking, and send/stop share one compact row under the editor, so the composer takes as little vertical space as one line plus that row.
+- The box is the only filled shape in the composer: attachment, access/trust, model, thinking, and send/stop share one compact row under the editor, so the composer is two lines plus that row — measured, 76pt tall.
+- The composer floats over the transcript rather than sitting under it: nothing is rendered below it, and the transcript keeps the full height behind it, fading out beneath the box. Live session state that used to be repeated in a footer is in the transcript's own system rows; everything else (model, thinking, context usage, tool counts, git branch, extension status) is in the inspector's Context pane.
 - Show the current project trust/access state beside the attachment control. Its popover must explain that Pi runs with the permissions of the current macOS user.
 - Drafts are stored by session in PiCode app storage, never injected into the Pi session until sent.
 
@@ -151,7 +152,7 @@ The current parity baseline follows Pi's official documentation as of 2026-09-14
 | Skills and prompt templates | Searchable slash-command completion | P0 |
 | TypeScript extensions and extension commands | Discover through Pi and invoke through prompts | P0 |
 | RPC extension dialogs | Native select, confirm, input, and multiline editor sheets | P0 |
-| Extension notifications/status/widgets/title/editor text | Native banners, session status, inspector widgets, title, and draft updates | P1 |
+| Extension notifications/status/widgets/title/editor text | Native banners, inspector status and widgets, title, and draft updates | P1 |
 | Pi packages from npm, git, or local paths | Package manager UI with source and full-access warning | P1 |
 | Themes | PiCode light/dark/system appearance; document that TUI theme rendering is not transferable over RPC | P2 |
 | Custom providers and models | Reflect whatever the Pi runtime reports | P0 |

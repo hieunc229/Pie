@@ -60,12 +60,24 @@ struct SidebarClickDemo: View {
 
             if !isFolded {
                 ForEach(["proj-aaa", "proj-bbb"], id: \.self) { chat in
+                    // `.primary` is not decoration: the real `SessionRow` sets it,
+                    // and without it an *inactive* window draws these rows in the
+                    // dimmed sidebar colour, which this harness reads as no text
+                    // and reports as "the chats did not come back". It did fail
+                    // that way, once, whenever another app held focus.
                     Text(chat).font(SidebarStyle.rowFont)
+                        .foregroundStyle(.primary)
                         .padding(.leading, SidebarStyle.titleIndent)
-                                }
+                }
             }
         }
         .listStyle(.sidebar)
+        // The sidebar material is invisible to `cacheDisplay` — it draws as
+        // transparent, which the capture resolves to black, which makes *every*
+        // pixel "darker than the backdrop" and every row one giant ink band. The
+        // mock therefore paints its own flat backdrop; the real sidebar's material
+        // is not what this harness is about.
+        .scrollContentBackground(.hidden)
         .background(
             GeometryReader { proxy in
                 Color.clear
@@ -90,8 +102,12 @@ final class SidebarClickDelegate: NSObject, NSApplicationDelegate {
             SidebarClickDemo { width in self.columnWidth = width }
                 .navigationSplitViewColumnWidth(min: 232, ideal: 268, max: 360)
         } detail: {
-            Text("detail")
-        })
+            Text("detail").frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        // One opaque canvas for both columns: a capture measures ink against the
+        // most common brightness, and a half-transparent window leaves half the
+        // picture black.
+        .background(Color(nsColor: .textBackgroundColor)))
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { self.measureGeometry() }
@@ -142,11 +158,18 @@ final class SidebarClickDelegate: NSObject, NSApplicationDelegate {
                      Double(CGFloat(rect.x.lowerBound) / pixels.scale),
                      Double(CGFloat(rect.x.upperBound) / pixels.scale)))
 
-        // Rows, not the toolbar toggle above them and not the other column.
+        // Rows, not the toolbar toggle above them and not the other column. The
+        // backdrop is measured *inside the column*: the detail column has its own
+        // colour, and the whole-image modal brightness is whichever of the two
+        // covers more pixels.
+        let columnPixels = Int((columnWidth + 1) * pixels.scale)
+        let backdrop = pixels.background(in: 0..<columnPixels, yRange: rect.y.lowerBound..<pixels.height)
         let rows = pixels.textLines(gap: 4,
-                                    xRange: 0..<Int((columnWidth + 1) * pixels.scale),
-                                    yRange: rect.y.lowerBound..<pixels.height)
-        check(rows.count == 3, "three rows are on screen before the click", "found \(rows.count)")
+                                    xRange: 0..<columnPixels,
+                                    yRange: rect.y.lowerBound..<pixels.height,
+                                    backdrop: backdrop)
+        check(rows.count == 3, "three rows are on screen before the click",
+              "found \(rows.count); ink bands " + rows.map { band in "\(band.first ?? -1)-\(band.last ?? -1)" }.joined(separator: ", "))
 
         let left = CGFloat(rect.x.lowerBound) / pixels.scale
         let right = CGFloat(rect.x.upperBound) / pixels.scale

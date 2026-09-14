@@ -47,7 +47,9 @@ struct ComposerHost: View {
     @ObservedObject var probe: ComposerProbe
     var sendKey: PreferencesStore.SendKey
     var suggestionsActive: Bool
-    var onTextView: (NSTextView) -> Void = { _ in }
+    /// `nil` leaves the editor to size itself, which is what the height checks
+    /// need: a fixed frame hides the bug they exist to catch.
+    var fixedHeight: CGFloat? = 70
 
     var body: some View {
         ComposerTextView(
@@ -63,8 +65,7 @@ struct ComposerHost: View {
             onMoveSuggestion: { _ in },
             onAcceptSuggestion: { probe.accepts += 1 }
         )
-        .frame(width: 420, height: 70)
-        .onAppear { }
+        .frame(width: 420, height: fixedHeight)
     }
 }
 
@@ -155,6 +156,7 @@ final class ComposerKeyDelegate: NSObject, NSApplicationDelegate {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             self.runKeyScenarios()
+            self.runHeightChecks()
             self.runGeometryChecks()
             self.report()
         }
@@ -238,6 +240,71 @@ final class ComposerKeyDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: Height
+
+    /// The editor's height, measured on the real view with real text: one line is
+    /// one line, two lines fit, and a third scrolls. Every one of those was wrong
+    /// before `sizeThatFits` existed — a representable with no size of its own is
+    /// handed the largest height it is allowed, so the box was as tall as the
+    /// maximum no matter what was in it.
+    private func runHeightChecks() {
+        print()
+        print("== the editor's height ==")
+        window.contentView = NSHostingView(rootView: ComposerHost(probe: probe,
+                                                                 sendKey: .returnKey,
+                                                                 suggestionsActive: false,
+                                                                 fixedHeight: nil))
+        pump(0.7)
+
+        guard let textView = ComposerKeyDelegate.firstTextView(in: window.contentView),
+              let scrollView = ComposerKeyDelegate.firstScrollView(in: window.contentView) else {
+            check("the editor can be measured", false)
+            return
+        }
+
+        let oneLine = ComposerTextView.height(forLines: 1)
+        let twoLines = ComposerTextView.height(forLines: ComposerTextView.visibleLines)
+        var measured: [Int: CGFloat] = [:]
+        for lines in [1, 2, 3, 5] {
+            probe.text = String(repeating: "x", count: 40) + String(repeating: "\n", count: lines - 1) + "x"
+            pump(0.35)
+            // The scroll view is the representable's own view, so its frame is the
+            // height SwiftUI settled on for the editor.
+            measured[lines] = scrollView.frame.height
+        }
+
+        let detail = [1, 2, 3, 5].map { String(format: "%d line%@ %.1fpt", $0, $0 == 1 ? " " : "s", measured[$0] ?? -1) }
+            .joined(separator: ", ")
+        print("  measured: \(detail) (one line \(oneLine)pt, two \(twoLines)pt)")
+        check("an empty-looking one-line prompt is one line tall",
+              abs((measured[1] ?? -1) - oneLine) <= 1,
+              detail: "width of the text view does not matter, height does")
+        check("a second line gets a second line",
+              abs((measured[2] ?? -1) - twoLines) <= 1)
+        check("a third line scrolls instead of growing the box",
+              measured[3] == measured[2] && measured[5] == measured[2],
+              detail: "3 lines \(measured[3] ?? -1)pt, 5 lines \(measured[5] ?? -1)pt")
+        check("the two-line metric fits two lines and not three",
+              twoLines < ComposerTextView.height(forLines: 3),
+              detail: "two lines \(twoLines)pt, three \(ComposerTextView.height(forLines: 3))pt")
+        check("the box is much shorter than the old 220pt maximum",
+              twoLines <= 60, detail: "two lines \(twoLines)pt")
+        // The document view is allowed to be taller than the box: that is what
+        // scrolling looks like from the inside.
+        check("the text keeps growing inside the box once it is clamped",
+              textView.frame.height > twoLines,
+              detail: "editor \(textView.frame.height)pt inside a \(twoLines)pt box")
+    }
+
+    private static func firstScrollView(in view: NSView?) -> NSScrollView? {
+        guard let view else { return nil }
+        if let scrollView = view as? NSScrollView { return scrollView }
+        for subview in view.subviews {
+            if let found = firstScrollView(in: subview) { return found }
+        }
+        return nil
+    }
+
     // MARK: Geometry
 
     /// The box is drawn the way the composer draws it — same `ComposerMetrics`
@@ -301,8 +368,15 @@ final class ComposerKeyDelegate: NSObject, NSApplicationDelegate {
         check("the corner is drawn at ComposerMetrics.cornerRadius",
               abs(corner - predicted) <= 1.5,
               detail: "inset \(corner) vs predicted \(predicted)")
-        check("the box stays short (one line plus its controls)", height <= 84,
-              detail: "height \(height)")
+        // The box is its editor, one control row and its own padding — nothing
+        // else. Two lines plus controls is 76pt; the old always-maximum editor
+        // made the same box 256pt tall.
+        let expected = ComposerMetrics.editorMaxHeight + 36
+        check("the box is exactly two lines plus the control row",
+              abs(height - expected) <= 1.5,
+              detail: "height \(height)pt vs expected \(expected)pt")
+        check("the box is short enough to float over the transcript",
+              height <= 80, detail: "height \(height)pt")
 
         if let png = pixels.pngData() {
             let path = "/tmp/picode-composer-box.png"
@@ -350,7 +424,7 @@ struct BoxProbe: View {
         ZStack {
             Color(.sRGB, red: 1, green: 0, blue: 0, opacity: 1)
             VStack(alignment: .leading, spacing: 0) {
-                Color.clear.frame(height: 26)
+                Color.clear.frame(height: ComposerMetrics.editorMaxHeight)
                 HStack(spacing: 2) {
                     Color.clear.frame(width: 22, height: 20)
                     Spacer(minLength: 8)
