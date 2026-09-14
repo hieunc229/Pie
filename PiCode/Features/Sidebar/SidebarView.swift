@@ -36,6 +36,10 @@ enum SidebarStyle {
     static let projectIconShift: CGFloat = 9
     /// Gap between the folder glyph and the project name.
     static let iconTextSpacing: CGFloat = 10
+    /// Breathing room inside every row, above and below its text. Applied to the
+    /// rows' *labels* (so it stays clickable) and shared by projects and chats, so
+    /// widening it can never break the rhythm between them.
+    static let rowVerticalPadding: CGFloat = 3
     /// Breathing room above a project — it has to separate the project from the
     /// previous project's last chat — and below it, before its own chats.
     static let projectTopMargin: CGFloat = 12
@@ -183,6 +187,7 @@ struct SidebarView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .padding(.leading, SidebarStyle.titleIndent)
+                    .padding(.vertical, 2)
                     .padding(.bottom, 4)
             }
         }
@@ -306,6 +311,7 @@ struct ProjectRow: View {
                 }
                 Spacer(minLength: 0)
             }
+            .padding(.vertical, SidebarStyle.rowVerticalPadding)
             .foregroundStyle(.primary)
             .contentShape(Rectangle())
         }
@@ -386,6 +392,7 @@ struct SessionRow: View {
                 }
             }
             .padding(.leading, SidebarStyle.titleIndent)
+            .padding(.vertical, SidebarStyle.rowVerticalPadding)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

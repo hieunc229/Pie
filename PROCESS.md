@@ -69,7 +69,7 @@ PiCode's own preferences.
 | Extension UI round trip against a live extension | ✅ `./Tools/SmokeTest/run-extension.sh` — all 35 checks pass, no model call |
 | Sidebar contents are real (no hidden project DB) | ✅ `./Tools/SmokeTest/run-index.sh` — 16 session files on disk → 8 projects, every path exists |
 | Providers, credentials, third-party providers | ✅ `./Tools/SmokeTest/run-providers.sh` — verified against a live `pi`, no credential of the user's is touched |
-| Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt alignment delta, glyph on the search margin, project→chat pitch equal to chat→chat |
+| Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt alignment delta, glyph on the search margin, project→chat pitch 31.0pt against chat→chat 31.0pt |
 | Discovery / launch / trust / session index / git | ✅ implemented |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
@@ -180,10 +180,13 @@ the user.
 - **`run-sidebar-align.sh`** is the only harness that measures *pixels*. It
   renders the real row layout in a window, captures that window itself (no
   screen-recording permission needed), and checks four things: a chat title
-  starts at the same x as its project's name, the project glyph's ink lands on
-  `SidebarStyle.sidebarMargin` (the search field's left edge), a chat sits as far
-  below a project's name as below another chat (measured from ink *centres*, so a
-  tall glyph or a descender cannot skew it), and the glyph is not truncated. It
+  starts at the same x as its project's name; the project glyph's ink lands on
+  `SidebarStyle.sidebarMargin` (the search field's left edge) at full width; the
+  rows have breathing room; and a chat sits as far below its project's name as
+  below another chat. The last two come from ink *centres* measured in the
+  project name's own x column — measuring whole lines would let the taller folder
+  glyph into the project's span and skew it, which is exactly the false 1.5pt
+  difference this used to report. It
   also dumps `/tmp/picode-sidebar-look.png`, a mock of the whole column, so a
   human can judge the colours a machine cannot. It compiles against
   `SidebarStyle` extracted from `SidebarView.swift` so the numbers under test are
@@ -728,10 +731,12 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   why the indent no longer needs a correction — measure it with
   `run-sidebar-align.sh` after changing the sidebar.
 - **Vertical rhythm in the sidebar**: one chat sits as far below the previous
-  chat as below its project's name. Nothing gets an extra bottom margin to say
-  "this is a heading" — only `projectTopMargin` separates two projects — and the
-  project glyph gets a fixed *height* as well as width so a 15pt folder cannot
-  make its row taller than a text row.
+  chat as below its project's name, and the breathing room inside a row comes
+  from one shared `SidebarStyle.rowVerticalPadding` applied to both labels — so
+  widening it cannot break the rhythm. Nothing gets an extra bottom margin to
+  say "this is a heading" — only `projectTopMargin` separates two projects — and
+  the project glyph gets a fixed *height* as well as width so a 15pt folder
+  cannot make its row taller than a text row.
 - **Recessed controls on the sidebar**: the search field's fill has to be darker
   than the sidebar material in *both* appearances, so it is a translucent black
   with a per-appearance alpha (`SidebarStyle.searchFieldFill`) — `.quaternary`
