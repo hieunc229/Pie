@@ -69,7 +69,8 @@ PiCode's own preferences.
 | Extension UI round trip against a live extension | ✅ `./Tools/SmokeTest/run-extension.sh` — all 35 checks pass, no model call |
 | Sidebar contents are real (no hidden project DB) | ✅ `./Tools/SmokeTest/run-index.sh` — 16 session files on disk → 8 projects, every path exists |
 | Providers, credentials, third-party providers | ✅ `./Tools/SmokeTest/run-providers.sh` — verified against a live `pi`, no credential of the user's is touched |
-| Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt alignment delta, glyph on the search margin, project→chat pitch 31.0pt against chat→chat 31.0pt |
+| Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt alignment delta, glyph on the search margin, project→chat pitch 26.5pt against chat→chat 28.0pt (the 1.5pt residual is the list's, see §10) |
+| Sidebar rows behave (click a project to fold its chats; highlight on the search margin) | ✅ `./Tools/SmokeTest/run-sidebar-click.sh` — clicks a real row through the window's event path: 3 rows → 1 → 3; highlight 10.0pt in from both edges of a 268pt column |
 | Discovery / launch / trust / session index / git | ✅ implemented |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
@@ -103,6 +104,10 @@ open /tmp/picode-dd/Build/Products/Debug/PiCode.app
 ./Tools/SmokeTest/run-open.sh --small   # smallest session; also diffs the tree vs get_tree
 ./Tools/SmokeTest/run-paths.sh    # Pi's config/session locations, checked against a live pi
 ./Tools/SmokeTest/run-extension.sh     # the whole extension UI round trip (dialogs, status, widget)
+./Tools/SmokeTest/run-providers.sh     # credential + model config files, checked against a live pi
+./Tools/SmokeTest/run-index.sh    # the sidebar's projects are real files, not a hidden database
+./Tools/SmokeTest/run-sidebar-align.sh  # sidebar row geometry, measured in pixels (GUI)
+./Tools/SmokeTest/run-sidebar-click.sh  # clicking a project folds its chats, measured in pixels (GUI)
 ```
 
 The smoke test is the **acceptance gate for any change to `Models/`,
@@ -177,21 +182,33 @@ the user.
   cached in `UserDefaults`. PiCode has no database of projects: the sidebar is a
   projection of `SessionIndex.loadAllProjects()`, grouped by each session's
   canonical `cwd`. Keep it that way.
-- **`run-sidebar-align.sh`** is the only harness that measures *pixels*. It
-  renders the real row layout in a window, captures that window itself (no
-  screen-recording permission needed), and checks four things: a chat title
-  starts at the same x as its project's name; the project glyph's ink lands on
-  `SidebarStyle.sidebarMargin` (the search field's left edge) at full width; the
-  rows have breathing room; and a chat sits as far below its project's name as
-  below another chat. The last two come from ink *centres* measured in the
-  project name's own x column — measuring whole lines would let the taller folder
-  glyph into the project's span and skew it, which is exactly the false 1.5pt
-  difference this used to report. It
-  also dumps `/tmp/picode-sidebar-look.png`, a mock of the whole column, so a
-  human can judge the colours a machine cannot. It compiles against
-  `SidebarStyle` extracted from `SidebarView.swift` so the numbers under test are
-  the shipped ones, and greps the view for the wiring those numbers assume. It
-  needs a GUI session (not SSH).
+- **`run-sidebar-align.sh`** and **`run-sidebar-click.sh`** are the two harnesses
+  that measure *pixels*. Both render a mock of the real row structure in a
+  window, capture that window themselves (no screen-recording permission needed),
+  and compile against `SidebarStyle` extracted from `SidebarView.swift` so the
+  numbers under test are the shipped ones; both also grep the view for the wiring
+  those numbers assume, and both need a GUI session (not SSH).
+  - `run-sidebar-align.sh` checks geometry: a chat title starts at the same x as
+    its project's name; the project glyph's ink lands on
+    `SidebarStyle.sidebarMargin` (the search field's left edge) at full width; and
+    a chat sits as far below its project's name as below another chat. The last
+    comes from ink *centres* measured in the project name's own x column —
+    measuring whole lines would let the taller folder glyph into the project's
+    span and skew it, which is exactly the false 1.5pt difference this used to
+    report. It dumps `/tmp/picode-sidebar-look.png`, a mock of the whole column,
+    so a human can judge the colours a machine cannot.
+  - `run-sidebar-click.sh` checks behaviour and the horizontal margin. It paints
+    one row's background red, measures that rectangle against the search field's
+    margins, and then *clicks a row through the window's own event path* — a
+    `NavigationSplitView` sidebar, `List`, `Button` and all — asserting the chats
+    fold away and come back. Posted events, not delivered ones: SwiftUI runs an
+    event-tracking loop on mouse-down, so `sendEvent`ing the down and the up
+    deadlocks the harness. It dumps `/tmp/picode-sidebar-click.png`.
+  - Both read pixels through `Tools/SmokeTest/WindowPixels.swift`, which redraws
+    the capture into a buffer with a pinned layout. Do not go back to reading
+    `NSBitmapImageRep(cgImage:).bitmapData` directly: the capture comes back
+    alpha-*first* on this machine, so a dark grey pixel reads as a bright red one
+    and a colour test measures the wrong rectangle while reporting success.
 - **`run-providers.sh`** exercises `PiProviderService` inside a throwaway
   `PI_CODING_AGENT_DIR` and then asks a live `pi` what it makes of the files:
   `0600` mode, masked fingerprints (no key ever printed), atomic writes with no
@@ -322,7 +339,7 @@ protocol logic in views.
 | **Extension commands get the patient `prompt` timeout** | Pi answers `prompt` only once the text has been handled, and an extension command is handled by its own handler, which may sit on a dialog for minutes. A normal prompt keeps the 60 s preflight budget; a slash command Pi reported as an extension command gets the same patient budget as `bash`. |
 | **PiCode writes exactly two kinds of Pi file** | `trust.json` (the same document `/trust` writes) and, only on an explicit click in Settings → Providers, `auth.json` and `models.json` in the shapes Pi documents. Everything else under Pi's config directory is read-only, and no credential is ever read back into the UI. Before adding a third, ask why the user cannot do it in `pi` itself. |
 | **The sidebar is a projection, not a database** | `SessionIndex.loadAllProjects()` reads Pi's session directory on every refresh; pins and "hidden" flags only decorate the result. `run-index.sh` guards this: add caching and the sidebar can start disagreeing with the terminal about what exists. |
-| **A project is a row, not a section header** | A `Section` in the sidebar list style is a collapsible group with a disclosure chevron — wrong for a list that mirrors what is on disk. The row *is* the disclosure: clicking it folds its chats (`AppState.toggleCollapsed`, persisted as a decoration; a running search always wins so a match is never hidden inside a fold). As a row it also shares its chats' leading inset, which is what makes "a chat title starts where the project's name starts" exact instead of a two-point correction. The glyph is drawn `projectIconShift` (9pt, measured) to the left of its row so it lands on the search field's margin, and that shift is drawing-only, so the name — and therefore every chat title under it — does not move. |
+| **A project is a row, not a section header** | A `Section` in the sidebar list style is a collapsible group with a disclosure chevron — wrong for a list that mirrors what is on disk. The row *is* the disclosure: clicking it folds its chats (`AppState.toggleCollapsed`, persisted as a decoration; a running search always wins so a match is never hidden inside a fold). As a row it also shares its chats' leading inset, which is what makes "a chat title starts where the project's name starts" exact instead of a two-point correction. The glyph is drawn `projectIconShift` (9pt, measured) to the left of its row so it lands on the search field's margin, and that shift is drawing-only, so the name — and therefore every chat title under it — does not move. Its highlight is a `Button`'s: a `listRowBackground` pill inset by `rowHighlightInset`, which is `sidebarMargin`, because the background fills the whole column on its own (measured). `run-sidebar-click.sh` clicks the row for real. |
 
 ---
 
@@ -636,6 +653,26 @@ Consequences baked into the controller:
   requires that 'TableHeaderRowContent<…>' conform to 'View'" — pointing at the
   section, not the line. Discard the value (`_ = …`) and recompile before you
   start rewriting the view.
+- **Sidebar list layout, measured** (`run-sidebar-align.sh` / `run-sidebar-click.sh`,
+  macOS 15, `.listStyle(.sidebar)`):
+  - a `listRowBackground` fills the **whole column** — 0 to 140pt in a 140pt
+    column, no inset of its own — so a highlight pill has to be inset by hand if
+    it should not run edge to edge;
+  - list **rows** are inset ~2pt further than section **headers**, and the system
+    row inset is ~19pt from the sidebar edge while the search field sits at 10pt
+    (hence `projectIconShift = 9`);
+  - a sidebar list row has a **minimum height** of ~27.5pt, and row *padding* does
+    not add what it says: 12pt of `.padding(.top)` shows up as ~9.8pt of
+    separation and *steals 1.5pt from the gap below the padded row*, which is the
+    whole of the project→chat/chat→chat difference (26.5 vs 28.0). A spacer row
+    (`Color.clear.frame(height:)`) keeps the rhythm exact but is floored at the
+    27.5pt minimum; `.listRowInsets` is worse (it stole 5.5pt);
+    `.listSectionSpacing` is **unavailable on macOS**, so per-*group* spacing
+    cannot be expressed directly;
+  - `Image(systemName: "folder")` at `font(size: 15)` renders 16.5pt of ink, so a
+    fixed 15pt frame does not clip it;
+  - a window capture's bitmap comes back **alpha-first**, so read pixels through
+    `WindowPixels` and never through `NSBitmapImageRep.bitmapData` (§3).
 - The project uses `PBXFileSystemSynchronizedRootGroup` rooted at `PiCode/`, so
   **new files under `PiCode/` are added to the target automatically** — no
   `project.pbxproj` edit needed. Files added *outside* `PiCode/` (e.g.
@@ -689,13 +726,13 @@ Consequences baked into the controller:
    updates `sessionFile`/`sessionId` and the sidebar/ephemeral-row behaviour.
 7. **Accessibility pass**: keyboard focus visibility, VoiceOver labels on
    transcript rows and tool cards, Reduce Motion honored.
-8. **Click-to-fold a project by hand.** The state logic
-   (`AppState.toggleCollapsed` / `showsChats`, persisted in `PreferencesStore`)
-   and the view wiring are checked by `run-sidebar-align.sh`, but nobody has
-   clicked a real project row in the app: confirm the fold survives a relaunch,
-   that hovering shows the row highlight, that a running search un-folds a match
-   instead of hiding it, and that folding the project whose session is open does
-   not disturb the open session.
+8. **Click-to-fold a project by hand.** `run-sidebar-click.sh` now clicks a real
+   row through the window's event path (3 rows → 1 → 3) in a
+   `NavigationSplitView` sidebar, so the hit-testing half is proven. What is left
+   is the human half: that the fold survives a relaunch, that the hover highlight
+   looks right, that a running search un-folds a match instead of hiding it, and
+   that folding the project whose session is open does not disturb the open
+   session.
 9. Update this file when you finish any of the above.
 
 Already closed by the harnesses (kept here so nobody re-opens them):
@@ -731,12 +768,18 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   why the indent no longer needs a correction — measure it with
   `run-sidebar-align.sh` after changing the sidebar.
 - **Vertical rhythm in the sidebar**: one chat sits as far below the previous
-  chat as below its project's name, and the breathing room inside a row comes
-  from one shared `SidebarStyle.rowVerticalPadding` applied to both labels — so
-  widening it cannot break the rhythm. Nothing gets an extra bottom margin to
-  say "this is a heading" — only `projectTopMargin` separates two projects — and
-  the project glyph gets a fixed *height* as well as width so a 15pt folder
-  cannot make its row taller than a text row.
+  chat as below its project's name (within 1.5pt — the list's own quirk, §10).
+  Nothing gets an extra bottom margin to say "this is a heading": only
+  `projectTopMargin` separates two projects, and the project glyph gets a fixed
+  *height* as well as width so a 15pt folder cannot make its row taller than a
+  text row. Row padding is not a free way to add breathing room — it changes the
+  row's pitch; ask for the margin you want and measure it.
+- **The row highlight sits on the sidebar's horizontal margin**: hover and
+  selection draw a rounded pill, and that pill is inset by `rowHighlightInset`
+  (which is `sidebarMargin`) so it starts and ends where the search field does.
+  `listRowBackground` fills the whole column by itself, so without the inset the
+  pill runs edge to edge while every other element sits on a margin. Verify with
+  `run-sidebar-click.sh`, which measures the pill's rectangle.
 - **Recessed controls on the sidebar**: the search field's fill has to be darker
   than the sidebar material in *both* appearances, so it is a translucent black
   with a per-appearance alpha (`SidebarStyle.searchFieldFill`) — `.quaternary`
@@ -778,6 +821,8 @@ Already closed by the harnesses (kept here so nobody re-opens them):
       touched session discovery, the sidebar, or preferences)
 - [ ] `./Tools/SmokeTest/run-sidebar-align.sh` → `RESULT: all checks passed`
       (only if you touched the sidebar layout; needs a GUI session)
+- [ ] `./Tools/SmokeTest/run-sidebar-click.sh` → `RESULT: all checks passed`
+      (only if you touched the sidebar's rows or highlights; needs a GUI session)
 - [ ] The app launches and stays up for a few seconds with no crash report
 - [ ] `git status` shows **no** changes in `~/.pi/agent` (no `trust.json`, no new
       session files, no touched settings)

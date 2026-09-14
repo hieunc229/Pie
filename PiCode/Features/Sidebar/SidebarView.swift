@@ -36,10 +36,12 @@ enum SidebarStyle {
     static let projectIconShift: CGFloat = 9
     /// Gap between the folder glyph and the project name.
     static let iconTextSpacing: CGFloat = 10
-    /// Breathing room inside every row, above and below its text. Applied to the
-    /// rows' *labels* (so it stays clickable) and shared by projects and chats, so
-    /// widening it can never break the rhythm between them.
-    static let rowVerticalPadding: CGFloat = 3
+    /// How far the row highlight (the hover/selection pill) is inset from the
+    /// row's own edges. `listRowBackground` fills the whole column — measured:
+    /// 0 to 140pt in a 140pt column, no inset of its own — so the pill used to run
+    /// edge to edge while the search field sat on a margin. Inset by the margin
+    /// instead, and the pill lines up with the field and with the folder glyph.
+    static let rowHighlightInset: CGFloat = sidebarMargin
     /// Breathing room above a project — it has to separate the project from the
     /// previous project's last chat — and below it, before its own chats.
     static let projectTopMargin: CGFloat = 12
@@ -187,7 +189,6 @@ struct SidebarView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .padding(.leading, SidebarStyle.titleIndent)
-                    .padding(.vertical, 2)
                     .padding(.bottom, 4)
             }
         }
@@ -311,7 +312,6 @@ struct ProjectRow: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, SidebarStyle.rowVerticalPadding)
             .foregroundStyle(.primary)
             .contentShape(Rectangle())
         }
@@ -321,6 +321,7 @@ struct ProjectRow: View {
         .listRowBackground(
             RoundedRectangle(cornerRadius: 6)
                 .fill(isHovering ? Color.primary.opacity(0.05) : .clear)
+                .padding(.horizontal, SidebarStyle.rowHighlightInset)
         )
         .onHover { isHovering = $0 }
         .accessibilityValue(state.isCollapsed(project: project) ? "chats hidden" : "chats shown")
@@ -392,13 +393,13 @@ struct SessionRow: View {
                 }
             }
             .padding(.leading, SidebarStyle.titleIndent)
-            .padding(.vertical, SidebarStyle.rowVerticalPadding)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .listRowBackground(
             RoundedRectangle(cornerRadius: 6)
                 .fill(isSelected ? Color.accentColor.opacity(0.14) : (isHovering ? Color.primary.opacity(0.05) : .clear))
+                .padding(.horizontal, SidebarStyle.rowHighlightInset)
         )
         .onHover { isHovering = $0 }
         .contextMenu(menuItems: contextMenu)

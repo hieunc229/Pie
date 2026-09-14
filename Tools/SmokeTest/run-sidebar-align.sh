@@ -84,7 +84,8 @@ echo
 echo "== measure what macOS actually renders =="
 SDK="$(xcrun --show-sdk-path --sdk macosx)"
 swiftc -sdk "$SDK" -target "$(uname -m)-apple-macos14.0" -swift-version 5 \
-    "$WORK/SidebarStyle.swift" "$ROOT/Tools/SmokeTest/SidebarAlignTest.swift" \
+    "$WORK/SidebarStyle.swift" "$ROOT/Tools/SmokeTest/WindowPixels.swift" \
+    "$ROOT/Tools/SmokeTest/SidebarAlignTest.swift" \
     -o "$WORK/sidebar-align" 2>&1 | grep -v "deprecated in macOS 14" || true
 
 "$WORK/sidebar-align"

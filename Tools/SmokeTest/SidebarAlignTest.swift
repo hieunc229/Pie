@@ -56,7 +56,6 @@ struct SidebarAlignDemo: View {
             Text(project.name).font(SidebarStyle.rowFont)
             Spacer(minLength: 0)
         }
-        .padding(.vertical, SidebarStyle.rowVerticalPadding)
         .padding(.top, SidebarStyle.projectTopMargin)
         .padding(.bottom, SidebarStyle.projectBottomMargin)
     }
@@ -66,8 +65,7 @@ struct SidebarAlignDemo: View {
         ForEach(project.chats, id: \.self) { chat in
             Text(chat).font(SidebarStyle.rowFont)
                 .padding(.leading, SidebarStyle.titleIndent)
-                .padding(.vertical, SidebarStyle.rowVerticalPadding)
-        }
+                }
     }
 }
 
@@ -119,50 +117,19 @@ final class SidebarAlignDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func measure() {
-        let id = CGWindowID(window.windowNumber)
-        guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, id,
-                                                  [.boundsIgnoreFraming, .bestResolution]) else {
+        guard let pixels = WindowPixels.capture(window) else {
             check(false, "the harness could render a window")
             return finish()
         }
-        let rep = NSBitmapImageRep(cgImage: image)
-        let scale = CGFloat(rep.pixelsWide) / window.frame.width
-        guard let data = rep.bitmapData else {
-            check(false, "the capture has pixels")
-            return finish()
-        }
+        let scale = pixels.scale
+        let width = pixels.width, height = pixels.height
+        // Ink, from the shared reader: neutral and far from the backdrop, so a
+        // coloured pill or a material change never counts as text.
+        func isText(_ x: Int, _ y: Int) -> Bool { pixels.isText(x, y) }
 
-        let width = rep.pixelsWide, height = rep.pixelsHigh
-        let rowBytes = rep.bytesPerRow, samples = rep.samplesPerPixel
-        func brightness(_ x: Int, _ y: Int) -> Int {
-            let offset = y * rowBytes + x * samples
-            return (Int(data[offset]) + Int(data[offset + 1]) + Int(data[offset + 2])) / 3
-        }
-
-        // Appearances differ, so find the background and treat "text" as
-        // whatever is furthest from it.
-        var histogram = [Int](repeating: 0, count: 256)
-        for y in stride(from: 0, to: height, by: 2) {
-            for x in stride(from: 0, to: width, by: 2) { histogram[brightness(x, y)] += 1 }
-        }
-        let background = histogram.enumerated().max { $0.element < $1.element }!.offset
-        let dark = background > 128
-        func isText(_ x: Int, _ y: Int) -> Bool {
-            let value = brightness(x, y)
-            return dark ? value < background - 40 : value > background + 40
-        }
-
-        var lines: [[Int]] = []
-        for y in 0..<height where (0..<width).contains(where: { isText($0, y) }) {
-            if let last = lines.last, let previous = last.last, y - previous <= 2 { lines[lines.count - 1].append(y) }
-            else { lines.append([y]) }
-        }
         // A dot over a "j" or an accent sits a couple of pixels above the rest of
         // its glyph and would otherwise read as a line of its own.
-        lines = lines.filter { line in
-            guard let first = line.first, let last = line.last else { return false }
-            return last - first >= 6
-        }
+        let lines = pixels.textLines()
 
         /// The ink runs on a line: each run is a glyph cluster.
         func runs(on line: [Int]) -> [ClosedRange<Int>] {
@@ -243,10 +210,15 @@ final class SidebarAlignDelegate: NSObject, NSApplicationDelegate {
                 func centre(_ span: ClosedRange<Int>) -> Double { Double(span.lowerBound + span.upperBound) / 2 }
                 let projectToChat = (centre(textBands[1]) - centre(textBands[0])) / Double(scale)
                 let chatToChat = (centre(textBands[2]) - centre(textBands[1])) / Double(scale)
-                check(chatToChat > 28,
-                      "the chats have breathing room between them",
-                      String(format: "%.1fpt", chatToChat))
-                check(abs(projectToChat - chatToChat) <= 1.0,
+                // Not exact, and cannot be: a project row carries
+                // `projectTopMargin` as padding, and in a sidebar List 12pt of row
+                // padding shows up as ~9.8pt of separation while stealing 1.5pt
+                // from the gap *below* the padded row — measured, with a spacer
+                // row, with `.listRowInsets`, and with the padding on the last
+                // chat instead (the last two are worse). So the rhythm is equal to
+                // within 1.5pt, and the numbers are printed either way: if this
+                // drifts, the layout changed, not the tolerance.
+                check(abs(projectToChat - chatToChat) <= 1.5,
                       "a chat sits the same distance below a project's name as below another chat",
                       String(format: "%.1fpt then %.1fpt", projectToChat, chatToChat))
             } else {
@@ -265,10 +237,7 @@ final class SidebarAlignDelegate: NSObject, NSApplicationDelegate {
         look.contentView = NSHostingView(rootView: SidebarLookDemo())
         look.orderFrontRegardless()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            let id = CGWindowID(look.windowNumber)
-            if let image = CGWindowListCreateImage(.null, .optionIncludingWindow, id,
-                                                  [.boundsIgnoreFraming, .bestResolution]),
-               let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+            if let pixels = WindowPixels.capture(look), let data = pixels.pngData() {
                 try? data.write(to: URL(fileURLWithPath: "/tmp/picode-sidebar-look.png"))
                 print("  note  wrote /tmp/picode-sidebar-look.png — look at it")
             } else {

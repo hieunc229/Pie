@@ -121,6 +121,10 @@ func run() async -> Int32 {
         "appearance", "sendKey", "showInspector", "showSidebar", "defaultThinkingLevel", "defaultModel",
         "confirmBeforeDeletingSessions", "notificationsEnabled", "recordRPCPayloads", "extraLaunchArguments",
         "pinnedProjects", "pinnedSessions", "hiddenSessions", "lastProjectPath", "reducedMotionOverride",
+        // A fold stores project *paths*, but it is still a decoration: it can only
+        // hide a row, never add one, and it says nothing about which projects
+        // exist. Pins and hidden sessions are the same shape of thing.
+        "collapsedProjects",
     ])
     let indexLikeKeys = stored.keys.filter { key in
         let lowered = key.lowercased()
