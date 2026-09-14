@@ -69,6 +69,7 @@ PiCode's own preferences.
 | Extension UI round trip against a live extension | ✅ `./Tools/SmokeTest/run-extension.sh` — all 35 checks pass, no model call |
 | Sidebar contents are real (no hidden project DB) | ✅ `./Tools/SmokeTest/run-index.sh` — 16 session files on disk → 8 projects, every path exists |
 | Providers, credentials, third-party providers | ✅ `./Tools/SmokeTest/run-providers.sh` — verified against a live `pi`, no credential of the user's is touched |
+| Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen: 0.0pt delta |
 | Discovery / launch / trust / session index / git | ✅ implemented |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
@@ -176,6 +177,14 @@ the user.
   cached in `UserDefaults`. PiCode has no database of projects: the sidebar is a
   projection of `SessionIndex.loadAllProjects()`, grouped by each session's
   canonical `cwd`. Keep it that way.
+- **`run-sidebar-align.sh`** is the only harness that measures *pixels*. It
+  renders the real row and header layout in a window, captures that window
+  itself (no screen-recording permission needed), and compares the ink origin of
+  a session title with the ink origin of its project's name. It exists because
+  macOS insets list rows two points further than section headers, which no
+  amount of reading SwiftUI docs would tell you; it compiles against
+  `SidebarMetrics` extracted from `SidebarView.swift` so the numbers under test
+  are the shipped ones. It needs a GUI session (not SSH).
 - **`run-providers.sh`** exercises `PiProviderService` inside a throwaway
   `PI_CODING_AGENT_DIR` and then asks a live `pi` what it makes of the files:
   `0600` mode, masked fingerprints (no key ever printed), atomic writes with no
@@ -692,6 +701,12 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 
 - **Layout**: one type per file where practical; feature folders mirror the
   three-pane UI. New UI goes in the matching `Features/` folder.
+- **Sidebar rows**: a project and its chats are the same rank, so they share
+  `SidebarMetrics.rowFont` (regular, no bold header). A chat has no glyph; it is
+  indented by `SidebarMetrics.titleIndent` so its title starts where the project's
+  name starts. Both come from one place because the two-point difference between
+  header and row insets is measured, not derivable — verify with
+  `run-sidebar-align.sh` after changing the sidebar.
 - **Adding a command**: add the `RPCCommand` case (verify the wire name in Pi's
   `docs/rpc.md` *and* the installed bundle), add it to the wire-format case list
   in `Tools/SmokeTest/RPCSmokeTest.swift`, add a `PaletteCommand` case if it is
@@ -726,6 +741,8 @@ Already closed by the harnesses (kept here so nobody re-opens them):
       you touched `PiProviderService`, settings, or Pi's config paths)
 - [ ] `./Tools/SmokeTest/run-index.sh` → `RESULT: all checks passed` (only if you
       touched session discovery, the sidebar, or preferences)
+- [ ] `./Tools/SmokeTest/run-sidebar-align.sh` → `RESULT: all checks passed`
+      (only if you touched the sidebar layout; needs a GUI session)
 - [ ] The app launches and stays up for a few seconds with no crash report
 - [ ] `git status` shows **no** changes in `~/.pi/agent` (no `trust.json`, no new
       session files, no touched settings)
