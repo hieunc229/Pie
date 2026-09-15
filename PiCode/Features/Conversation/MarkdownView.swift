@@ -45,6 +45,30 @@ private struct PiCodeOpenChangeKey: EnvironmentKey {
     static let defaultValue = PiCodeOpenChangeAction.disabled
 }
 
+/// Called when the user selects a tool action in the transcript (a command, a
+/// read, an edit, or any other call). Implementations open that call's content in
+/// the right panel, identified by the transcript item's id.
+struct PiCodeOpenToolAction {
+    var handler: (String) -> Void
+
+    func callAsFunction(_ id: String) {
+        handler(id)
+    }
+
+    static let disabled = PiCodeOpenToolAction { _ in }
+}
+
+private struct PiCodeOpenToolKey: EnvironmentKey {
+    static let defaultValue = PiCodeOpenToolAction.disabled
+}
+
+extension EnvironmentValues {
+    var piCodeOpenTool: PiCodeOpenToolAction {
+        get { self[PiCodeOpenToolKey.self] }
+        set { self[PiCodeOpenToolKey.self] = newValue }
+    }
+}
+
 extension EnvironmentValues {
     var piCodeOpenChange: PiCodeOpenChangeAction {
         get { self[PiCodeOpenChangeKey.self] }

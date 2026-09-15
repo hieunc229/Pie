@@ -125,6 +125,11 @@ func run() async -> Int32 {
         // hide a row, never add one, and it says nothing about which projects
         // exist. Pins and hidden sessions are the same shape of thing.
         "collapsedProjects",
+        // Per-project settings (display name, launch folder, system prompt) are
+        // decoration too: they are only ever read for a project the index already
+        // found on disk, so they can never put a row in the sidebar that Pi does
+        // not have.
+        "projectSettings",
     ])
     let indexLikeKeys = stored.keys.filter { key in
         let lowered = key.lowercased()

@@ -40,11 +40,30 @@ SIDEBAR="$ROOT/PiCode/Features/Sidebar/SidebarView.swift"
 check_source "$SIDEBAR" '.frame(width: SidebarStyle.projectIconSize' \
     "the project glyph has a fixed width, so the indent is exact"
 check_source "$SIDEBAR" '.padding(.leading, SidebarStyle.titleIndent)' \
-    "a session title is indented past the glyph"
+    "the empty-state line is indented past the glyph"
+# A running chat's spinner is the *leading* mark, sharing the folder glyph's exact
+# slot (the same 11pt frame at the same `projectIconOffset`), so it lines up with
+# the project icon above it and a quiet chat's title keeps the same x.
+if grep -A12 'if state.isRunning(session)' "$SIDEBAR" | grep -qF 'width: SidebarStyle.projectIconSize'; then
+    echo "  ok   a running chat's spinner is drawn in the project glyph's own slot"
+else
+    echo "  FAIL a running chat's spinner is not in the project glyph's slot"
+    fail=1
+fi
 check_source "$SIDEBAR" '.font(SidebarStyle.rowFont)' \
     "the shared row font is what both use"
-check_source "$SIDEBAR" '.background(SidebarStyle.searchFieldFill' \
-    "the search field uses the recessed rounded fill"
+check_source "$SIDEBAR" '.sidebarRow(fill: isNewChatHovering' \
+    "New chat is a list row, drawn with the project rows' own chrome"
+check_source "$SIDEBAR" 'state.newChatInCurrentProject' \
+    "the New chat row starts in the project the user is already in"
+check_source "$SIDEBAR" 'onOpenPalette' \
+    "the search icon raises the command palette"
+check_source "$SIDEBAR" '.overlay(alignment: .topTrailing) { searchButton }' \
+    "search is an overlay on the sidebar's trailing edge"
+check_source "$SIDEBAR" '.padding(.top, SidebarStyle.topBarTopInset)' \
+    "the search icon is drawn on the titlebar row"
+check_source "$SIDEBAR" '.ignoresSafeArea(.container, edges: .top)' \
+    "the search icon leaves the sidebar's safe area for the titlebar row"
 check_source "$SIDEBAR" 'state.toggleCollapsed(project: project)' \
     "clicking a project folds its chats (no chevron to click)"
 check_source "$SIDEBAR" 'state.showsChats(of: project)' \
@@ -61,21 +80,28 @@ else
     echo "  ok   every text style in the sidebar is regular weight"
 fi
 # The rhythm is the list's: a row may not pad itself vertically (that also grows
-# its highlight, because `listRowBackground` fills the whole cell).
+# its highlight, because `listRowBackground` fills the whole cell). The one
+# allowed exception is the half-point on the highlight shape itself, which shrinks
+# the pill instead of growing the cell and so leaves a one-point gap between rows.
 CHROME="$(sed -n '/struct SidebarRowChrome/,/^}/p' "$SIDEBAR")"
-if printf '%s' "$CHROME" | grep -qE '\.padding\(\.(top|bottom|vertical)'; then
+OFFENDERS="$(printf '%s' "$CHROME" | grep -E '\.padding\(\.(top|bottom|vertical)' | grep -vF '.padding(.vertical, 0.5)' || true)"
+if [ -n "$OFFENDERS" ]; then
     echo "  FAIL the shared row chrome pads its row vertically, so the rhythm is not uniform"
+    printf '%s\n' "$OFFENDERS" | sed 's/^/       /'
     fail=1
 else
-    echo "  ok   the shared chrome adds no vertical padding, so every row is on one pitch"
+    echo "  ok   the shared chrome only trims the highlight, so every row is on one pitch"
 fi
-# The border under the search field is gone on purpose: the field's own fill is
-# the separation. One Divider is left, above the footer, and it must stay one.
-DIVIDERS="$(grep -cE '^[[:space:]]*Divider\(\)' "$SIDEBAR")"
-if [ "$DIVIDERS" = 1 ]; then
-    echo "  ok   no border under the search field (one Divider left, above the footer)"
+# The rule above the footer is gone on purpose: the list and the footer share the
+# column's background, and the gap is the separation. No Divider is expected in
+# the column. Only the SidebarView *column* counts — a row's context menu draws
+# its own rules, and those are the menu's, not the column's.
+COLUMN="$(sed -n '/^struct SidebarView/,/^\/\/ MARK: - Project row/p' "$SIDEBAR")"
+DIVIDERS="$(printf '%s\n' "$COLUMN" | grep -cE '^[[:space:]]*Divider\(\)' || true)"
+if [ "$DIVIDERS" = 0 ]; then
+    echo "  ok   the column draws no rules; the background is the only separation"
 else
-    echo "  FAIL the sidebar draws $DIVIDERS Dividers; exactly one (the footer's) is expected"
+    echo "  FAIL the column draws $DIVIDERS Divider(s); none is expected"
     fail=1
 fi
 if grep -qE 'Section[ ({]' "$SIDEBAR"; then

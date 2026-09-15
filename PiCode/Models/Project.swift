@@ -12,19 +12,43 @@ import Foundation
 /// A working directory that Pi sessions were created in.
 struct ProjectGroup: Identifiable, Equatable {
     var id: String
-    /// Canonical (symlink-resolved) working directory.
+    /// Canonical (symlink-resolved) working directory. This is also the key the
+    /// sidebar groups sessions by, and the key project settings are stored under.
     var path: String
     var name: String
     var sessions: [SessionRef]
     /// PiCode-only pin, stored in app preferences.
     var isPinned: Bool = false
     var trustState: ProjectTrustState = .unknown
+    /// Folder new chats in this project start in, when the user has pointed the
+    /// project somewhere else. `nil` means the project's own path. PiCode-only,
+    /// stored in app preferences: Pi still writes each session under the folder it
+    /// actually ran in, so existing sessions are never moved by this.
+    var workingDirectory: String? = nil
 
-    var displayPath: String { path.abbreviatingHomeDirectory }
+    /// The folder a *new* chat in this project runs in.
+    var launchDirectory: String { workingDirectory ?? path }
+
+    var displayPath: String { launchDirectory.abbreviatingHomeDirectory }
 
     var mostRecentActivity: Date {
         sessions.map(\.updatedAt).max() ?? .distantPast
     }
+}
+
+/// PiCode-only per-project settings, keyed by the project's canonical path.
+/// Nothing here is written to Pi configuration; these are presentation and launch
+/// choices that live on this Mac alone.
+struct ProjectSettings: Codable, Equatable {
+    /// Sidebar/header name for the project. Empty means the folder's own name.
+    var name: String = ""
+    /// Folder new chats should start in. Empty means the project's own path.
+    var directory: String = ""
+    /// Text appended to Pi's system prompt for new sessions in this project,
+    /// passed as `--append-system-prompt`.
+    var systemPrompt: String = ""
+
+    var isEmpty: Bool { name.isEmpty && directory.isEmpty && systemPrompt.isEmpty }
 }
 
 /// A Pi session file discovered on disk or created through the app.

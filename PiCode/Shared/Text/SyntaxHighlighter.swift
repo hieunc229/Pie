@@ -108,7 +108,21 @@ enum TokenKind: Hashable {
 }
 
 enum SyntaxHighlighter {
+    /// Highlighting is pure, so its result is remembered. The key carries the family
+    /// because two languages can share a text (`{}`) but not a tokenizer.
+    ///
+    /// Only the standard theme ships, so the theme is not part of the key; a caller
+    /// that ever adds a second theme has to add it here, or the first theme's colors
+    /// would be served for the second.
+    private static let cache = RenderCache<AttributedString>(totalCostLimit: 3_000_000)
+
     static func highlight(_ code: String, language: SyntaxLanguage, theme: SyntaxTheme = .standard) -> AttributedString {
+        cache.value(forKey: "\(language.family.rawValue)\u{1F}\(code)", cost: code.count) {
+            highlightUncached(code, language: language, theme: theme)
+        }
+    }
+
+    private static func highlightUncached(_ code: String, language: SyntaxLanguage, theme: SyntaxTheme) -> AttributedString {
         var attributed = AttributedString(code)
         attributed.font = .system(.body, design: .monospaced)
 

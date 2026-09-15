@@ -25,6 +25,10 @@ final class PiSessionController {
 
     /// Canonical working directory for this session.
     let projectPath: String
+    /// Project system prompt to append on launch, or `nil` when the project has
+    /// none. Read once at init: changing it takes effect in the next process,
+    /// which is exactly when Pi re-reads its system prompt anyway.
+    private let systemPrompt: String?
     private let installation: PiInstallation
     private let preferences: PreferencesStore
     let drafts: DraftStore
@@ -34,6 +38,17 @@ final class PiSessionController {
     private(set) var sessionFile: String?
     private(set) var sessionId: String?
     private(set) var sessionName: String?
+
+    /// Called when Pi finishes a run that produced an answer. The dock badge is a
+    /// window-level fact, so the controller reports the completion and `AppState`
+    /// decides whether the badge is warranted.
+    var onAgentCompleted: (() -> Void)?
+
+    /// The background title run and the one-shot latch that keeps it to the first
+    /// message. Nothing is retried: a chat that failed to earn a name is not worth
+    /// another model call.
+    private var titleTask: Task<Void, Never>?
+    private var titleGenerationStarted = false
 
     /// Draft key: sessions Pi has not written to disk yet fall back to a
     /// project-scoped key so a draft survives process start.
@@ -55,7 +70,20 @@ final class PiSessionController {
     private var baseItems: [TranscriptItem] = []
     private var optimisticUserItems: [TranscriptItem] = []
     private(set) var items: [TranscriptItem] = []
-    private(set) var isStreaming = false
+    /// The transcript's rows, already folded. `TranscriptRows.group` is pure but
+    /// O(items), and the view used to call it inside its body — so every streaming
+    /// tick re-walked the whole session. It is computed here, once per change.
+    private(set) var rows: [TranscriptRow] = []
+    private(set) var isStreaming = false {
+        // Liveness is half of the fold's input: the same items lay out as a live
+        // run (one line per step) or as a finished turn (one “Worked for” line),
+        // so a transition that does not otherwise touch `items` still has to
+        // relayout. Only the transition is expensive; every delta inside a turn
+        // keeps the same value.
+        didSet {
+            if oldValue != isStreaming { recomputeRows() }
+        }
+    }
     private(set) var isCompacting = false
     private(set) var streamingModel: String?
     private(set) var streamingStartedAt: Date?
@@ -78,6 +106,16 @@ final class PiSessionController {
     }
 
     private var liveTurn: LiveTurn?
+
+    /// Streaming text, bash output and partial tool results arrive many times a
+    /// second. Each recompose walks the transcript and re-folds it, so doing one
+    /// per delta makes a long session pay its whole length on every token. These
+    /// paths mark the transcript dirty and one scheduled task flushes at most once
+    /// a frame; structural changes — a message boundary, a tool's status, an
+    /// optimistic row — still recompose immediately, so nothing that changes what
+    /// the transcript *is* waits a frame to appear.
+    private var pendingRecompose = false
+    private var recomposeTask: Task<Void, Never>?
 
     private struct ToolRuntime {
         var status: ToolStatus = .pending
@@ -165,12 +203,14 @@ final class PiSessionController {
          sessionFile: String?,
          installation: PiInstallation,
          preferences: PreferencesStore,
-         drafts: DraftStore) {
+         drafts: DraftStore,
+         systemPrompt: String? = nil) {
         self.projectPath = CanonicalPath.of(projectPath)
         self.sessionFile = sessionFile
         self.installation = installation
         self.preferences = preferences
         self.drafts = drafts
+        self.systemPrompt = systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.piVersion = installation.version
         self.sessionId = sessionFile.flatMap { Self.sessionID(fromFile: $0) }
         self.trustState = trustService.state(for: self.projectPath)
@@ -203,6 +243,9 @@ final class PiSessionController {
             arguments.append(contentsOf: ["--session", sessionFile])
         }
         arguments.append(contentsOf: trustLaunchArguments())
+        if let systemPrompt, !systemPrompt.isEmpty {
+            arguments.append(contentsOf: ["--append-system-prompt", systemPrompt])
+        }
         if let model = preferences.defaultModelQualifiedID, !model.isEmpty, sessionFile == nil {
             arguments.append(contentsOf: ["--model", model])
         }
@@ -383,6 +426,7 @@ final class PiSessionController {
                 ), timeout: promptTimeout(for: body))
             }
             drafts.clear(for: draftKey)
+            scheduleTitleGeneration(from: body)
             return true
         } catch {
             removeOptimisticUserItem(matching: body)
@@ -430,6 +474,67 @@ final class PiSessionController {
     func clearQueue() async {
         guard (try? await request(.clearQueue)) != nil else { return }
         queue = QueueSnapshot()
+    }
+
+    /// What the queue card can do to one message that is still waiting its turn.
+    enum QueueAction {
+        /// Move it into the steering list, so Pi takes it as soon as the current
+        /// tool finishes rather than after the whole turn.
+        case steer
+        /// Pull it out of the queue and back into the composer to be changed.
+        case edit
+        /// Drop it.
+        case remove
+    }
+
+    /// Act on one queued message: steer it, edit it, or remove it.
+    ///
+    /// Pi has no per-message operation on its queue — `clear_queue` empties the
+    /// whole thing and returns the text — so every one of these is a clear
+    /// followed by a re-queue of the messages that are not the target. The
+    /// survivors keep the order Pi reported, steering before follow-up; steering
+    /// the target puts it at the end of the steering list, which is where it would
+    /// have gone had it been sent with the keyboard while Pi was busy. The queue
+    /// Pi returns is preferred over the local snapshot, so a message it had already
+    /// taken is never re-queued.
+    func act(on action: QueueAction, message: String) async {
+        let steering = queue.steering.map(\.text)
+        let followUp = queue.followUp.map(\.text)
+        guard steering.contains(message) || followUp.contains(message) else { return }
+
+        guard let response = try? await request(.clearQueue) else { return }
+        var remainingSteering = response.data?.array("steering")?.compactMap(\.stringValue) ?? steering
+        var remainingFollowUp = response.data?.array("followUp")?.compactMap(\.stringValue) ?? followUp
+
+        let found = removeFirst(message, from: &remainingSteering)
+            || removeFirst(message, from: &remainingFollowUp)
+        if action == .steer, found { remainingSteering.append(message) }
+
+        for text in remainingSteering {
+            _ = try? await request(.steer(message: text, images: []))
+        }
+        for text in remainingFollowUp {
+            _ = try? await request(.followUp(message: text, images: []))
+        }
+        queue.update(steering: remainingSteering, followUp: remainingFollowUp)
+
+        // If Pi had already taken the message, there is nothing left to edit or
+        // steer; the survivors were still put back above.
+        guard found else { return }
+
+        if action == .edit {
+            let existing = drafts.text(for: draftKey)
+            let combined = [existing, message]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: "\n\n")
+            drafts.setText(combined, for: draftKey)
+        }
+    }
+
+    private func removeFirst(_ text: String, from list: inout [String]) -> Bool {
+        guard let index = list.firstIndex(of: text) else { return false }
+        list.remove(at: index)
+        return true
     }
 
     /// Esc behavior from Pi's documentation: pull queued messages back into the
@@ -550,6 +655,32 @@ final class PiSessionController {
             await refreshState()
         } catch {
             report(error, context: "Naming the session failed")
+        }
+    }
+
+    /// A new chat has no name until its first message gives it one. Pi writes one
+    /// only when asked, so PiCode asks: one background `pi --print` run summarizes
+    /// the opening message and the answer is written back with `set_session_name`.
+    /// Only the first send, and only while the session is still unnamed — a name
+    /// that changed under the user's cursor would be worse than no name.
+    private func scheduleTitleGeneration(from prompt: String) {
+        guard !titleGenerationStarted, sessionName == nil else { return }
+        titleGenerationStarted = true
+        let installation = installation
+        let directory = projectPath
+        let model = state?.model?.qualifiedID ?? preferences.defaultModelQualifiedID
+        titleTask = Task { [weak self] in
+            let generated = await SessionTitleService.generate(
+                for: prompt,
+                installation: installation,
+                directory: directory,
+                model: model
+            )
+            // A manual rename while the run was in flight wins: a name is the
+            // user's to choose, and this one is only a convenience.
+            guard let self, !Task.isCancelled, self.sessionName == nil else { return }
+            guard let title = generated ?? SessionTitleService.fallback(for: prompt) else { return }
+            await self.setSessionName(title)
         }
     }
 
@@ -1040,6 +1171,12 @@ final class PiSessionController {
             }
             record(kind: .agentEnd, title: "Agent finished",
                    detail: willRetry ? "A retry will follow" : nil)
+            // A finished turn that ended on Pi's own words is the “message
+            // completed” the dock badge counts. A retry is not finished, and a
+            // turn that ended on a tool result has no answer to announce.
+            if !willRetry, messages.last?.isAssistant == true {
+                onAgentCompleted?()
+            }
 
         case .agentSettled:
             runtime = .idle
@@ -1090,7 +1227,7 @@ final class PiSessionController {
             guard let id, var runtime = bashRuntime[id] else { break }
             runtime.output += delta
             bashRuntime[id] = runtime
-            recomposeItems()
+            scheduleRecompose()
 
         case .toolExecutionStart(let toolCallId, let toolName, let args):
             toolCallCount += 1
@@ -1115,7 +1252,7 @@ final class PiSessionController {
             }
             toolRuntime[toolCallId] = runtime
             ensureLiveToolCall(id: toolCallId, name: toolName, arguments: nil)
-            recomposeItems()
+            scheduleRecompose()
 
         case .toolExecutionEnd(let toolCallId, let toolName, let result, let isError):
             var runtime = toolRuntime[toolCallId] ?? ToolRuntime()
@@ -1277,7 +1414,7 @@ final class PiSessionController {
 
         liveTurn = turn
         if isStreaming == false { isStreaming = true }
-        recomposeItems()
+        scheduleRecompose()
     }
 
     private func ensureLiveToolCall(id: String, name: String, arguments: JSONValue?) {
@@ -1398,17 +1535,71 @@ final class PiSessionController {
         let userIds = TranscriptBuilder.userEntryIds(entries: entries, leafId: leafId)
         baseItems = TranscriptBuilder.items(messages: baseMessages, userEntryIds: userIds)
         applyToolRuntime(to: &baseItems)
+        // File changes are derived from the durable items' arguments, so they
+        // change exactly when `baseItems` does — not on every live delta. Kept out
+        // of `recomposeItems` so the streaming hot path does not re-aggregate the
+        // whole session for a value that cannot have moved.
+        recentFileChanges = aggregateFileChanges()
         recomposeItems()
     }
 
     private func recomposeItems() {
-        var result = baseItems
+        // An immediate recompose satisfies any coalesced flush that is waiting.
+        pendingRecompose = false
+        // One row per id. A streamed row and its durable row can be in hand at the
+        // same time — `liveTurn` keeps its tool call until the turn ends, while the
+        // assistant message that carries that same call is already in
+        // `baseMessages` — and their ids are deliberately predicted to match so
+        // SwiftUI keeps row identity across the handoff. Appending both would give
+        // the transcript two rows with one id, which a `ForEach` cannot key (it
+        // warns and drops rows, and a live row drawn per task turns the duplicate
+        // into two lines). First writer wins, and the durable row is first: it is
+        // the copy Pi finished writing, and `applyToolRuntime` has already given it
+        // the live call's status.
+        var result: [TranscriptItem] = []
+        var seen = Set<String>()
+        func appendUnique(_ candidates: [TranscriptItem]) {
+            for item in candidates where seen.insert(item.id).inserted {
+                result.append(item)
+            }
+        }
+
+        appendUnique(baseItems)
         var live = liveItems()
         applyToolRuntime(to: &live)
-        result.append(contentsOf: live)
-        result.append(contentsOf: optimisticUserItems)
+        appendUnique(live)
+        appendUnique(optimisticUserItems)
         items = result
-        recentFileChanges = aggregateFileChanges()
+        recomputeRows()
+    }
+
+    /// Folds the item list into the rows the transcript draws. Pure, and the only
+    /// place grouping happens, so the view's body is a read rather than a walk.
+    private func recomputeRows() {
+        rows = TranscriptRows.group(items, isWorking: isStreaming).filter { row in
+            guard case .group(let items, _) = row else { return true }
+            // Reasoning is hidden, so a one-step run that is only reasoning would
+            // be a line that opens onto nothing.
+            return items.contains { $0.kind != .thinking }
+        }
+    }
+
+    /// Marks the transcript dirty and arranges one recompose on the next frame.
+    /// Extra calls inside the same frame join the flush that is already scheduled
+    /// instead of starting their own, so a burst of tokens costs one recompose.
+    private func scheduleRecompose() {
+        pendingRecompose = true
+        guard recomposeTask == nil else { return }
+        recomposeTask = Task { [weak self] in
+            // One frame at 60 Hz. Delaying only the flush — never the state —
+            // keeps output visibly instant while the work behind it is bounded.
+            try? await Task.sleep(nanoseconds: 16_000_000)
+            guard let self else { return }
+            self.recomposeTask = nil
+            guard self.pendingRecompose else { return }
+            self.pendingRecompose = false
+            self.recomposeItems()
+        }
     }
 
     private func applyToolRuntime(to items: inout [TranscriptItem]) {
@@ -1555,6 +1746,9 @@ final class PiSessionController {
         summarizationNote = nil
         extensionWidgets = [:]
         extensionStatuses = [:]
+        titleTask?.cancel()
+        titleTask = nil
+        titleGenerationStarted = false
         for task in dialogTimeouts.values { task.cancel() }
         dialogTimeouts = [:]
         dialogs = []

@@ -61,38 +61,106 @@ struct SidebarAlignDemo: View {
     @ViewBuilder
     private func chats(of project: DemoProject) -> some View {
         ForEach(project.chats, id: \.self) { chat in
-            Text(chat).font(SidebarStyle.rowFont)
-                .padding(.leading, SidebarStyle.titleIndent)
-                }
+            // Same structure as `SessionRow`: the leading slot is the folder
+            // glyph's own 11pt mark (empty for a quiet chat), so the title starts
+            // where the project name does and a running chat's spinner would sit
+            // under the folder.
+            HStack(spacing: SidebarStyle.iconTextSpacing) {
+                Color.clear
+                    .frame(width: SidebarStyle.projectIconSize,
+                           height: SidebarStyle.projectIconSize,
+                           alignment: .leading)
+                    .offset(x: -SidebarStyle.projectIconOffset)
+                Text(chat).font(SidebarStyle.rowFont)
+                Spacer(minLength: 0)
+            }
+        }
     }
 }
 
 /// A faithful-enough mock of the whole sidebar column so the harness can dump a
-/// PNG for a human to look at. It is not measured — `SidebarAlignDemo` is — but
-/// it is what answers "is that fill actually darker than the sidebar?".
+/// PNG for a human to look at. It is not measured — `SidebarAlignDemo` is — but it
+/// is what answers "is that fill actually darker than the sidebar?".
+///
+/// It mirrors the real column: New chat is the *first list row*, drawn with the
+/// same glyph, spacing and highlight as a project, and the column has no rule and
+/// no bar above it. The search icon is still the overlay in the titlebar row.
 struct SidebarLookDemo: View {
+    private let projects = [DemoProject(id: 0, name: "proj", chats: ["proj-aaa", "proj-bbb"])]
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                    .imageScale(.small)
-                Text("Search sessions").foregroundStyle(.secondary)
+        List {
+            HStack(spacing: SidebarStyle.iconTextSpacing) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                    .frame(width: SidebarStyle.projectIconSize,
+                           height: SidebarStyle.projectIconSize,
+                           alignment: .leading)
+                    .offset(x: -SidebarStyle.projectIconOffset)
+                Text("New chat").font(SidebarStyle.rowFont)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(SidebarStyle.searchFieldFill,
-                        in: RoundedRectangle(cornerRadius: SidebarStyle.searchFieldRadius, style: .continuous))
-            .padding(.horizontal, 10)
-            .padding(.top, 6)
-            .padding(.bottom, 10)
-            Divider()
-            SidebarAlignDemo()
-            Spacer(minLength: 0)
+            .sidebarRow(fill: SidebarStyle.rowHighlightFill)
+            ForEach(projects) { project in
+                HStack(spacing: SidebarStyle.iconTextSpacing) {
+                    Image(systemName: "folder")
+                        .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                        .frame(width: SidebarStyle.projectIconSize,
+                               height: SidebarStyle.projectIconSize,
+                               alignment: .leading)
+                        .offset(x: -SidebarStyle.projectIconOffset)
+                    Text(project.name).font(SidebarStyle.rowFont)
+                    Spacer(minLength: 0)
+                }
+                .sidebarRow(fill: .clear)
+                ForEach(project.chats, id: \.self) { chat in
+                    HStack(spacing: SidebarStyle.iconTextSpacing) {
+                        Color.clear
+                            .frame(width: SidebarStyle.projectIconSize,
+                                   height: SidebarStyle.projectIconSize,
+                                   alignment: .leading)
+                            .offset(x: -SidebarStyle.projectIconOffset)
+                        Text(chat).font(SidebarStyle.rowFont)
+                        Spacer(minLength: 0)
+                    }
+                    .sidebarRow(fill: .clear)
+                }
+            }
         }
+        .listStyle(.sidebar)
         .frame(width: 268, height: 340)
         .background(Color(nsColor: .windowBackgroundColor))
+        // The real sidebar draws this over its own content, ignoring the top safe
+        // area; here there is no toolbar, so it is the same relative mark.
+        .overlay(alignment: .topTrailing) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .frame(width: SidebarStyle.topBarButtonSize, height: SidebarStyle.topBarButtonSize)
+                .padding(.top, SidebarStyle.topBarTopInset)
+                .padding(.trailing, SidebarStyle.topBarTrailingInset)
+        }
+    }
+}
+
+/// The search icon, exactly as `SidebarView.searchButton` draws it: an overlay on
+/// the sidebar's trailing edge that ignores the top safe area. The icon is backed
+/// by a flat marker fill so the pixel reader can find the *button's* frame in the
+/// capture instead of trying to read a grey glyph over a material.
+struct SidebarSearchDemo: View {
+    var body: some View {
+        Color(nsColor: .windowBackgroundColor)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .topTrailing) {
+                ZStack {
+                    Color.yellow
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: SidebarStyle.topBarButtonSize, height: SidebarStyle.topBarButtonSize)
+                .padding(.top, SidebarStyle.topBarTopInset)
+                .padding(.trailing, SidebarStyle.topBarTrailingInset)
+                .ignoresSafeArea(.container, edges: .top)
+            }
     }
 }
 
@@ -248,6 +316,59 @@ final class SidebarAlignDelegate: NSObject, NSApplicationDelegate {
             } else {
                 print("  note  could not write the look dump")
             }
+            self.measureSearchRow()
+        }
+    }
+
+    /// The search icon is the one control in the sidebar that leaves the content's
+    /// safe area, so "it sits on the titlebar row" is invisible to the capture
+    /// above (which deliberately has no toolbar). It gets its own window here, with
+    /// a real toolbar in the *same compact style the app's hidden-titlebar window
+    /// resolves to*, so the safe area it ignores is the toolbar's own and the
+    /// traffic lights sit where the app's do; its centre is compared to those
+    /// lights read from that live window — not to a constant copied into the test.
+    /// The trailing margin is checked against the column edge for the same reason.
+    private func measureSearchRow() {
+        let search = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 268, height: 160),
+                              styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        search.toolbarStyle = .unifiedCompact
+        search.toolbar = NSToolbar(identifier: "sidebar-search-harness")
+        search.contentView = NSHostingView(rootView: SidebarSearchDemo())
+        search.orderFrontRegardless()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            guard let content = search.contentView, let pixels = WindowPixels.capture(content) else {
+                self.check(false, "the harness could render the search row")
+                return self.finish()
+            }
+            let scale = pixels.scale
+            var minX = Int.max, maxX = Int.min, minY = Int.max, maxY = Int.min
+            for y in 0..<pixels.height {
+                for x in 0..<pixels.width {
+                    let (r, g, b) = pixels.rgb(x, y)
+                    if r > 200, g > 200, b < 100 {   // the marker fill, not a material
+                        minX = min(minX, x); maxX = max(maxX, x)
+                        minY = min(minY, y); maxY = max(maxY, y)
+                    }
+                }
+            }
+            guard minX != Int.max else {
+                self.check(false, "the search icon is drawn (its marker fill was found)")
+                return self.finish()
+            }
+            let centerY = (Double(minY) + Double(maxY)) / 2 / Double(scale)
+            let trailing = Double(maxX) / Double(scale)
+            var trafficCenter = SidebarStyle.titlebarRowCenter
+            if let close = search.standardWindowButton(.closeButton) {
+                let frame = close.convert(close.bounds, to: nil)
+                trafficCenter = content.bounds.height - frame.midY
+            }
+            self.check(abs(centerY - trafficCenter) <= 1.5,
+                       "the search icon is centred on the traffic lights' row",
+                       String(format: "icon %.1fpt against %.1fpt", centerY, trafficCenter))
+            self.check(abs(content.bounds.width - trailing - SidebarStyle.topBarTrailingInset) <= 1.5,
+                       "the search icon keeps the sidebar's trailing margin",
+                       String(format: "%.1fpt from the edge", content.bounds.width - trailing))
             self.finish()
         }
     }

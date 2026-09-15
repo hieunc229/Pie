@@ -310,15 +310,18 @@ struct CollapsibleText: View {
     @State private var isExpanded: Bool = false
 
     var body: some View {
-        let lines = text.isEmpty ? 0 : text.split(separator: "\n", omittingEmptySubsequences: false).count
-        let needsDisclosure = lines > lineLimit
+        // Split once per evaluation, not twice: both the count and the truncated
+        // prefix come from the same array, and the split is the only O(text) work
+        // this view does outside `SyntaxText`.
+        let lines = text.isEmpty ? [] : text.split(separator: "\n", omittingEmptySubsequences: false)
+        let needsDisclosure = lines.count > lineLimit
 
         VStack(alignment: .leading, spacing: 6) {
             Group {
                 if isExpanded || !needsDisclosure {
                     SyntaxText(text: text, language: language)
                 } else {
-                    SyntaxText(text: truncated, language: language)
+                    SyntaxText(text: lines.prefix(lineLimit).joined(separator: "\n"), language: language)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -328,7 +331,7 @@ struct CollapsibleText: View {
                     withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
                 } label: {
                     Label(
-                        isExpanded ? "Show less" : "Show \(lines - lineLimit) more lines",
+                        isExpanded ? "Show less" : "Show \(lines.count - lineLimit) more lines",
                         systemImage: isExpanded ? "chevron.up" : "chevron.down"
                     )
                     .font(Typography.body)
@@ -339,12 +342,6 @@ struct CollapsibleText: View {
         .onAppear {
             if isInitiallyExpanded { isExpanded = true }
         }
-    }
-
-    private var truncated: String {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
-            .prefix(lineLimit)
-            .joined(separator: "\n")
     }
 }
 
@@ -357,12 +354,16 @@ struct SyntaxText: View {
     var text: String
     var language: SyntaxLanguage
     var wraps: Bool = false
+    /// Defaults to the transcript's reading size; a block container passes a
+    /// smaller one instead — `Typography.codeBlock`, or `codeBlockCompact` in the
+    /// inspector.
+    var font: Font = Typography.code
 
     private static let highlightLimit = 60_000
 
     var body: some View {
         Text(attributed)
-            .font(Typography.code)
+            .font(font)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: !wraps)

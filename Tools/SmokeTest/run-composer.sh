@@ -72,7 +72,7 @@ check_source "$SESSION" 'placement: .belowEditor' "a widget Pi placed below the 
 check_source "$SESSION" '.overlay(alignment: .bottom) { floatingComposer }' "the composer is an overlay on the transcript"
 check_source "$SESSION" 'bottomInset: composerHeight' "the transcript is told how tall the overlay is"
 check_source "$CONVERSATION" 'bottomInset: CGFloat = 0' "the transcript takes a bottom inset"
-check_source "$CONVERSATION" '.padding(.bottom, 8 + bottomInset)' "the inset is room after the last row, not a margin on it"
+check_source "$CONVERSATION" '.frame(height: 8 + bottomInset)' "the inset is room inside the bottom anchor, so scrolling to it keeps the room"
 
 # The box's width is the transcript's width. The composer is an overlay, so it
 # inherits nothing: it has to be put in the same column explicitly, and both
@@ -93,19 +93,21 @@ check_absent "$COMPOSER" '.padding(.horizontal, 9)' "no literal box padding is l
 # The editor must report its own height. Without `sizeThatFits` SwiftUI hands the
 # view its maximum allowed height, so the box is that tall whatever is in it.
 check_source "$TEXTVIEW" 'func sizeThatFits' "the editor reports the height it needs"
-check_source "$TEXTVIEW" 'static let visibleLines = 2' "the editor stops at two lines"
-check_source "$COMPOSER" 'ComposerMetrics.editorMaxHeight' "the editor is clamped to the two-line metric"
+check_source "$TEXTVIEW" 'static let minimumLines = 2' "the editor never drops below two lines"
+check_source "$TEXTVIEW" 'static let maximumLines = 6' "the editor scrolls after six lines"
+check_source "$COMPOSER" 'ComposerMetrics.editorMaxHeight' "the editor is clamped to the six-line metric"
 
-# Order on the row: paperclip left, model/thinking right. A move is exactly the
-# kind of change that leaves the code compiling and the layout wrong.
+# Order on the row: paperclip left, the model + reasoning menu and send right. A
+# move is exactly the kind of change that leaves the code compiling and the
+# layout wrong.
 python3 - "$COMPOSER" <<'PY'
 import re, sys
 source = open(sys.argv[1]).read()
 row = source[source.index('private var controlRow'):source.index('private func iconButton')]
-order = ['iconButton("paperclip"', 'ComposerAccessControl(controller: controller)', 'modelMenu', 'thinkingMenu', 'primaryActionButton']
+order = ['iconButton("paperclip"', 'ComposerAccessControl(controller: controller)', 'modelThinkingMenu', 'primaryActionButton']
 positions = [row.find(token) for token in order]
 if all(p >= 0 for p in positions) and positions == sorted(positions):
-    print("  ok   the row reads attach · access · model · thinking · send")
+    print("  ok   the row reads attach · access · model+reasoning · send")
 else:
     print("  FAIL the row order changed:", dict(zip(order, positions)))
     sys.exit(1)

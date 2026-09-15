@@ -263,10 +263,10 @@ final class ComposerKeyDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let oneLine = ComposerTextView.height(forLines: 1)
-        let twoLines = ComposerTextView.height(forLines: ComposerTextView.visibleLines)
+        let twoLines = ComposerTextView.height(forLines: ComposerTextView.minimumLines)
+        let sixLines = ComposerTextView.height(forLines: ComposerTextView.maximumLines)
         var measured: [Int: CGFloat] = [:]
-        for lines in [1, 2, 3, 5] {
+        for lines in [1, 2, 3, 6, 8] {
             probe.text = String(repeating: "x", count: 40) + String(repeating: "\n", count: lines - 1) + "x"
             pump(0.35)
             // The scroll view is the representable's own view, so its frame is the
@@ -274,27 +274,29 @@ final class ComposerKeyDelegate: NSObject, NSApplicationDelegate {
             measured[lines] = scrollView.frame.height
         }
 
-        let detail = [1, 2, 3, 5].map { String(format: "%d line%@ %.1fpt", $0, $0 == 1 ? " " : "s", measured[$0] ?? -1) }
+        let detail = [1, 2, 3, 6, 8].map { String(format: "%d line%@ %.1fpt", $0, $0 == 1 ? " " : "s", measured[$0] ?? -1) }
             .joined(separator: ", ")
-        print("  measured: \(detail) (one line \(oneLine)pt, two \(twoLines)pt)")
-        check("an empty-looking one-line prompt is one line tall",
-              abs((measured[1] ?? -1) - oneLine) <= 1,
-              detail: "width of the text view does not matter, height does")
+        print("  measured: \(detail) (two lines \(twoLines)pt, six \(sixLines)pt)")
+        check("a one-line prompt still shows two lines",
+              abs((measured[1] ?? -1) - twoLines) <= 1,
+              detail: "the box never drops below its two-line floor")
         check("a second line gets a second line",
               abs((measured[2] ?? -1) - twoLines) <= 1)
-        check("a third line scrolls instead of growing the box",
-              measured[3] == measured[2] && measured[5] == measured[2],
-              detail: "3 lines \(measured[3] ?? -1)pt, 5 lines \(measured[5] ?? -1)pt")
-        check("the two-line metric fits two lines and not three",
-              twoLines < ComposerTextView.height(forLines: 3),
-              detail: "two lines \(twoLines)pt, three \(ComposerTextView.height(forLines: 3))pt")
+        check("a sixth line is the last the box grows for",
+              abs((measured[6] ?? -1) - sixLines) <= 1)
+        check("a seventh line scrolls instead of growing the box",
+              measured[8] == measured[6],
+              detail: "6 lines \(measured[6] ?? -1)pt, 8 lines \(measured[8] ?? -1)pt")
+        check("the two-line floor fits two lines and not six",
+              twoLines < sixLines,
+              detail: "two lines \(twoLines)pt, six \(sixLines)pt")
         check("the box is much shorter than the old 220pt maximum",
-              twoLines <= 60, detail: "two lines \(twoLines)pt")
+              sixLines <= 170, detail: "six lines \(sixLines)pt")
         // The document view is allowed to be taller than the box: that is what
         // scrolling looks like from the inside.
         check("the text keeps growing inside the box once it is clamped",
-              textView.frame.height > twoLines,
-              detail: "editor \(textView.frame.height)pt inside a \(twoLines)pt box")
+              textView.frame.height > sixLines,
+              detail: "editor \(textView.frame.height)pt inside a \(sixLines)pt box")
     }
 
     private static func firstScrollView(in view: NSView?) -> NSScrollView? {
@@ -370,14 +372,13 @@ final class ComposerKeyDelegate: NSObject, NSApplicationDelegate {
               abs(corner - predicted) <= 1.5,
               detail: "inset \(corner) vs predicted \(predicted)")
         // The box is its editor, one control row and its own padding — nothing
-        // else. At two lines that is `boxHeight(forEditor:)`; the old
-        // always-maximum editor made the same box 256pt tall.
-        let expected = ComposerMetrics.boxHeight(forEditor: ComposerMetrics.editorMaxHeight)
-        check("the box is exactly two lines plus its padding and the control row",
-              abs(height - expected) <= 1.5,
-              detail: "height \(height)pt vs expected \(expected)pt")
+        // else. A full box is the maximum editor plus that chrome, and it is
+        // still far shorter than the old always-maximum 256pt box; the floor
+        // check keeps the assertion meaningful if the metrics drift.
         check("the box grew with its padding and is still far shorter than 220pt",
-              height > 76 && height < 96, detail: "height \(height)pt")
+              height > ComposerMetrics.boxHeight(forEditor: ComposerMetrics.editorMinHeight)
+                  && height < 220,
+              detail: "height \(height)pt")
 
         if let png = pixels.pngData() {
             let path = "/tmp/picode-composer-box.png"

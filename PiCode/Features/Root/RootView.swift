@@ -4,8 +4,11 @@
 //
 //  Window layout: sessions sidebar, conversation, contextual inspector.
 //
-//  The inspector is a macOS inspector so it participates in the system's
-//  sidebar/inspector toolbar behavior instead of being a hand-rolled pane.
+//  The inspector is laid out as a plain pane beside the conversation rather
+//  than through the system `.inspector` column. The system column spans the full
+//  window height — toolbar included — so it stands a toolbar taller than the
+//  sidebar and conversation, which start below the toolbar. Laid out here, it is
+//  exactly as tall as they are and nothing about them moves when it opens.
 //
 
 import SwiftUI
@@ -19,19 +22,14 @@ struct RootView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(state: state)
-                .navigationSplitViewColumnWidth(min: 232, ideal: 268, max: 360)
+            SidebarView(state: state) {
+                state.openPalette()
+                sheet = .palette
+            }
+            .navigationSplitViewColumnWidth(min: 234, ideal: 268, max: 360)
         } detail: {
-            detail
-                .frame(minWidth: 420)
+            detailPane
         }
-        .navigationTitle(title)
-        .navigationSubtitle(subtitle)
-        .inspector(isPresented: $state.isInspectorVisible) {
-            InspectorView(state: state)
-                .inspectorColumnWidth(min: 280, ideal: 360, max: 560)
-        }
-        .toolbar { toolbar }
         .task {
             if state.phase == .starting { await state.launch() }
         }
@@ -46,14 +44,28 @@ struct RootView: View {
                     perform(command)
                 }
             case .rename(let current):
-                RenameSessionSheet(state: state, currentName: current) { self.sheet = nil }
+                RenameSessionSheet(state: state, session: nil, currentName: current) { self.sheet = nil }
+            case .renameChat(let session):
+                RenameSessionSheet(state: state, session: session, currentName: session.displayName) { self.sheet = nil }
             case .compact:
                 CompactSessionSheet(state: state) { self.sheet = nil }
             case .fork:
                 ForkSessionSheet(state: state) { self.sheet = nil }
             case .delete(let session):
                 DeleteSessionSheet(state: state, session: session) { self.sheet = nil }
+            case .projectSettings(let project):
+                ProjectSettingsSheet(state: state, project: project) { self.sheet = nil }
             }
+        }
+        .onChange(of: state.pendingProjectSettings) { _, project in
+            guard let project else { return }
+            state.pendingProjectSettings = nil
+            sheet = .projectSettings(project)
+        }
+        .onChange(of: state.pendingSessionRename) { _, session in
+            guard let session else { return }
+            state.pendingSessionRename = nil
+            sheet = .renameChat(session)
         }
         .overlay(alignment: .bottom) { toast }
         .overlay(alignment: .top) { errorBanner }
@@ -61,6 +73,36 @@ struct RootView: View {
     }
 
     // MARK: - Detail column
+
+    /// The conversation and, when it is open, the inspector beside it. The two
+    /// share the detail column's height, so opening the panel never resizes or
+    /// shifts the sidebar or the transcript.
+    private var detailPane: some View {
+        Group {
+            // The package browser owns the whole detail column: the inspector is
+            // about a session's facts, and there is no session on screen.
+            if state.phase == .ready && state.isPackagesVisible {
+                PackagesView(state: state, isSidebarVisible: columnVisibility != .detailOnly)
+            } else {
+                HSplitView {
+                    detail
+                        .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+
+                    if state.isInspectorVisible {
+                        InspectorView(state: state)
+                            .frame(minWidth: 280, idealWidth: 360, maxWidth: 560, maxHeight: .infinity)
+                            // The conversation's header is an overlay that reaches into the
+                            // titlebar band; the inspector's header is laid out in the
+                            // column, so it has to ignore the same safe area or it starts
+                            // one header lower than the conversation's. Ignoring it here
+                            // puts both headers on the window's top row.
+                            .ignoresSafeArea(.container, edges: .top)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
     @ViewBuilder
     private var detail: some View {
@@ -71,65 +113,46 @@ struct RootView: View {
             PiSetupView(state: state)
         case .ready:
             if let controller = state.activeController {
-                SessionView(state: state, controller: controller, composerFocusTick: composerFocusTick)
+                VStack(spacing: 0) {
+                    SessionView(state: state, controller: controller, composerFocusTick: composerFocusTick)
+                    if state.isTerminalVisible {
+                        TerminalPanel(state: state, controller: controller)
+                    }
+                }
+                // The hidden title bar still carries the traffic lights and
+                // reserves their row as a top safe area, so a column that lays its
+                // header out *inside* the safe area starts one header below the
+                // window's top edge — a blank band above the conversation. The
+                // header is drawn as an overlay that `ignoresSafeArea`s into that
+                // band instead (the same way the sidebar's search icon reaches the
+                // row), so the band is the header and the transcript still begins
+                // directly under it.
+                .overlay(alignment: .top) {
+                    ContentHeader(
+                        projectName: state.selectedProject?.name ?? controller.projectName,
+                        isSidebarVisible: columnVisibility != .detailOnly,
+                        unreadNotificationCount: state.unreadNotificationCount,
+                        isShowingNotifications: state.isShowingNotifications,
+                        onToggleNotifications: { state.toggleNotifications() },
+                        isInspectorVisible: state.isInspectorVisible && !state.isNotificationsVisible,
+                        onToggleInspector: { state.toggleInspector() },
+                        isTerminalVisible: state.isTerminalVisible,
+                        onToggleTerminal: { state.toggleTerminal() },
+                        onOpenInFinder: { WorkspaceLauncher.reveal(controller.projectPath) },
+                        onOpenInVSCode: { openProjectInVSCode(controller.projectPath) }
+                    )
+                    .ignoresSafeArea(.container, edges: .top)
+                }
             } else {
                 WelcomeView(state: state)
             }
         }
     }
 
-    private var title: String {
-        state.activeController?.displayTitle ?? "PiCode"
-    }
-
-    private var subtitle: String {
-        guard let controller = state.activeController else { return "" }
-        var parts: [String] = [controller.projectName]
-        if let model = controller.model { parts.append(model.displayName) }
-        parts.append(controller.connection.label)
-        return parts.joined(separator: " · ")
-    }
-
-    // MARK: - Toolbar
-
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            Button {
-                state.run(.addProject)
-            } label: {
-                Label("Open Project", systemImage: "folder.badge.plus")
-            }
-            .help("Open a project folder")
-        }
-
-        ToolbarItem {
-            Button {
-                state.run(.newSession)
-            } label: {
-                Label("New Session", systemImage: "plus.bubble")
-            }
-            .help("Start a new session in the selected project (⌘N)")
-        }
-
-        ToolbarItem {
-            Button {
-                state.openPalette()
-                sheet = .palette
-            } label: {
-                Label("Commands", systemImage: "command")
-            }
-            .help("Command palette (⇧⌘P)")
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                state.isInspectorVisible.toggle()
-            } label: {
-                Label("Inspector", systemImage: "sidebar.right")
-            }
-            .help("Toggle the inspector (⌥⌘I)")
-        }
+    /// The menu command (⌃⌘S) and the command palette share one toggle, so the
+    /// two cannot disagree about which way the sidebar is going.
+    private func toggleSidebar() {
+        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
     }
 
     // MARK: - Overlays
@@ -222,26 +245,13 @@ struct RootView: View {
             Task { await controller?.cycleThinkingLevel() }
 
         case .toggleInspector:
-            state.isInspectorVisible.toggle()
+            state.toggleInspector()
+
+        case .toggleTerminal:
+            state.toggleTerminal()
 
         case .toggleSidebar:
-            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-
-        case .showChanges:
-            state.inspectorTab = .changes
-            state.isInspectorVisible = true
-        case .showFiles:
-            state.inspectorTab = .files
-            state.isInspectorVisible = true
-        case .showTerminal:
-            state.inspectorTab = .terminal
-            state.isInspectorVisible = true
-        case .showTree:
-            state.inspectorTab = .tree
-            state.isInspectorVisible = true
-        case .showContext:
-            state.inspectorTab = .context
-            state.isInspectorVisible = true
+            toggleSidebar()
 
         case .copyTranscript:
             guard let controller else { return }
@@ -259,6 +269,10 @@ struct RootView: View {
             let path = controller?.projectPath ?? state.selectedProjectPath
             if let path { state.openTerminal(at: path) }
 
+        case .openInVSCode:
+            let path = controller?.projectPath ?? state.selectedProjectPath
+            if let path { openProjectInVSCode(path) }
+
         case .revealInFinder:
             let path = controller?.projectPath ?? state.selectedProjectPath
             if let path { WorkspaceLauncher.reveal(path) }
@@ -274,6 +288,9 @@ struct RootView: View {
         case .providersSettings:
             state.openSettings(tab: .providers)
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+
+        case .packages:
+            state.showPackages()
 
         case .showPiSetup:
             state.isOnboardingPresented = true
@@ -294,6 +311,16 @@ struct RootView: View {
         return state.selectedProject?.sessions.first { $0.filePath == sessionFile }
     }
 
+    /// Opens a project folder in VS Code (or a compatible fork), telling the user
+    /// when no compatible editor is installed rather than failing silently — the
+    /// workspace menu offers it as a one-click action, so a click that does
+    /// nothing looks like a bug.
+    private func openProjectInVSCode(_ path: String) {
+        if !WorkspaceLauncher.openInVSCode(at: path) {
+            state.showToast("Visual Studio Code isn't installed. Open the folder with another editor.")
+        }
+    }
+
     private func exportSession(_ controller: PiSessionController?) async {
         guard let controller else { return }
         let suggested = "\(controller.displayTitle.replacingOccurrences(of: "/", with: "-")).html"
@@ -308,17 +335,21 @@ struct RootView: View {
 enum RootSheet: Identifiable {
     case palette
     case rename(String)
+    case renameChat(SessionRef)
     case compact
     case fork
     case delete(SessionRef)
+    case projectSettings(ProjectGroup)
 
     var id: String {
         switch self {
         case .palette: return "palette"
         case .rename: return "rename"
+        case .renameChat(let session): return "rename-\(session.id)"
         case .compact: return "compact"
         case .fork: return "fork"
         case .delete(let session): return "delete-\(session.id)"
+        case .projectSettings(let project): return "project-settings-\(project.id)"
         }
     }
 }

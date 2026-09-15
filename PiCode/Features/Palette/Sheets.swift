@@ -12,6 +12,9 @@ import SwiftUI
 
 struct RenameSessionSheet: View {
     @Bindable var state: AppState
+    /// The chat to rename. `nil` means the session on screen, which is how the
+    /// palette command names the active one.
+    var session: SessionRef?
     var currentName: String
     var onFinish: () -> Void
 
@@ -41,11 +44,17 @@ struct RenameSessionSheet: View {
     }
 
     private func save() {
-        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
         Task {
-            guard let controller = state.activeController else { return }
             isSaving = true
-            await controller.setSessionName(name.trimmingCharacters(in: .whitespaces))
+            if let session {
+                // A chat picked in the sidebar: rename that one, whether or not it
+                // is the session on screen.
+                await state.rename(session: session, to: trimmed)
+            } else {
+                await state.activeController?.setSessionName(trimmed)
+            }
             isSaving = false
             onFinish()
         }
@@ -214,6 +223,99 @@ struct DeleteSessionSheet: View {
         session.filePath == nil
             ? "This session has not been written to disk yet. Close it instead of deleting it."
             : "This permanently deletes \(session.displayName) from Pi's session folder."
+    }
+}
+
+// MARK: - Project settings
+
+/// Edits PiCode's own per-project choices: the name the sidebar shows, the folder
+/// new chats start in, and a system prompt appended to Pi for new sessions.
+///
+/// Nothing here rewrites a session or Pi's configuration. The name is a PiCode
+/// label; the folder only affects chats started *after* the change (Pi keeps every
+/// session in the folder it actually ran in); the system prompt is handed to Pi as
+/// `--append-system-prompt` on the next launch.
+struct ProjectSettingsSheet: View {
+    @Bindable var state: AppState
+    var project: ProjectGroup
+    var onFinish: () -> Void
+
+    @State private var name = ""
+    @State private var directory = ""
+    @State private var systemPrompt = ""
+    @State private var isSaving = false
+
+    var body: some View {
+        SheetScaffold(
+            title: "Project Settings",
+            message: "Stored on this Mac only. PiCode never writes Pi's configuration or edits session files.",
+            primaryTitle: isSaving ? "Saving…" : "Save",
+            isPrimaryDisabled: isSaving,
+            onCancel: onFinish
+        ) {
+            Task {
+                isSaving = true
+                await state.updateProjectSettings(
+                    ProjectSettings(
+                        name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                        directory: directory.trimmingCharacters(in: .whitespacesAndNewlines),
+                        systemPrompt: systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                    ),
+                    for: project
+                )
+                isSaving = false
+                onFinish()
+            }
+        } content: {
+            VStack(alignment: .leading, spacing: 16) {
+                field("Name", caption: "Shown in the sidebar and header. Blank uses the folder name.") {
+                    TextField(URL(fileURLWithPath: project.path).lastPathComponent, text: $name)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                field("Folder", caption: "New chats start here. Existing sessions keep the folder they ran in.") {
+                    HStack(spacing: 8) {
+                        TextField(project.path.abbreviatingHomeDirectory, text: $directory)
+                            .textFieldStyle(.roundedBorder)
+                        Button("Choose…") {
+                            if let chosen = WorkspaceLauncher.chooseDirectory(prompt: "Choose a folder for new chats") {
+                                directory = chosen
+                            }
+                        }
+                    }
+                }
+
+                field("System prompt", caption: "Appended to Pi's system prompt for new sessions in this project.") {
+                    TextEditor(text: $systemPrompt)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 110)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
+                }
+            }
+            .onAppear {
+                let settings = state.projectSettings(for: project)
+                name = settings.name
+                directory = settings.directory
+                systemPrompt = settings.systemPrompt
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func field<Content: View>(
+        _ title: String,
+        caption: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.callout.weight(.medium))
+            content()
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

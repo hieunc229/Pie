@@ -69,16 +69,16 @@ PiCode's own preferences.
 | Extension UI round trip against a live extension | ✅ `./Tools/SmokeTest/run-extension.sh` — all 35 checks pass, no model call |
 | Sidebar contents are real (no hidden project DB) | ✅ `./Tools/SmokeTest/run-index.sh` — 16 session files on disk → 8 projects, every path exists |
 | Providers, credentials, third-party providers | ✅ `./Tools/SmokeTest/run-providers.sh` — verified against a live `pi`, no credential of the user's is touched |
-| Sidebar row layout (one size, chat titles aligned under project names) | ⚠️ `./Tools/SmokeTest/run-sidebar-align.sh` — measured on screen before the menu's second pass: 0.0pt alignment delta, glyph on the search margin. The menu then moved the glyph 6pt in (`projectIconRightShift`), dropped the row font to 13pt and removed the last vertical margin, so this needs re-measuring; the harness now expects the glyph at `sidebarMargin + projectIconRightShift` and an *exact* project→chat pitch (it was 26.5pt against chat→chat 28.0pt, the 1.5pt residual the old row padding stole — §10). |
+| Sidebar row layout (one size, chat titles aligned under project names) | ✅ `./Tools/SmokeTest/run-sidebar-align.sh` — re-run after the menu's second pass: 0.0pt alignment delta (project name ink at 38.0pt, session title at 38.0pt), glyph at full 12.0pt on the search margin (`sidebarMargin + projectIconRightShift`), and an *exact* row pitch (28.0pt then 28.0pt). Same run also measures the search icon’s row: **icon centre 18.8pt against the traffic lights’ 19.0pt** — the app’s window is the `.unifiedCompact` style a `NavigationSplitView` resolves to, so `SidebarStyle.titlebarRowCenter` is 19 and the harness window was switched from `.unified` to match (§10). |
 | Sidebar rows behave (click a project to fold its chats; one pitch; highlight on the search margin) | ⚠️ `./Tools/SmokeTest/run-sidebar-click.sh` — the click half is measured from painted pills: 5 rows → 3 → 5 as a real posted click folds and unfolds a project, and a project's highlight 28.0pt tall against a chat's 28.0pt (it was 37.0pt while the row padded itself *inside* its `listRowBackground`). The rhythm half was re-written this turn for the menu's uniform-spacing change and has **not been run**: it now asserts that project→chat, chat→chat and chat→project steps are all equal, where it used to assert a 12.0pt margin above a project. |
-| A click on a project wins over the search field | ✅ `./Tools/SmokeTest/run-sidebar-click.sh` — source check that `AppState.showsChats` asks `isCollapsed` first; the old `query.isEmpty \|\| !isCollapsed` made a documented click a silent no-op. |
+| A click on a project folds its chats | ✅ `./Tools/SmokeTest/run-sidebar-click.sh` clicks the row for real and measures the pills and the pitch; `AppState.showsChats` is `!isCollapsed` now that search moved to the palette. |
 | Discovery / launch / trust / session index / git | ✅ implemented |
-| Composer: Return sends, Shift+Return is a line, box shape, two-line clamp, box width | ⚠️ `./Tools/SmokeTest/run-composer.sh` — real `ComposerTextView`, real key events: Return/Shift/Option/Command-Return in both send-key modes; box measured at 84.0pt against `ComposerMetrics.boxHeight(forEditor:)`, the editor at 22.0/40.0/40.0/40.0pt for 1/2/3/5 lines, and the box against a transcript row at two pane widths — **816.0pt from x 242.0 at 1300pt, 456.0pt from x 22.0 at 500pt** with the old 860pt cap. `maxContentWidth` is now 736 (the frame's cap is derived: 780), so the wide-pane number becomes 736.0pt and the box's left edge 282.0pt; the narrow-pane number is unchanged. Re-run to confirm — not run this turn. |
+| Composer: Return sends, Shift+Return is a line, box shape, two-line clamp, box width | ✅ `./Tools/SmokeTest/run-composer.sh` — real `ComposerTextView`, real key events: Return/Shift/Option/Command-Return in both send-key modes; box measured against `ComposerMetrics.boxHeight(forEditor:)`, the editor at 1/2/3/6 lines and clamped to `editorMaxHeight`, and the box against a transcript row at two pane widths — **736.0pt from x 282.0 at 1300pt, 456.0pt from x 22.0 at 500pt**, matching `maxContentWidth`. `ComposerMetrics.boxTopPadding` is now 0, so the box is 71.0pt at its two-line floor and 135.0pt at six; the harness predicts the drawn box from the same metrics, so the change came out as the measured number moving with it. |
 | Composer floats over the transcript, nothing below it | ⚠️ structure only: `run-composer.sh` asserts the overlay, the inset and the absence of a footer in the source. Nobody has watched a long session scroll under the box — see §11 |
 | Transcript, composer, inspector (5 panes), palette, settings | ✅ implemented |
 | Real end-to-end prompt against a model | ⚠️ **not yet exercised** (see §11) |
 | Transcript vs README spec | ✅ audited (§11); the gaps it found are fixed |
-| Quiet rows fold (thinking/command/edit/read) | ✅ rule, ⚠️ view — `./Tools/SmokeTest/run-replay.sh`, run after this change: 8132 of 8132 quiet steps folded (3190 reasoning blocks, 2809 commands, 1231 edits, 902 reads), 0 items lost, 0 non-quiet rows folded, 0 adjacent/split runs, every folded call has a command or a path (9004 rows → 1608 rows: 872 standalone, 87 folds of one step, 649 runs; titles `Run commands, thinking`×72, `Edited files, thinking`×60, `Thinking`×54, `Edited files, thinking, run commands`×48, `Edited files, thinking, run command`×41, `Run command, thinking`×40, and longer mixed forms). 153 real folded calls are failures or cancels and must keep their red pill — the harness counts them, it does not see the pill. What is **not** verified: the view itself — that a folded line looks dimmed, that clicking it opens, that the nested step rows and their diffstats render, and that reasoning opens as text rather than as a card. The lines have **no chevron** (the row is the control); `Thinking` is folded by the same rule rather than drawn by its own row, and compaction was reworked in the same area; see §11 items 12 and 13 |
+| Quiet rows fold (thinking/command/edit/read) | ✅ rule, ⚠️ view — `./Tools/SmokeTest/run-replay.sh`, run after this change: 8132 of 8132 quiet steps folded (3190 reasoning blocks, 2809 commands, 1231 edits, 902 reads), 0 items lost, 0 non-quiet rows folded, 0 adjacent/split runs, every folded call has a command or a path (9004 rows → 1608 rows: 872 standalone, 87 folds of one step, 649 runs; titles `Run commands, thinking`×72, `Edited files, thinking`×60, `Thinking`×54, `Edited files, thinking, run commands`×48, `Edited files, thinking, run command`×41, `Run command, thinking`×40, and longer mixed forms). 153 real folded calls are failures or cancels and must keep their red pill — the harness counts them, it does not see the pill. What is **not** verified: the view itself — that a folded line looks dimmed, that clicking it opens, that the nested step rows and their diffstats render, and that reasoning opens as text rather than as a card. A lone step has **no chevron** (the row is the control); a run of several shows one chevron, which opens its list of steps. `Thinking` is folded by the same rule rather than drawn by its own row, and compaction was reworked in the same area; see §11 items 12 and 13 |
 | PROCESS.md | ✅ this file |
 
 Nothing in the repo is generated or checked in from `/tmp`; the smoke test lives
@@ -334,14 +334,18 @@ PiCode/
 │   ├── Utilities/FileSystem.swift, Formatters.swift
 │   └── Text/ANSI.swift, Markdown.swift, SyntaxHighlighter.swift   (semantic colors only)
 ├── Features/
-│   ├── Root/            RootView (3-pane + inspector + overlay host), SetupViews (onboarding)
+│   ├── Root/            RootView (3-pane + inspector + overlay host), ContentHeader (the
+│   │                    session column's own header), SetupViews (onboarding)
 │   ├── Sidebar/         SidebarView (project rows fold their chats), search, pin/hide/delete
-│   ├── Session/         PiSessionController (the brain), SessionView, TranscriptBuilder,
+│   ├── Session/         PiSessionController (the brain), SessionView, TerminalPanel
+│   │                    (Pi's bash surface under the conversation), TranscriptBuilder,
 │   │                    TranscriptExporter
 │   ├── Conversation/    ConversationView, ConversationLayout (the shared content
 │   │                    column), MarkdownView, TranscriptRowView, ToolCallCard
 │   ├── Composer/        ComposerView, ComposerTextView (AppKit NSTextView), TrustViews
-│   ├── Inspector/       InspectorView (Changes), InspectorPanes (Files/Terminal/Tree/Context)
+│   ├── Inspector/       InspectorView (the single artifact viewer + notifications),
+│   │                    InspectorPanes (TerminalPane is the panel's body; the old tab
+│   │                    panes are kept until their last reference goes)
 │   ├── Extension/       ExtensionChrome (widgets/status/notifications), ExtensionDialogHost
 │   ├── Palette/         CommandPaletteView, Sheets (rename/compact/fork/delete)
 │   ├── Settings/        SettingsView (General/Composer/Sessions/Providers/Pi),
@@ -389,10 +393,11 @@ protocol logic in views.
 | **No `.keyboardShortcut(.return)` on Send** | It would double-fire with the text view's Return handling. |
 | **Images via RPC `images`; text files inlined as fenced `@path` blocks** | Pi only accepts images as attachments. Other files are inlined as Markdown so the model can read them, and the fenced block names the path. `AttachmentLoader` rejects anything that is neither an image nor text with a clear message. |
 | **Tree inspector is read-only** | `navigateTree` is SDK/extension-only, not RPC (§9). PiCode shows the tree, and offers Fork/Clone plus an explicit compatibility note. |
-| **Terminal pane runs Pi's `bash` RPC** | It is *not* a real shell. It shows what the agent ran and lets the user run one-off commands through the same tool. For an interactive shell, "Open in Terminal" opens a real one. |
-| **The composer floats, and stops at two lines** | Two separate changes with the same goal: the composer should be a small object on the page, not a panel that owns the bottom of the window. (1) The editor is clamped to `ComposerMetrics.editorMaxHeight` (40pt = two lines at 18pt) and scrolls past that — measured, 1/2/3/5 lines give 22/40/40/40pt. (2) The transcript runs the full height of the column and the composer is drawn over it as an `.overlay(alignment: .bottom)`, so the last row passes *under* the box with a fade above it. Both need `ConversationView.bottomInset = composerHeight + 16`: the overlay takes no space, so without the inset the final row would be permanently hidden. The height is real, not a constant — `ComposerHeightKey` reports the measured overlay height back through a preference. |
+| **Terminal pane runs Pi's `bash` RPC** | It is *not* a real shell. It shows what the agent ran and lets the user run one-off commands through the same tool. The workspace menu's terminal panel (`TerminalPanel` → `TerminalPane`) is the current home of this surface, drawn under the conversation so the command and its output are visible without leaving the session. For an interactive shell, "Open in Terminal" opens a real one. |
+| **The composer floats, and stops at two lines** | Two separate changes with the same goal: the composer should be a small object on the page, not a panel that owns the bottom of the window. (1) The editor is clamped to `ComposerMetrics.editorMaxHeight` (40pt = two lines at 18pt) and scrolls past that — measured, 1/2/3/5 lines give 22/40/40/40pt. (2) The transcript runs the full height of the column and the composer is drawn over it as an `.overlay(alignment: .bottom)`, so the last row passes *under* the box with a fade above it. Both need `ConversationView.bottomInset = composerHeight + 16`: the overlay takes no space, so without the inset the final row would be permanently hidden. The height is real, not a constant — `ComposerHeightKey` reports the measured overlay height back through a preference. The room is drawn just *above* the 1pt bottom anchor, in one `VStack(spacing: 0)`, not as padding below it: `scrollTo(anchor: .bottom)` aligns the identified view's bottom edge with the viewport's, so room drawn after the anchor is scrolled out of sight while a running turn auto-scrolls and the newest row ends flush against the box. The anchor stays 1pt so "pinned to the bottom" still means the very bottom, and the room has to be the same whether the transcript is short (nothing scrolls) or long (auto-scrolled while a turn streams). |
 | **One column for the transcript and the composer** | `ConversationLayout` + `ConversationColumn` hold the content column, and both the transcript's rows and the floating composer are laid out in it. The one number a person would name is the width of the *content* — 736pt, what the rows and the box measure — so that is what `maxContentWidth` holds; the frame's cap (`maxColumnWidth`, 780pt) is derived from it plus the 22pt gutter on each side. An overlay inherits nothing from the view it floats over, so the box used to be as wide as the *pane* while the rows stopped at the cap — a bar twice the width of the conversation. The padding sits *inside* the cap (`padding` then `frame(maxWidth:)`), so a wide pane stops at `maxColumnWidth` with `maxContentWidth` of text and a narrow one still gets its gutters; reversing the two is a 44pt error at every size, and putting the gutters into `maxContentWidth` is the same error one constant over — which is why the harness predicts the box from *pane minus gutters, capped*, and not from the cap itself (it would then agree with its own mistake). The box's own padding, the gap above the control row and `boxHeight(forEditor:)` live in `ComposerMetrics` for the same reason: the harness predicts the drawn box from them instead of from a literal. |
-| **Nothing is rendered below the composer** | The footer status line (`ExtensionStatusBar`: runtime, model, thinking, trust, branch, context %, tool count, extension statuses) and the below-editor extension widget strip are gone. None of it was unique: the transcript has its own system rows for streaming/compacting/retrying/queue, the Context pane has model/thinking/context/tool counts/statuses/widgets, `InspectorView` shows the branch, and the window subtitle shows the model. A footer under a floating composer also re-anchors it to the bottom edge, which is the look the two-line clamp exists to avoid. Above-editor widgets, banners, trust prompts and the connection notice are kept; a widget an extension sets with placement `belowEditor` is drawn in the same stack above the box rather than dropped, since PiCode no longer has a place below it. |
+| **The terminal panel is the one thing below the composer** | A panel the user opens from the workspace menu is not the always-on status footer this rule removed: it is an explicit, resizable, closable *region* (VS Code's own arrangement), and the composer stays anchored to the transcript above it rather than to the window's bottom edge. It is drawn only when `isTerminalVisible`, so the default window is still the floating-composer layout. Its body runs Pi's `bash` RPC, so PiCode never forks a login shell. |
+| **Nothing is rendered below the composer** | The footer status line (`ExtensionStatusBar`: runtime, model, thinking, trust, branch, context %, tool count, extension statuses) and the below-editor extension widget strip are gone. None of it was unique: the transcript has its own system rows for streaming/compacting/retrying/queue, the Context pane has model/thinking/context/tool counts/statuses/widgets, `InspectorView` shows the branch, and the window subtitle shows the model. A footer under a floating composer also re-anchors it to the bottom edge, which is the look the two-line clamp exists to avoid. Above-editor widgets, banners, trust prompts and the connection notice are kept; a widget an extension sets with placement `belowEditor` is drawn in the same stack above the box rather than dropped, since PiCode no longer has a place below it. The terminal panel above is the deliberate exception, and only because it is a panel rather than chrome. |
 | **Inspector → composer references via `AppState.composerInsertion`** | A stateless one-shot handoff (set string → composer consumes and clears). Avoids reaching into the composer's `@State` across the view tree. |
 | **"Changes" pane excludes `.read` file touches** | A changes list that includes reads is not a changes list. Session changes and git changes are offered as two sources of the same pane. |
 | **Transcript errors are always visible** | Never behind a disclosure. |
@@ -412,9 +417,9 @@ protocol logic in views.
 | **What folds, and what names the run, is one function** | `QuietFamily.of(item)` answers both questions — does this row fold, and what is the run called — so a run's members and its name can never be two different sets. `TranscriptRows.group` folds an item if and only if `of` returns a family, and `groupTitle` enumerates exactly those families; the harness asserts the two agree by requiring that *every* foldable item ends up inside a group (`foldedThinking == thinkingBlocks` is the check that caught the temptation to leave reasoning out of the run). Adding a family is therefore one case in one enum, not a new branch in the grouping. |
 | **A run ends at anything that is not a neighbouring quiet step** | An assistant message, an orphaned result or a non-folding tool between two steps is a boundary, so a run is *consecutive* steps and nothing else. “Group all the edits in a turn” would draw a line under a paragraph of explanation and call it one action, which is a claim about what the agent did that PiCode cannot actually know. It also means a fold is always maximal, which is a property the harness can assert (no two adjacent groups; no two neighbouring quiet steps left in separate rows). Reasoning is *inside* the run rather than a boundary, because in Pi's output it is interleaved with the calls it reasons about: a boundary there would leave a `Thinking` line above almost every group, which is the same noise in a different arrangement. |
 | **The folded line is keyed by its *first* item** | `.group`'s id is `group-<first item id>`. A turn streams: the group grows from one call to six while the user reads it, and if the id followed the contents, every appended call would give the row a new identity and SwiftUI would rebuild it — folding the line back up under the user's cursor. Keyed by the head, the row keeps its identity and its `@State isExpanded` while it grows. |
-| **A folded line keeps its status, a failed call keeps a pill** | The whole point of collapsing is that the user is not reading the calls, so anything they would need to act on has to survive on the line: a running call keeps its spinner and elapsed time, and a run containing a failure or a cancellation shows `Failed`/`Cancelled` even though its content is closed. 150 real folded calls in the sessions here are failures or cancels. The same rule applies inside a run — `ToolActionRow` marks the call that failed and colours its icon, because "which one broke" is the question the expanded list exists to answer. This is also why the failure sentence ("This tool reported a failure without output") is part of `ToolCallContent` and not of the card's header: a card may be collapsed, a folded row may be expanded, and the sentence has to be present in both. |
+| **A folded line keeps its live status; a failure stays on its step** | The whole point of collapsing is that the user is not reading the calls, so anything they would need to act on has to survive on the line: a running call keeps its spinner, and while the turn is live a run containing a failure or a cancellation shows `Failed`/`Cancelled` even though its content is closed. The line does not count its steps and draws no duration — the summary beside the label (the command, the file) is set two steps below the reading size (`Typography.codeBlockCompact`), the run's own line names the families, and a step's elapsed time is not shown; a finished run's `Worked for …` headline is the one duration left, and it belongs to the turn rather than to a step. 150 real folded calls in the sessions here are failures or cancels. A *finished* `Worked for …` line does not repeat the failure: by then the turn is over and the red pill would be a status strip the user has already moved past, so the failure is the step's own and stays on the step inside the run. The same rule applies inside a run — `ToolActionRow` marks the call that failed and colours its icon, because "which one broke" is the question the expanded list exists to answer. This is also why the failure sentence ("This tool reported a failure without output") is part of `ToolCallContent` and not of the card's header: a card may be collapsed, a folded row may be expanded, and the sentence has to be present in both. |
 | **Two disclosure levels, one indent step** | A run opens to a list, and a step inside it opens to its content. One click cannot open six outputs — that is the noise being removed — and one click must not be needed for a *single* step, so a one-step group skips the intermediate list and opens its content directly (`ToolGroupView` branches on `items.count == 1`). Every nested thing — a step inside its run, a call's output under its own summary, reasoning under its own line — is indented by the one constant `ConversationLayout.nestedIndent` (15pt), because two steps of indentation inside a 736pt column leaves the output at the width of a postcard. |
-| **The transcript has no chevrons; the line is the control** | Every folded line — the run header, a `Thinking` step inside it, a nested `ToolActionRow` — is one dimmed line the user clicks. A column of little arrows down the left of the conversation is more furniture than the fold is worth, so the affordance is the line itself: the whole row is a `.contentShape(Rectangle())` inside a `.plain` button, hovering lifts the dimming, and a tooltip names what a click will do. Never a `DisclosureGroup`: the system style draws a chevron in the leading gutter *and* shifts the row's glyph out of line with every other row's icon. The one row that still shows a chevron is the transient "Pi is working" line in `ConversationView`, whose disclosure is what the spec asks for; if it is ever changed, this is the paragraph that says the rest of the transcript already gave its chevron up. |
+| **A chevron means one thing: this line opens a list** | Every folded line — the run header, a `Thinking` step inside it, a nested `ToolActionRow` — is one dimmed line the user clicks. A column of little arrows down the left of the conversation is more furniture than the fold is worth, so the affordance is mostly the line itself: the whole row is a `.contentShape(Rectangle())` inside a `.plain` button, hovering lifts the dimming, and a tooltip names what a click will do. A lone step shows no chevron at all — there is no list under it, so clicking opens its content in the right panel. A run of several steps shows the one chevron that says a list will open, because that is the one case where a click does something the line itself cannot show. Never a `DisclosureGroup`: the system style draws a chevron in the leading gutter *and* shifts the row's glyph out of line with every other row's icon. The transient "Pi is working" line is gone; the live run's own line carries the spinner. |
 | **A compaction is a fact, not a document** | `.compaction` rows draw one line — `[icon] Compact context`, or `Branch summary` for the entry Pi writes when the user switches branches — and nothing else. The old row printed a badge plus the whole summary in a tinted box in the middle of the conversation, which is exactly the noise the transcript's folding exists to remove, and the summary text is a compression of the turns that were just replaced rather than something anyone reads. Pi's two summaries are different facts (one folded the context away, the other describes a path that was left behind), so the builder maps the message *role* onto `SummaryKind` and the row takes the label and the glyph from it — the glyphs are the same ones `PiSessionEntry` uses in the session tree, so the tree and the transcript name one event the same way. The text is not dropped: it is on the row's context menu and, in full, under the same heading in the exported transcript. |
 | **The shared content moved out of the card** | `ToolCallContent` draws arguments, file changes, output, truncation notice, failure sentence and structured result; `ToolCallCard` (non-quiet tools) and `QuietStepContent` (folded ones, drawn by both `ToolGroupView` and `ToolActionRow`) share it. An `edit`'s diffstat and a `read`'s file chip must not be able to disagree between the two shapes, and the card lost ~140 lines by it. The card keeps its own chrome (icon, name, status pill, chevrons, copy button); the folded row keeps its own header. `QuietStepContent` is also where the *other* shape lives: a reasoning step draws its text rather than a call's card, so its line and its body are chosen in one place instead of in each of the two views that can open a single step. |
 
@@ -760,7 +765,11 @@ Consequences baked into the controller:
   hand (`ConversationColumn`). The same asymmetry is why
   `ConversationView.bottomInset` exists: an overlay reserves no space, so the
   transcript has to be *told* how tall the thing over it is, or the last row lives
-  underneath it forever.
+  underneath it forever. The room is drawn just **above** the 1pt bottom anchor
+  (one `VStack(spacing: 0)`) because `scrollTo(anchor: .bottom)` aligns the
+  identified view's bottom with the viewport's: padding drawn below the anchor is
+  scrolled past, so the gap would vanish exactly when a turn auto-scrolls. The
+  anchor stays 1pt so "pinned" means the very bottom, not one screenful of room.
 - **`padding` then `frame(maxWidth:)`, never the reverse.** In
   `ConversationColumn` the gutter is applied *before* the cap, so a wide pane
   stops at `maxColumnWidth` (780pt, its gutters included) and a narrow one still
@@ -905,6 +914,18 @@ Consequences baked into the controller:
   with a 6pt gap in front of nothing. Guard the *spacing* (here: filter to the
   changes that actually have numbers) rather than trusting a view that renders
   empty to render nothing at all.
+- **`NavigationSplitView` resolves to a *compact* toolbar, not a unified one.**
+  The sidebar's search icon is centred on the window's titlebar row, and that row
+  is not the same height in every toolbar style. Measured through a hidden-titlebar
+  window: `.unified` gives a 52pt band with the traffic lights at 26pt,
+  `.unifiedCompact` a 38pt band at 19pt, `.expanded` 44pt at 30pt. The app's live
+  window measures 18.75pt, i.e. `.unifiedCompact` — the style a
+  `NavigationSplitView` chooses for itself — while `SidebarAlignTest` built a
+  `.unified` window and so agreed with a constant (26) the app never used. The
+  fix is both halves: `SidebarStyle.titlebarRowCenter = 19`, and the harness
+  window switched to `.unifiedCompact` so it measures the environment the app is
+  actually in. Any future measurement of a titlebar-row control has to pin the
+  toolbar style, or it validates the wrong window.
 - The project uses `PBXFileSystemSynchronizedRootGroup` rooted at `PiCode/`, so
   **new files under `PiCode/` are added to the target automatically** — no
   `project.pbxproj` edit needed. Files added *outside* `PiCode/` (e.g.
@@ -975,12 +996,13 @@ Consequences baked into the controller:
    above it (measured from two pane widths in `run-composer.sh`, but never against
    a real transcript row), and its distance from the bottom edge reads as a
    deliberate margin rather than a cropped box.
-10. **The sidebar, both halves of the check — and this one is urgent.** The menu's
+10. **The sidebar, both halves of the check.** `run-sidebar-align.sh` has now
+   been re-run and passes (§2), including the search icon's row at 19pt; the
+   *click* harness is still written-but-flaky. The menu's
    second pass (no rule under the search field, one uniform row pitch, the folder
    glyph 6pt in, one grey hover/active highlight, 13pt regular type) was made on an
-   explicit instruction to stop running harnesses, so **none of it is measured**:
-   the status table's numbers are the old ones plus arithmetic, and both sidebar
-   harnesses were rewritten without being run. First run
+   explicit instruction to stop running harnesses, so most of it went unmeasured at
+   the time. First run
    `./Tools/SmokeTest/run-sidebar-align.sh` and
    `./Tools/SmokeTest/run-sidebar-click.sh` — they now assert a glyph at
    `sidebarMargin + projectIconRightShift`, an exact pitch (project→chat =
@@ -1031,6 +1053,54 @@ Consequences baked into the controller:
     else this turn), but *nobody has seen the row*. Open a compacted session and
     check: one dimmed line, the glyph matching the tree inspector's for the same
     event, no box, no summary text, and `Copy Summary` still on the context menu.
+14. **The header, the workspace menu and the right panel, seen once.** The wiring
+    is in place and the harnesses that could see numbers pass, but these are
+    pixels:
+    - **Only one panel button lit.** `ContentHeader` now takes
+      `isInspectorVisible: state.isInspectorVisible && !state.isNotificationsVisible`,
+      so the bell and the panel toggle are never both bright (active = full
+      `.primary`, inactive = `.primary` at 0.55, hover = full). Open notifications,
+      then open an artifact, and confirm exactly one of the two is lit each time,
+      in both appearances — `.primary` on the light appearance's `textBackgroundColor`
+      header is near-black, which is the intended "white" the design asked for.
+    - **The workspace menu opens the terminal panel.** Pick Show Terminal and
+      confirm the panel appears under the conversation, that dragging its top
+      edge resizes it between 120 and 420pt, that the panel's own × closes it and
+      the preference survives a relaunch, and that the transcript above it is
+      still scrolled correctly (the composer floats over the *conversation*, not
+      over the panel). Pick Open in Finder and Open in VS Code and confirm each
+      acts on the open session's folder; with no VS Code installed, confirm the
+      toast says so instead of the click doing nothing.
+    - **The menu is dimmed, and only hover makes it white.** The square does not
+      follow the terminal panel's state; it sits at 0.55 opacity like an inactive
+      panel toggle and lifts to full on hover. Confirm this in both appearances,
+      and in particular that the fix is on the `Menu`, not inside the label: a
+      render harness measures the square at 0.53 brightness with
+      `.opacity(0.55)` on the `Menu` and 0.87 (indistinguishable from full) when
+      the same modifier is put on the `Image` inside the label — a
+      `borderlessButton` menu snapshots the label as a template image.
+    - **A 16pt gap** sits between the three controls (`HStack(spacing: 16)`), and
+      the bell's badge does not bridge the gap to its neighbour: at `x: 5, y: -5`
+      inside a fixed 15pt width, a `3` and a `99+` both leave a visible gap, and a
+      count arriving does not shift the workspace menu (measured in a render
+      harness: the menu's ink stays at 836–847pt at 0, 3 and 150 unread). This is
+      the row to re-measure if the badge or the gaps change.
+    - **The sidebar-closed inset.** `ContentHeader.leadingInset` is 14 with the
+      sidebar open and 104 without it, so the folder glyph clears the traffic
+      lights *and* the sidebar toggle. Collapse the sidebar and check the glyph
+      does not sit under the toggle; 104 is the toggle's measured right edge
+      (about 101pt) plus a few points, and is the one number here estimated rather
+      than seen in the collapsed state (keystroke automation is not permitted on
+      this machine).
+    - **The panel's header rule is one point above the conversation's**: both
+      `.padding(.vertical, 15.5)`, one band, offset so the two rules do not read as
+      a misalignment.
+    - **The panel's code is two steps below reading size.** Command/read and the
+      edit diff's recessed well all use `Typography.codeBlockCompact` (11pt against
+      `baseSize` 13), so the diff well dropped from 12 to 11.
+    - **The composer's model menu** no longer draws a hand-made `chevron.down`
+      in front of macOS's own indicator, and the model/reasoning menu and the
+      send/stop button carry a 10pt gap (`HStack(spacing: 10)`).
 
 Already closed by the harnesses (kept here so nobody re-opens them):
 
@@ -1059,9 +1129,13 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   `SidebarStyle.rowFont` — 13pt, `.regular`, and *nothing* in the menu is medium,
   semibold or bold (the semantic styles are avoided here because they drag a
   weight along with their size; `run-sidebar-align.sh` greps the file for a
-  heavier one) — and the primary text colour. A chat has no glyph; it is indented
-  by `SidebarStyle.titleIndent` so its title starts where the project's name
-  starts. A project is a **row**, never a `Section`: the sidebar list style turns
+  heavier one) — and the primary text colour. A chat draws no chat glyph, but it
+  does own a leading mark slot — `projectIconSize` plus `iconTextSpacing` — that
+  starts where a project's folder glyph starts: empty for a quiet chat, so the
+  title lines up with the project's name, and the session's own spinner when that
+  chat is running, so the activity indicator sits with the folders instead of
+  opposite the name. The slot is reserved either way, so a title never shifts when
+  a chat starts or stops working. A project is a **row**, never a `Section`: the sidebar list style turns
   a section header into a collapsible group with a disclosure chevron, and a
   project is folded by clicking the row instead. Rows also share the leading inset
   a section header does not, which is why the indent no longer needs a correction
@@ -1071,6 +1145,55 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   aligned to it — exactly where it was. The search field carries no rule beneath
   it: its own recessed fill is the separation, and one `Divider()` (the footer's)
   is all that is left in this view.
+- **The content header's controls are one row of one state each.** The
+  notification bell and the right panel's toggle share `ContentHeader.controlTint`
+  and are mutually exclusive: active is full `.primary` (the design's "white"; not
+  a literal `.white`, which would vanish on the light appearance's
+  `textBackgroundColor`), inactive is `.primary` at 0.55, hover lifts it to full.
+  `RootView` passes `isInspectorVisible: state.isInspectorVisible &&
+  !state.isNotificationsVisible` so the bell's light goes out when the panel
+  switches to an artifact. The three sit left to right as bell, workspace menu,
+  panel toggle in one `HStack(spacing: 16)` — the two state lights bracket the
+  menu that is not one. The workspace menu is a `Menu` rather than three more
+  icons so the header's right edge stays a line of buttons rather than a strip,
+  and its square is the one control that does *not* take the lit tint: it is
+  always dimmed, and hover alone lifts it to full, because a menu is an
+  affordance, not a state light (which of its items is on is carried by the
+  item's label and by the panel being visibly open). That dimming has to be
+  `.opacity(0.55)` on the `Menu` itself; a `borderlessButton` menu snapshots its
+  label as a template image and drops modifiers set inside it, so a tint on the
+  glyph (or even `.opacity` on the `Image`) still renders at full ink — measured
+  at 0.53 brightness when applied to the menu vs 0.87 when applied inside it. The
+  bell is pinned to a fixed 15pt width and its badge is offset `x: 5, y: -5` so a
+  count can neither widen the button (which would shove the menu beside it) nor
+  bridge the gap into its neighbour.
+  The header starts at `leadingInset` — 14pt with the sidebar open, 104pt without
+  it — because with the sidebar closed the content column reaches the window's
+  leading edge and would otherwise draw under the traffic lights and the sidebar
+  toggle; 104 is measured against the running window (§10).
+- **The terminal panel is Pi's bash surface, not a second shell.** The workspace
+  menu's Show Terminal opens `TerminalPanel` under the conversation; its body is
+  `TerminalPane`, and every command there runs through Pi's own `bash` tool, so
+  the user's command and the agent's land in one session history. PiCode does not
+  fork a login shell and give it a pty: an unrelated shell would sit outside the
+  session the transcript is about, and the panel already offers “Open in
+  Terminal” when a real interactive one is wanted. The panel is the *third region*
+  of the session column, not a footer under the composer — the composer still
+  floats over the conversation and nothing is added below it (§6). Its height is
+  `AppState.terminalHeight`, a per-visit adjustment, and its visibility is
+  `AppState.isTerminalVisible`, persisted as `showTerminal` because a window
+  layout fact is remembered. It is drawn by `RootView`'s `detail` branch beside
+  the inspector's `HSplitView`, so opening the panel never disturbs the two
+  sidebars, and only when a session is open, because the commands belong to it.
+- **The inspector's machine text is two steps below the reading size, and its
+  header is a half-point tighter than the conversation's.** `ActionCodeBlock`'s
+  plain form and its recessed diff well both use `Typography.codeBlockCompact`
+  (`baseSize - 2`), because the panel is a reference to glance at beside the
+  conversation, not a second reading column; the edit diff dropped from
+  `codeBlock` (12) to match. `ArtifactHeader` and `NotificationsPanel.header` use
+  `.padding(.vertical, 15.5)` where `ContentHeader` uses 16, so the panel's rule
+  sits a point above the conversation's instead of exactly on it. Change these
+  numbers together, not one at a time.
 - **The composer is one shape and one row**: the editor, its attachment chips and
   its controls share a single rounded box (`ComposerMetrics.cornerRadius`) and
   nothing behind them fills anything — no bar material under the composer area.
@@ -1145,20 +1268,16 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   of the content and the running/failed pill is on the collapsed line — and any
   new tool-shaped row has to keep that rule: no state that matters only behind a
   click.
-- **A folded row has no chevron, and its line says what opens**: the transcript has
-  one way of saying "there is more under this" — a dimmed line, a `.plain` button
-  over the whole row, a hover that lifts the dimming, and a tooltip naming the
-  action (`ToolGroupView`, `ToolActionRow`). Do not add a disclosure glyph to a row,
-  and do not use `DisclosureGroup` for one: its chevron lands in the leading
-  gutter, which both re-introduces the arrows and pushes the row's icon out of line
-  with every other icon in the column. System rows that *are* a fact rather than a
-  fold — a compaction, a retry — are a single line built from the model
-  (`SummaryKind`), never a badge plus a paragraph.
-- **Recessed controls on the sidebar**: the search field's fill has to be darker
-  than the sidebar material in *both* appearances, so it is a translucent black
-  with a per-appearance alpha (`SidebarStyle.searchFieldFill`) — `.quaternary`
-  goes the wrong way in dark mode. A custom fill also removes AppKit's focus
-  ring, so the field draws its own: keyboard focus must stay visible.
+- **A folded row opens one thing, and its line says what**: the transcript has one way of saying "there is more under this" — a dimmed line, a `.plain` button over the whole row, a hover that lifts the dimming, and a tooltip naming the action (`ToolGroupView`, `ToolActionRow`). A lone step opens its content directly and draws no chevron; a run of several draws the one chevron that opens its list. Do not add disclosure glyphs to individual steps, and do not use `DisclosureGroup`: its chevron lands in the leading gutter, which both re-introduces a column of arrows and pushes the row's icon out of line with every other icon in the column. System rows that *are* a fact rather than a fold — a compaction, a retry — are a single line built from the model (`SummaryKind`), never a badge plus a paragraph.
+- **Search is the palette, not a sidebar field**: the sidebar's search is one
+  titlebar icon that opens the command palette (`SidebarView`'s `onOpenPalette`),
+  so there is no recessed field fill to keep legible in both appearances. The
+  palette is a sheet with its own background and its own close button.
+- **Adding an inspector artifact**: the right panel is a single viewer, not a tab
+  bar. Add a case to `AppState.InspectorArtifact`, a title to `ArtifactHeader`,
+  and a body branch to `ArtifactContentView`; the selection is opened by the
+  conversation's own actions (`openTool`, `openChange`, `openFile`), so the panel
+  never decides what to show on its own.
 - **Adding a command**: add the `RPCCommand` case (verify the wire name in Pi's
   `docs/rpc.md` *and* the installed bundle), add it to the wire-format case list
   in `Tools/SmokeTest/RPCSmokeTest.swift`, add a `PaletteCommand` case if it is
@@ -1225,10 +1344,11 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 - [ ] Folded rows opened by eye: a run of steps reads as one dimmed line,
       clicking it (anywhere along it) opens, a one-step group opens its content
       directly while a many-step group opens a list, a running call keeps its
-      spinner, a folded failure keeps its red pill, no chevron is drawn on any
-      folded line (a `Thinking` step included), a `Thinking` line opened shows
-      reasoning text rather than an empty card, and a compaction is one
-      `Compact context` line and nothing else (§11 items 12–13)
+      spinner, a folded failure keeps its red pill only while the turn is live, a
+      lone step draws no chevron while a run of several draws the one that opens
+      its list, a `Thinking` line opened shows reasoning text rather than an empty
+      card, and a compaction is one `Compact context` line and nothing else
+      (§11 items 12–13)
 - [ ] `git status` shows **no** changes in `~/.pi/agent` (no `trust.json`, no new
       session files, no touched settings)
 - [ ] No `sh -c` / `Process` with a shell anywhere in the diff

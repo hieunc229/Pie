@@ -44,6 +44,9 @@ final class PreferencesStore {
     var sendKey: SendKey
     var showInspector: Bool
     var showSidebar: Bool
+    /// Whether the embedded terminal panel is open under the conversation.
+    /// A window-level layout fact, so it is remembered like the two panels above.
+    var showTerminal: Bool
     var defaultThinkingLevel: String?
     var defaultModelQualifiedID: String?
     var confirmBeforeDeletingSessions: Bool
@@ -59,6 +62,10 @@ final class PreferencesStore {
     var collapsedProjects: Set<String>
     var lastProjectPath: String?
     var reducedMotionOverride: Bool?
+    /// PiCode-only per-project settings (name, launch folder, system prompt),
+    /// keyed by canonical project path. Stored as JSON in `UserDefaults` rather
+    /// than as three parallel arrays so the three fields can never drift apart.
+    private(set) var projectSettingsByPath: [String: ProjectSettings]
 
     private let defaults: UserDefaults
 
@@ -68,6 +75,7 @@ final class PreferencesStore {
         sendKey = SendKey(rawValue: defaults.string(forKey: Keys.sendKey) ?? "") ?? .returnKey
         showInspector = defaults.object(forKey: Keys.showInspector) as? Bool ?? true
         showSidebar = defaults.object(forKey: Keys.showSidebar) as? Bool ?? true
+        showTerminal = defaults.object(forKey: Keys.showTerminal) as? Bool ?? false
         defaultThinkingLevel = defaults.string(forKey: Keys.defaultThinkingLevel)
         defaultModelQualifiedID = defaults.string(forKey: Keys.defaultModel)
         confirmBeforeDeletingSessions = defaults.object(forKey: Keys.confirmDelete) as? Bool ?? true
@@ -80,6 +88,11 @@ final class PreferencesStore {
         collapsedProjects = Set(defaults.stringArray(forKey: Keys.collapsedProjects) ?? [])
         lastProjectPath = defaults.string(forKey: Keys.lastProject)
         reducedMotionOverride = defaults.object(forKey: Keys.reducedMotion) as? Bool
+        if let data = defaults.data(forKey: Keys.projectSettings) {
+            projectSettingsByPath = (try? JSONDecoder.piCode.decode([String: ProjectSettings].self, from: data)) ?? [:]
+        } else {
+            projectSettingsByPath = [:]
+        }
     }
 
     func persist() {
@@ -87,6 +100,7 @@ final class PreferencesStore {
         defaults.set(sendKey.rawValue, forKey: Keys.sendKey)
         defaults.set(showInspector, forKey: Keys.showInspector)
         defaults.set(showSidebar, forKey: Keys.showSidebar)
+        defaults.set(showTerminal, forKey: Keys.showTerminal)
         defaults.set(defaultThinkingLevel, forKey: Keys.defaultThinkingLevel)
         defaults.set(defaultModelQualifiedID, forKey: Keys.defaultModel)
         defaults.set(confirmBeforeDeletingSessions, forKey: Keys.confirmDelete)
@@ -99,6 +113,28 @@ final class PreferencesStore {
         defaults.set(Array(collapsedProjects), forKey: Keys.collapsedProjects)
         defaults.set(lastProjectPath, forKey: Keys.lastProject)
         defaults.set(reducedMotionOverride, forKey: Keys.reducedMotion)
+        if projectSettingsByPath.isEmpty {
+            defaults.removeObject(forKey: Keys.projectSettings)
+        } else if let data = try? JSONEncoder.piCode.encode(projectSettingsByPath) {
+            defaults.set(data, forKey: Keys.projectSettings)
+        }
+    }
+
+    // MARK: - Per-project settings
+
+    func projectSettings(for path: String) -> ProjectSettings {
+        projectSettingsByPath[path] ?? ProjectSettings()
+    }
+
+    /// Replaces a project's settings. Empty settings are removed rather than
+    /// stored as blanks, so “no settings” has one representation.
+    func setProjectSettings(_ settings: ProjectSettings, for path: String) {
+        if settings.isEmpty {
+            projectSettingsByPath.removeValue(forKey: path)
+        } else {
+            projectSettingsByPath[path] = settings
+        }
+        persist()
     }
 
     func persistAppearance() {
@@ -110,6 +146,7 @@ final class PreferencesStore {
         static let sendKey = "sendKey"
         static let showInspector = "showInspector"
         static let showSidebar = "showSidebar"
+        static let showTerminal = "showTerminal"
         static let defaultThinkingLevel = "defaultThinkingLevel"
         static let defaultModel = "defaultModel"
         static let confirmDelete = "confirmBeforeDeletingSessions"
@@ -122,5 +159,6 @@ final class PreferencesStore {
         static let collapsedProjects = "collapsedProjects"
         static let lastProject = "lastProjectPath"
         static let reducedMotion = "reducedMotionOverride"
+        static let projectSettings = "projectSettings"
     }
 }

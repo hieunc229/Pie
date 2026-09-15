@@ -20,7 +20,10 @@ struct PiCodeApp: App {
             RootView(state: state)
                 .frame(minWidth: 900, minHeight: 560)
         }
-        .windowToolbarStyle(.unified(showsTitle: true))
+        // The content column draws its own header, so the window draws no title
+        // bar or toolbar above it: the content runs to the top of the window and
+        // the transcript's header is the only thing at the top.
+        .windowStyle(.hiddenTitleBar)
         .commands { PiCodeCommands(state: state) }
 
         Settings {

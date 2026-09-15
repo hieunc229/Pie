@@ -48,31 +48,6 @@ struct ExtensionWidgetStrip: View {
     }
 }
 
-// MARK: - Notifications
-
-struct NotificationStack: View {
-    @Bindable var controller: PiSessionController
-
-    var body: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            ForEach(controller.notifications.suffix(4)) { notification in
-                BannerView(
-                    level: level(notification.level),
-                    title: notification.sourceName ?? "Pi",
-                    message: notification.message,
-                    onDismiss: { controller.dismissNotification(notification.id) }
-                )
-                .frame(maxWidth: 420)
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: controller.notifications.count)
-    }
-
-    private func level(_ level: ExtensionNotification.Level) -> BannerView.Level {
-        switch level {
-        case .info: return .info
-        case .warning: return .warning
-        case .error: return .error
-        }
-    }
-}
+// Notifications are not a floating stack over the transcript any more. The
+// content header's bell opens the full list in the right panel; the view lives
+// with the rest of the inspector in `InspectorView.swift`.

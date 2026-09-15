@@ -53,6 +53,30 @@ enum WorkspaceLauncher {
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
+    /// Opens `directory` in Visual Studio Code (or a compatible fork) by finding
+    /// the editor's app bundle. LaunchServices' bundle lookup is used rather than
+    /// shelling out to a `code` CLI: the CLI is often not on a GUI app's `PATH`,
+    /// and this needs no shell or automation permission. Returns false when no
+    /// compatible editor is installed so the caller can say so.
+    @discardableResult
+    static func openInVSCode(at directory: String) -> Bool {
+        let identifiers = [
+            "com.microsoft.VSCode",
+            "com.microsoft.VSCodeInsiders",
+            "com.vscodium"
+        ]
+        guard let application = identifiers.lazy.compactMap({
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0)
+        }).first else { return false }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.open([URL(fileURLWithPath: directory)],
+                                withApplicationAt: application,
+                                configuration: configuration)
+        return true
+    }
+
     /// Copies text to the general pasteboard.
     static func copyToPasteboard(_ text: String) {
         let pasteboard = NSPasteboard.general

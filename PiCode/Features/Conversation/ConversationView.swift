@@ -13,12 +13,17 @@ struct ConversationView: View {
     var controller: PiSessionController
     /// Room to leave at the end of the transcript for the floating composer. The
     /// composer is an overlay, so without this its own height would cover the
-    /// last row — the padding goes *after* the bottom anchor, so "jump to latest"
-    /// still lands the newest message above the box.
+    /// last row. The room is drawn *above* the bottom anchor, not as padding below
+    /// it: `scrollTo(_:anchor: .bottom)` aligns the identified view's bottom edge
+    /// with the viewport's, so room drawn after the anchor gets scrolled out of
+    /// sight while a running turn auto-scrolls and the newest row ends flush against
+    /// the box. Keeping the anchor itself 1pt (rather than giving it the room's
+    /// height) keeps "pinned" meaning the very bottom. The gap is then the same
+    /// whether the transcript is short (nothing to scroll) or long (auto-scrolled
+    /// while a turn streams).
     var bottomInset: CGFloat = 0
 
     @State private var isPinnedToBottom = true
-    @State private var isActivityExpanded = false
 
     private let bottomAnchor = "picode-transcript-bottom"
 
@@ -32,36 +37,47 @@ struct ConversationView: View {
                         if controller.items.isEmpty {
                             emptyState
                         } else {
-                            // `TranscriptRows.group` folds a finished turn's
-                            // work into one “Worked for” line and leaves Pi's
-                            // answer in the open; while a turn is streaming it
-                            // folds runs of neighbouring steps instead. The rows
-                            // are built from the same array the controller holds,
-                            // so a line grows in place while a turn is streaming.
-                            ForEach(transcriptRows) { row in
+                            // `controller.rows` is the folded layout, computed
+                            // once per transcript change. A finished turn's
+                            // work is one “Worked for” line with Pi's answer left
+                            // in the open; while a turn streams each task is its
+                            // own line instead, so the work is visible as it
+                            // happens. The rows are built from the same array the
+                            // controller holds, so a line grows in place while a
+                            // turn is streaming.
+                            ForEach(controller.rows) { row in
                                 switch row {
                                 case .item(let item):
                                     TranscriptRowView(item: item, controller: controller)
-                                case .group(let items):
-                                    ToolGroupView(items: items, controller: controller)
+                                case .group(let items, let isLiveTurn):
+                                    ToolGroupView(row: .group(items, isLiveTurn: isLiveTurn), controller: controller)
                                 }
                             }
                         }
 
                         statusFooter
 
-                        Color.clear
-                            .frame(height: 1)
-                            .id(bottomAnchor)
-                            .onAppear { isPinnedToBottom = true }
-                            .onDisappear { isPinnedToBottom = false }
+                        // The room for the composer, then the content's true 1pt
+                        // bottom. The room sits *above* the anchor so scrolling
+                        // the anchor to the bottom keeps the room on screen; the
+                        // anchor stays 1pt so `isPinnedToBottom` still means the
+                        // very bottom rather than "within the composer's height".
+                        VStack(spacing: 0) {
+                            Color.clear
+                                .frame(height: 8 + bottomInset)
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomAnchor)
+                        }
+                        .onAppear { isPinnedToBottom = true }
+                        .onDisappear { isPinnedToBottom = false }
                     }
-                    .padding(.top, 18)
-                    .padding(.bottom, 8 + bottomInset)
+                    .padding(.top, 26)
                 }
                 .frame(maxWidth: .infinity)
             }
-            .background(Color(nsColor: .textBackgroundColor))
+            .background(AppTheme.background)
             // Assistant text names files the way the agent saw them — usually
             // relative to the project — and change chips name them the way Pi
             // reported them, so both are resolved and handed to the inspector
@@ -72,6 +88,9 @@ struct ConversationView: View {
             .environment(\.piCodeOpenChange, PiCodeOpenChangeAction { path in
                 state.openInChanges(path: resolve(path))
             })
+            .environment(\.piCodeOpenTool, PiCodeOpenToolAction { id in
+                state.openInInspector(toolId: id)
+            })
             .onChange(of: controller.items.count) { _, _ in
                 scrollIfPinned(proxy, animated: true)
             }
@@ -80,6 +99,12 @@ struct ConversationView: View {
             }
             .onChange(of: controller.currentTurnStartedAt) { _, newValue in
                 if newValue != nil { scrollIfPinned(proxy, animated: true) }
+            }
+            // The composer grows and shrinks as the prompt does; when it does, the
+            // room at the end of the transcript has to move with it or the last row
+            // drifts back under the box until the next streaming update.
+            .onChange(of: bottomInset) { _, _ in
+                scrollIfPinned(proxy, animated: false)
             }
             .overlay(alignment: .bottomTrailing) {
                 if !isPinnedToBottom {
@@ -126,63 +151,7 @@ struct ConversationView: View {
             if let note = controller.summarizationNote {
                 statusRow(icon: "text.badge.clock", text: note, showsSpinner: true)
             }
-            if controller.isStreaming, controller.retryDescription == nil, !controller.isCompacting {
-                streamingRow
-            }
         }
-    }
-
-    /// One line: that Pi is working, and how long the *whole turn* has taken. The
-    /// clock deliberately runs from `currentTurnStartedAt`, not
-    /// `streamingStartedAt` — the latter is cleared every time an assistant
-    /// message folds, so a turn with several messages looked like several short
-    /// ones. No disclosure triangle and no model name: the line states one fact,
-    /// and the activity timeline stays one click away on the line itself.
-    private var streamingRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button {
-                withAnimation(.easeOut(duration: 0.15)) { isActivityExpanded.toggle() }
-            } label: {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Pi is working")
-                        .font(.callout)
-                    if let started = controller.currentTurnStartedAt ?? controller.streamingStartedAt {
-                        TimelineView(.periodic(from: started, by: 1)) { context in
-                            Text(Format.duration(context.date.timeIntervalSince(started)))
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.vertical, 2)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(isActivityExpanded ? "Hide recent activity" : "Show recent activity")
-
-            if isActivityExpanded {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(recentActivity) { entry in
-                        ActivityRowView(entry: entry, showsTimestamp: true)
-                    }
-                    if recentActivity.isEmpty {
-                        Text("Nothing recorded yet.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.top, 6)
-                .padding(.leading, 2)
-            }
-        }
-        .accessibilityLabel("Pi is working. Activate to show recent activity.")
-    }
-
-    private var recentActivity: [ActivityEntry] {
-        Array(controller.activity.suffix(8).reversed())
     }
 
     private func statusRow(icon: String, text: String, showsSpinner: Bool) -> some View {
@@ -208,15 +177,9 @@ struct ConversationView: View {
 
     // MARK: - Rows
 
-    /// The rows the transcript draws: `TranscriptRows`' layout, minus the runs
-    /// that have nothing to show. Reasoning is hidden, so a run that is only
-    /// reasoning would be a line that opens onto nothing.
-    private var transcriptRows: [TranscriptRow] {
-        TranscriptRows.group(controller.items).filter { row in
-            guard case .group(let items) = row else { return true }
-            return items.contains { $0.kind != .thinking }
-        }
-    }
+    // The rows are `PiSessionController.rows`: `TranscriptRows`' layout, minus the
+    // runs that have nothing to show, computed once per transcript change rather
+    // than inside this body.
 
     // MARK: - Scrolling
 

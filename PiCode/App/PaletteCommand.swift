@@ -29,20 +29,18 @@ enum PaletteCommand: String, CaseIterable, Identifiable, Hashable {
 
     case toggleInspector
     case toggleSidebar
-    case showChanges
-    case showFiles
-    case showTerminal
-    case showTree
-    case showContext
+    case toggleTerminal
 
     case copyTranscript
     case copyLastResponse
     case openInTerminal
+    case openInVSCode
     case revealInFinder
     case revealPiDirectory
 
     case openSettings
     case providersSettings
+    case packages
     case showPiSetup
     case checkForPiUpdates
 
@@ -67,18 +65,16 @@ enum PaletteCommand: String, CaseIterable, Identifiable, Hashable {
         case .cycleThinkingLevel: return "Cycle Thinking Level"
         case .toggleInspector: return "Toggle Inspector"
         case .toggleSidebar: return "Toggle Sidebar"
-        case .showChanges: return "Show Changes"
-        case .showFiles: return "Show Files"
-        case .showTerminal: return "Show Terminal"
-        case .showTree: return "Show Tree"
-        case .showContext: return "Show Context"
+        case .toggleTerminal: return "Toggle Terminal"
         case .copyTranscript: return "Copy Transcript"
         case .copyLastResponse: return "Copy Last Response"
         case .openInTerminal: return "Open Project in Terminal"
+        case .openInVSCode: return "Open Project in VS Code"
         case .revealInFinder: return "Reveal Project in Finder"
         case .revealPiDirectory: return "Reveal Pi's Config Folder"
         case .openSettings: return "Settings…"
         case .providersSettings: return "Providers and Credentials…"
+        case .packages: return "Packages"
         case .showPiSetup: return "Pi Setup Help"
         case .checkForPiUpdates: return "Check Pi Version"
         }
@@ -102,18 +98,16 @@ enum PaletteCommand: String, CaseIterable, Identifiable, Hashable {
         case .cycleThinkingLevel: return "brain"
         case .toggleInspector: return "sidebar.right"
         case .toggleSidebar: return "sidebar.left"
-        case .showChanges: return "plusminus.circle"
-        case .showFiles: return "folder"
-        case .showTerminal: return "terminal"
-        case .showTree: return "point.topleft.down.to.point.bottomright.curvepath"
-        case .showContext: return "chart.pie"
+        case .toggleTerminal: return "terminal"
         case .copyTranscript: return "doc.on.clipboard"
         case .copyLastResponse: return "text.badge.checkmark"
         case .openInTerminal: return "terminal"
+        case .openInVSCode: return "chevron.left.forwardslash.chevron.right"
         case .revealInFinder: return "folder.circle"
         case .revealPiDirectory: return "gearshape.2"
         case .openSettings: return "gearshape"
         case .providersSettings: return "key"
+        case .packages: return "shippingbox"
         case .showPiSetup: return "questionmark.circle"
         case .checkForPiUpdates: return "arrow.triangle.2.circlepath.circle"
         }
@@ -123,8 +117,8 @@ enum PaletteCommand: String, CaseIterable, Identifiable, Hashable {
     var requiresSession: Bool {
         switch self {
         case .newSession, .addProject, .refreshSessions, .toggleInspector, .toggleSidebar,
-             .openSettings, .providersSettings, .showPiSetup, .checkForPiUpdates, .revealPiDirectory,
-             .showChanges, .showFiles, .showTerminal, .showTree, .showContext:
+             .toggleTerminal, .openSettings, .providersSettings, .packages, .showPiSetup,
+             .checkForPiUpdates, .revealPiDirectory:
             return false
         default:
             return true
@@ -155,6 +149,7 @@ enum PaletteCommand: String, CaseIterable, Identifiable, Hashable {
         case .abortRun: return "⌘."
         case .toggleInspector: return "⌥⌘I"
         case .toggleSidebar: return "⌃⌘S"
+        case .toggleTerminal: return "⌃`"
         case .openSettings: return "⌘,"
         case .openInTerminal: return "⇧⌘T"
         default: return nil
@@ -168,10 +163,10 @@ enum PaletteCommand: String, CaseIterable, Identifiable, Hashable {
             return .session
         case .focusComposer, .interrupt, .abortRun, .cycleModel, .cycleThinkingLevel:
             return .run
-        case .toggleInspector, .toggleSidebar, .showChanges, .showFiles, .showTerminal,
-             .showTree, .showContext:
+        case .toggleInspector, .toggleSidebar, .toggleTerminal, .packages:
             return .view
-        case .copyTranscript, .copyLastResponse, .openInTerminal, .revealInFinder, .revealPiDirectory:
+        case .copyTranscript, .copyLastResponse, .openInTerminal, .openInVSCode, .revealInFinder,
+             .revealPiDirectory:
             return .share
         case .openSettings, .providersSettings, .showPiSetup, .checkForPiUpdates:
             return .app

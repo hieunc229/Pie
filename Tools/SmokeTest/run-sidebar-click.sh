@@ -14,14 +14,16 @@ ROOT="$PWD"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# Compile against the real metrics rather than a copy of the numbers.
-python3 - "$ROOT/PiCode/Features/Sidebar/SidebarView.swift" "$WORK/SidebarStyle.swift" <<'PY'
+# Compile against the real metrics rather than a copy of the numbers, the same
+# way `run-sidebar-align.sh` does — `SidebarStyle` names `Typography`.
+python3 - "$ROOT/PiCode/Features/Sidebar/SidebarView.swift" "$ROOT/PiCode/Shared/UI/Typography.swift" "$WORK/SidebarStyle.swift" <<'PY'
 import sys
-source, destination = sys.argv[1], sys.argv[2]
+source, typography, destination = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(source).read()
 start = text.index('enum SidebarStyle')
 end = text.index('struct SidebarView')
-open(destination, 'w').write('import SwiftUI\n\n' + text[start:end])
+shared = open(typography).read()
+open(destination, 'w').write('import SwiftUI\n\n' + shared + '\n' + text[start:end])
 PY
 
 echo "== the view wires what this harness measures =="
@@ -35,7 +37,9 @@ check_source() {
     fi
 }
 check_absent() {
-    if grep -qF "$2" "$1"; then
+    # A comment that records *why* something was removed is documentation, not the
+    # thing itself, so only the code lines are searched.
+    if grep -vE '^[[:space:]]*//' "$1" | grep -qF "$2"; then
         echo "  FAIL $3"
         fail=1
     else
@@ -48,13 +52,13 @@ check_source "$SIDEBAR" 'state.toggleCollapsed(project: project)' \
     "clicking a project folds its chats"
 check_source "$SIDEBAR" '.padding(.horizontal, SidebarStyle.rowHighlightInset)' \
     "the row highlight is inset on both sides"
-# Both row types, and only those two, must go through the shared chrome: a row
-# that draws its own padding or its own `listRowBackground` is how the project
-# pill grew taller than a chat's in the first place.
-if [ "$(grep -cF '.sidebarRow(fill:' "$SIDEBAR")" = 2 ]; then
-    echo "  ok   both rows get their highlight from the shared chrome"
+# All three row types — New chat, projects, and chats — must go through the
+# shared chrome: a row that draws its own padding or its own `listRowBackground`
+# is how the project pill grew taller than a chat's in the first place.
+if [ "$(grep -cF '.sidebarRow(fill:' "$SIDEBAR")" = 3 ]; then
+    echo "  ok   every row gets its highlight from the shared chrome"
 else
-    echo "  FAIL the two row types do not both use .sidebarRow(fill:)"
+    echo "  FAIL New chat, projects and chats do not all use .sidebarRow(fill:)"
     fail=1
 fi
 if [ "$(grep -cE '^[[:space:]]*\.listRowBackground\(' "$SIDEBAR")" = 1 ]; then

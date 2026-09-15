@@ -48,14 +48,16 @@ enum SidebarStyle {
     static var projectIconOffset: CGFloat { projectIconShift - projectIconRightShift }
     /// Gap between the folder glyph and the project name.
     static let iconTextSpacing: CGFloat = 10
-    /// Not a metric, but the rule the two below encode: there is **no vertical
-    /// margin anywhere** in this list. One chat sits as far below the previous chat
-    /// as below a project, and a project sits as far below the chat above it as a
-    /// chat does. The rhythm is the list's, and the folder glyph — not air — is what
-    /// says where one project's chats end and the next one begins. (A 12pt
-    /// `projectTopMargin` used to sit here; it made a project read as a heading, and
-    /// it is gone. Do not bring it back as padding: `listRowBackground` fills the
-    /// row's cell, so padding a row also makes its highlight taller.)
+    /// Not a metric, but the rule the two below encode: **no row carries vertical
+    /// margin**. One chat sits as far below the previous chat as below a project,
+    /// and a project sits as far below the chat above it as a chat does. The rhythm
+    /// is the list's, and the folder glyph — not air — is what says where one
+    /// project's chats end and the next one begins. (A 12pt `projectTopMargin` used
+    /// to sit here; it made a project read as a heading, and it is gone. Do not
+    /// bring it back as padding: `listRowBackground` fills the row's cell, so
+    /// padding a row also makes its highlight taller.) The one place air is allowed
+    /// is above a group heading — a label, not a row, and the only thing in the
+    /// column that is meant to stand apart from the list's pitch.
     static let rowHighlightInset: CGFloat = sidebarMargin
     /// The fill of a highlighted row — the *only* one. Hover and the active row are
     /// the same neutral grey: the pointer and the selection are the same statement
@@ -75,6 +77,15 @@ enum SidebarStyle {
     /// highlight" is an invariant of this design and not a coincidence of the
     /// platform: if that minimum ever changes, it changes for both.
     static let rowMinHeight: CGFloat = 20
+    /// Air above a group heading ("Pinned", "Projects"). A heading has to read as
+    /// the start of a group, and air is the only thing that can say that without a
+    /// rule or a weight; 24pt is enough to break the list's pitch and leave the
+    /// rows themselves untouched. This is the one air the sidebar allows.
+    static let sectionLabelTopPadding: CGFloat = 12
+    /// Air below a group heading: none, the same as between two chats. The label is
+    /// a row like any other on its bottom side, so the first project under it keeps
+    /// the list's own pitch rather than inheriting a second margin from its heading.
+    static let sectionLabelBottomPadding: CGFloat = 0
     /// Secondary and empty-state text. Regular weight, like everything else in this
     /// menu: there is no bold, medium or semibold type anywhere in it, and the
     /// semantic styles are avoided here because they drag a weight along with their
@@ -82,21 +93,37 @@ enum SidebarStyle {
     /// file.
     static let captionFont = Font.system(size: 11, weight: .regular)
     static let messageFont = Typography.body
-    /// How far a chat title is inset so it starts where its project's *name*
-    /// starts rather than under the folder glyph. Exact because a project is a
-    /// row like a chat is, so both get the same leading inset (a `Section` header
-    /// does not: it sits two points further left, which is why this used to need
-    /// a correction). `Tools/SmokeTest/run-sidebar-align.sh` measures it.
+    /// How far a chat title is inset from the row's leading edge so it starts where
+    /// its project's *name* starts rather than under the folder glyph. Exact because
+    /// a project is a row like a chat is, so both get the same leading inset (a
+    /// `Section` header does not: it sits two points further left, which is why this
+    /// used to need a correction). A chat supplies it with its leading mark slot —
+    /// `projectIconSize` plus `iconTextSpacing` — and the empty-state line uses the
+    /// number directly. `Tools/SmokeTest/run-sidebar-align.sh` measures it.
     static var titleIndent: CGFloat { projectIconSize + iconTextSpacing }
 
-    /// The search field's fill. It must read *darker* than the sidebar material
-    /// in either appearance; `.quaternary` would go the wrong way in dark mode,
-    /// so this is a translucent black with a different alpha per appearance.
-    static let searchFieldFill = Color(nsColor: NSColor(name: nil) { appearance in
-        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return NSColor(white: 0, alpha: isDark ? 0.35 : 0.06)
-    })
-    static let searchFieldRadius: CGFloat = 8
+    /// The window's titlebar row — where macOS draws the traffic lights and the
+    /// toolbar's own buttons, and therefore where the sidebar's search icon now
+    /// lives. A window with this app's `.hiddenTitleBar` style resolves to a
+    /// *compact* toolbar, whose band is 38pt tall, so its centre is 19pt below the
+    /// window's top edge; that strip is *above* the safe area the sidebar's own
+    /// content starts in, which is why the button has to `ignoresSafeArea` to be
+    /// drawn there. The toolbar's buttons (traffic lights included) are centred on
+    /// the same 19pt, so the icon reads as one row with them instead of as the top
+    /// of the list. Measured against the running window — a unified toolbar would
+    /// put the lights at 26pt, which is what this constant used to say — and
+    /// `run-sidebar-align.sh` checks the wiring that puts a button here.
+    static let titlebarRowCenter: CGFloat = 19
+    /// The square a top-bar icon button draws in. Fixed so the row's geometry is
+    /// known and the icon cannot change the row it shares with the traffic lights.
+    static let topBarButtonSize: CGFloat = 22
+    /// The button's inset from the sidebar's trailing edge, the same margin the
+    /// footer uses so the icon's edge lines up with the column.
+    static var topBarTrailingInset: CGFloat { sidebarMargin }
+    /// The top padding that centres a `topBarButtonSize` square on
+    /// `titlebarRowCenter`. One name for the drawn position, so the view and a
+    /// harness cannot disagree about which number is in force.
+    static var topBarTopInset: CGFloat { titlebarRowCenter - topBarButtonSize / 2 }
 }
 
 /// The highlight pill behind a sidebar row. Every row paints it through here, so a
@@ -109,10 +136,12 @@ enum SidebarStyle {
 /// own pill taller. The project row did, and its highlight came out 37pt against a
 /// chat's 28pt, which made one of them look like a heading.
 ///
-/// The horizontal inset is on the *shape* for the same reason the vertical one is
-/// absent: the pill has to sit on the sidebar's margin (where the search field and
-/// the folder glyph are) while the row itself runs the full width.
-/// `SidebarClickTest` measures the pills against each other.
+/// The horizontal inset is on the *shape*: the pill has to sit on the sidebar's
+/// margin (where the folder glyph is) while the row itself runs the full width.
+/// Vertical padding on the *row* stays absent for the reason above; the half-point
+/// on the shape below is different — it shrinks the pill rather than growing the
+/// cell, which is what gives two rows a one-point gap. `SidebarClickTest` measures
+/// the pills against each other.
 struct SidebarRowChrome: ViewModifier {
     var fill: Color
 
@@ -123,6 +152,11 @@ struct SidebarRowChrome: ViewModifier {
                 RoundedRectangle(cornerRadius: SidebarStyle.rowHighlightRadius, style: .continuous)
                     .fill(fill)
                     .padding(.horizontal, SidebarStyle.rowHighlightInset)
+                    // Half a point at each end of the pill. The rows themselves are
+                    // still one cell tall and so still one pitch; the fill simply
+                    // stops a hair short, which leaves a one-point gap between two
+                    // touching highlights and lets the sidebar show through.
+                    .padding(.vertical, 0.5)
             )
     }
 }
@@ -137,11 +171,16 @@ extension View {
 
 struct SidebarView: View {
     @Bindable var state: AppState
-    @FocusState private var isSearching: Bool
+    /// Raises the command palette, whose search covers both sessions and
+    /// commands. The sheet lives on `RootView`, so the closure is passed down
+    /// rather than reached for.
+    var onOpenPalette: () -> Void
+
+    @State private var isNewChatHovering = false
+    @State private var isPackagesHovering = false
 
     var body: some View {
         VStack(spacing: 0) {
-            searchField
             if state.phase.isReady {
                 list
             } else {
@@ -153,76 +192,188 @@ struct SidebarView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            Divider()
             footer
         }
         .frame(maxHeight: .infinity)
+        // The column's own fill: the system material in the light appearance, the
+        // palette's elevated surface in the dark one. See `SidebarColumnBackground`.
+        .modifier(SidebarColumnBackground())
+        // Search is not part of the list; it is an icon in the window's titlebar
+        // row on the sidebar's trailing edge, level with the traffic lights and
+        // the sidebar toggle. See `searchButton`.
+        .overlay(alignment: .topTrailing) { searchButton }
     }
 
-    // MARK: - Search
+    // MARK: - New chat
 
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .imageScale(.small)
-            TextField("Search", text: $state.sidebarQuery)
-                .textFieldStyle(.plain)
-                .font(SidebarStyle.rowFont)
-                .focused($isSearching)
-            if !state.sidebarQuery.isEmpty {
-                Button {
-                    state.sidebarQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Clear search")
+    /// *New chat* is a row in the list, not a bar above it: it is drawn with the
+    /// same glyph size, spacing and highlight as a project, and sits in the same
+    /// column, so it reads as the first place in the list rather than as chrome.
+    ///
+    /// The search *field* that used to live in a bar here is gone. A field filtered
+    /// the list in place, which meant finding an older chat depended on a list that
+    /// had already changed under you, and the prompt text Pi indexed was not
+    /// searched at all. The palette searches the whole index — project names,
+    /// session names and prompt/response text — so search is now a single icon in
+    /// the titlebar row (`searchButton`).
+    private var newChatRow: some View {
+        Button {
+            Task { await state.newChatInCurrentProject() }
+        } label: {
+            HStack(spacing: SidebarStyle.iconTextSpacing) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                    .frame(width: SidebarStyle.projectIconSize,
+                           height: SidebarStyle.projectIconSize,
+                           alignment: .leading)
+                    .offset(x: -SidebarStyle.projectIconOffset)
+                Text("New chat")
+                    .font(SidebarStyle.rowFont)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
             }
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(SidebarStyle.searchFieldFill,
-                    in: RoundedRectangle(cornerRadius: SidebarStyle.searchFieldRadius, style: .continuous))
-        // The custom fill replaces AppKit's field chrome, so the focus ring has to
-        // be drawn back on: keyboard focus must stay visible.
-        .overlay {
-            RoundedRectangle(cornerRadius: SidebarStyle.searchFieldRadius, style: .continuous)
-                .strokeBorder(Color.accentColor.opacity(isSearching ? 0.9 : 0), lineWidth: 2)
+        .buttonStyle(.plain)
+        .sidebarRow(fill: isNewChatHovering ? SidebarStyle.rowHighlightFill : .clear)
+        .onHover { isNewChatHovering = $0 }
+        .help("Start a chat in the current project (⌘N)")
+    }
+
+    // MARK: - Packages
+
+    /// *Packages* sits directly under *New chat* and is drawn with the same glyph
+    /// size, spacing and highlight, so the two read as the list's two doors: one
+    /// into a conversation, one into the package browser. It stays lit while the
+    /// browser is showing, which is the only selection state the sidebar has.
+    private var packagesRow: some View {
+        Button {
+            state.showPackages()
+        } label: {
+            HStack(spacing: SidebarStyle.iconTextSpacing) {
+                Image(systemName: "shippingbox")
+                    .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                    .frame(width: SidebarStyle.projectIconSize,
+                           height: SidebarStyle.projectIconSize,
+                           alignment: .leading)
+                    .offset(x: -SidebarStyle.projectIconOffset)
+                Text("Packages")
+                    .font(SidebarStyle.rowFont)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, SidebarStyle.sidebarMargin)
-        .padding(.top, 6)
-        .padding(.bottom, 10)
+        .buttonStyle(.plain)
+        .sidebarRow(fill: highlightFill(for: state.isPackagesVisible, hovering: isPackagesHovering))
+        .onHover { isPackagesHovering = $0 }
+        .help("Browse and install pi packages")
+    }
+
+    /// Hover and selection are the same neutral grey here as everywhere in the
+    /// sidebar: the pointer and the open page say the same thing.
+    private func highlightFill(for isActive: Bool, hovering: Bool) -> Color {
+        (isActive || hovering) ? SidebarStyle.rowHighlightFill : .clear
+    }
+
+    /// Search, drawn in the window's titlebar row on the sidebar's trailing edge.
+    ///
+    /// It is the only control in the sidebar that leaves the safe area: the row it
+    /// belongs to is the toolbar's, above the sidebar's content, so it is pulled
+    /// up with `.ignoresSafeArea` and centred on `titlebarRowCenter` — the same
+    /// 19pt the traffic lights and the sidebar toggle sit on. It is a plain icon
+    /// in the toolbar's own weightless style, not a filled control, because it is
+    /// a window control first and a menu control second.
+    private var searchButton: some View {
+        Button(action: onOpenPalette) {
+            Image(systemName: "magnifyingglass")
+                .imageScale(.medium)
+                .frame(width: SidebarStyle.topBarButtonSize, height: SidebarStyle.topBarButtonSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .help("Search sessions and commands (⇧⌘P)")
+        .accessibilityLabel("Search")
+        .padding(.top, SidebarStyle.topBarTopInset)
+        .padding(.trailing, SidebarStyle.topBarTrailingInset)
+        .ignoresSafeArea(.container, edges: .top)
     }
 
     // MARK: - List
 
     private var list: some View {
         List {
-            ForEach(state.filteredProjects) { project in
-                ProjectRow(state: state, project: project)
-                chats(of: project)
+            newChatRow
+            packagesRow
+            // Pinned projects get their own group above the rest, and only when
+            // there is one: an empty "Pinned" heading would be a section that says
+            // nothing. Projects keep one heading of their own either way.
+            if !state.projects.isEmpty {
+                if !pinnedProjects.isEmpty {
+                    sectionLabel("Pinned")
+                    ForEach(pinnedProjects) { project in
+                        ProjectRow(state: state, project: project, showsPin: false)
+                        chats(of: project)
+                    }
+                }
+                sectionLabel("Projects")
+                ForEach(unpinnedProjects) { project in
+                    ProjectRow(state: state, project: project)
+                    chats(of: project)
+                }
             }
         }
         .listStyle(.sidebar)
         .overlay {
-            if state.filteredProjects.isEmpty {
+            if state.projects.isEmpty {
                 VStack(spacing: 8) {
-                    Image(systemName: state.sidebarQuery.isEmpty ? "folder" : "magnifyingglass")
+                    Image(systemName: "folder")
                         .font(.system(size: 26, weight: .regular))
                         .foregroundStyle(.tertiary)
-                    Text(state.sidebarQuery.isEmpty ? "No projects yet" : "No matches")
+                    Text("No projects yet")
                         .font(SidebarStyle.messageFont)
                         .foregroundStyle(.secondary)
-                    if state.sidebarQuery.isEmpty {
-                        Button("Open Project Folder…") { Task { await state.addProject() } }
-                            .controlSize(.small)
-                    }
+                    Button("Open Project Folder…") { Task { await state.addProject() } }
+                        .controlSize(.small)
                 }
                 .padding(16)
             }
         }
+    }
+
+    // MARK: - Group headings
+
+    /// The projects shown under the "Pinned" heading. `AppState` sorts pinned
+    /// projects first, but the two groups are drawn as separate sections now, so
+    /// they are split here instead of leaning on that order.
+    private var pinnedProjects: [ProjectGroup] {
+        state.projects.filter(\.isPinned)
+    }
+
+    /// …and everything else, under the "Projects" heading. When nothing is pinned
+    /// this is simply every project, so the plain list is unchanged.
+    private var unpinnedProjects: [ProjectGroup] {
+        state.projects.filter { !$0.isPinned }
+    }
+
+    /// A group heading, drawn as a row rather than a `Section` header: the sidebar
+    /// list style turns those into a collapsible group with a chevron, and these
+    /// groups do not fold. It stands on the project glyph's own mark — the same
+    /// `projectIconOffset` every row's leading slot uses — so it labels the folder
+    /// column rather than the names beside it. At the row size and dimmed, it is a
+    /// quiet label and not a heading; it takes air above and none below, so the
+    /// first project under it keeps the list's own pitch, the same as between two
+    /// chats.
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(SidebarStyle.rowFont)
+            .foregroundStyle(.secondary)
+            .offset(x: -SidebarStyle.projectIconOffset)
+            .padding(.top, SidebarStyle.sectionLabelTopPadding)
+            .padding(.bottom, SidebarStyle.sectionLabelBottomPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
     }
 
     /// The rows belonging to one project.
@@ -240,7 +391,6 @@ struct SidebarView: View {
                 SessionRow(
                     state: state,
                     session: ephemeral,
-                    controller: state.activeController,
                     isSelected: true,
                     isEphemeral: true
                 )
@@ -249,7 +399,6 @@ struct SidebarView: View {
                 SessionRow(
                     state: state,
                     session: session,
-                    controller: controller(for: session),
                     isSelected: state.selectedSessionKey == session.filePath.map(AppState.key(forSessionPath:))
                 )
             }
@@ -263,30 +412,11 @@ struct SidebarView: View {
         }
     }
 
+    /// The footer is down to the one action that is not a chat: reload the index.
+    /// The other buttons and the rule above it are gone; the list and the footer
+    /// share the column's background, and the gap is the separation.
     private var footer: some View {
         HStack(spacing: 8) {
-            Button {
-                Task { await state.addProject() }
-            } label: {
-                Label("Open Project", systemImage: "folder.badge.plus")
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.borderless)
-            .help("Open a project folder (⇧⌘O)")
-
-            Button {
-                if let path = state.selectedProject?.path {
-                    Task { await state.startNewSession(projectPath: path) }
-                } else {
-                    Task { await state.addProject() }
-                }
-            } label: {
-                Label("New Session", systemImage: "plus.bubble")
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.borderless)
-            .help("New session (⌘N)")
-
             Button {
                 Task { await state.refreshIndex() }
             } label: {
@@ -296,26 +426,17 @@ struct SidebarView: View {
             .buttonStyle(.borderless)
             .help("Reload sessions from disk (⌘R)")
 
-            Spacer(minLength: 0)
-
             if state.isIndexing {
                 ProgressView().controlSize(.small)
-            } else if let date = state.lastIndexedAt {
-                Text("Indexed \(Format.relativeTime(date))")
-                    .font(SidebarStyle.captionFont)
-                    .foregroundStyle(.tertiary)
             }
+
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, SidebarStyle.sidebarMargin)
         .padding(.vertical, 7)
     }
 
     // MARK: - Helpers
-
-    private func controller(for session: SessionRef) -> PiSessionController? {
-        guard let path = session.filePath else { return nil }
-        return state.activeController?.sessionFile == path ? state.activeController : nil
-    }
 
     /// A session that exists only in memory because Pi has not written it yet.
     private func ephemeralSession(for project: ProjectGroup) -> SessionRef? {
@@ -352,6 +473,11 @@ struct SidebarView: View {
 struct ProjectRow: View {
     @Bindable var state: AppState
     var project: ProjectGroup
+    /// Whether to draw the pin glyph. A project under the "Pinned" heading is
+    /// already in the pin's section, so repeating the glyph there would say the
+    /// same thing twice; a project under "Projects" carries it, which is what
+    /// makes a pinned project recognisable at a glance.
+    var showsPin: Bool = true
 
     @State private var isHovering = false
 
@@ -374,7 +500,7 @@ struct ProjectRow: View {
                     .font(SidebarStyle.rowFont)
                     .lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
-                if project.isPinned {
+                if showsPin && project.isPinned {
                     Image(systemName: "pin.fill")
                         .imageScale(.small)
                         .foregroundStyle(.tertiary)
@@ -391,20 +517,23 @@ struct ProjectRow: View {
         .onHover { isHovering = $0 }
         .accessibilityValue(state.isCollapsed(project: project) ? "chats hidden" : "chats shown")
         .contextMenu {
-            Button(state.isCollapsed(project: project) ? "Show Chats" : "Hide Chats") {
-                state.toggleCollapsed(project: project)
-            }
-            Divider()
-            Button(project.isPinned ? "Unpin Project" : "Pin Project") {
-                state.togglePin(project: project)
-            }
-            Button("New Session Here") {
+            Button("New chat") {
                 Task { await state.startNewSession(projectPath: project.path) }
             }
             Divider()
             Button("Open in Terminal") { state.openTerminal(at: project.path) }
             Button("Reveal in Finder") { WorkspaceLauncher.reveal(project.path) }
             Button("Copy Path") { state.copyToPasteboard(project.path) }
+            
+            Button(project.isPinned ? "Unpin Project" : "Pin Project") {
+                state.togglePin(project: project)
+            }
+            
+            Divider()
+            
+            Button("Settings…") {
+                state.presentProjectSettings(project)
+            }
         }
         .help(helpText)
     }
@@ -421,7 +550,6 @@ struct ProjectRow: View {
 struct SessionRow: View {
     @Bindable var state: AppState
     var session: SessionRef
-    var controller: PiSessionController?
     var isSelected: Bool
     var isEphemeral: Bool = false
 
@@ -429,14 +557,38 @@ struct SessionRow: View {
 
     var body: some View {
         Button {
-            guard !isSelected || controller == nil else { return }
+            guard !isSelected || state.activeController == nil else { return }
             Task { await state.open(session: session) }
         } label: {
-            // No leading glyph: the chat's title lines up with the project's name
-            // so the two read as one list, and the timestamp/message count moved
-            // into the tooltip — a sidebar row should say what a session *is*,
-            // not re-state metadata the session view already shows.
-            HStack(spacing: 8) {
+            // The leading slot is a project's own mark, not a chat glyph: it stays
+            // empty for a quiet chat so the title lines up with the project's name
+            // and the two read as one list, and a *running* chat fills it with its
+            // spinner. Reserving the slot either way is what keeps the title from
+            // shifting when a chat starts or stops working. The timestamp and
+            // message count live in the tooltip — a sidebar row should say what a
+            // session *is*, not re-state metadata the session view already shows.
+            HStack(spacing: SidebarStyle.iconTextSpacing) {
+                // The spinner is read from the session's own live process, not
+                // from the controller for the tab on screen, so a chat that keeps
+                // working in the background still says so while another is open.
+                //
+                // It is drawn in the folder glyph's slot — the same 11pt mark, at
+                // the same `projectIconOffset` — so a working chat's spinner sits
+                // exactly where the folder above it sits.
+                Group {
+                    if state.isRunning(session) {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .accessibilityLabel("Working")
+                    } else {
+                        Color.clear
+                    }
+                }
+                .frame(width: SidebarStyle.projectIconSize,
+                       height: SidebarStyle.projectIconSize,
+                       alignment: .leading)
+                .offset(x: -SidebarStyle.projectIconOffset)
+
                 Text(session.displayName)
                     .font(SidebarStyle.rowFont)
                     .lineLimit(1)
@@ -444,10 +596,7 @@ struct SessionRow: View {
 
                 Spacer(minLength: 0)
 
-                if let controller, controller.hasPendingWork {
-                    ProgressView()
-                        .controlSize(.mini)
-                } else if session.isPinned {
+                if session.isPinned {
                     Image(systemName: "pin.fill")
                         .imageScale(.small)
                         .foregroundStyle(.tertiary)
@@ -457,7 +606,6 @@ struct SessionRow: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            .padding(.leading, SidebarStyle.titleIndent)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -483,6 +631,7 @@ struct SessionRow: View {
         } else {
             Button("Open") { Task { await state.open(session: session) } }
         }
+        Button("Rename…") { state.presentRename(session: session) }
         Button(session.isPinned ? "Unpin" : "Pin") { state.togglePin(session: session) }
         Divider()
         Button("Copy Session Path") {

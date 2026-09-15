@@ -35,7 +35,7 @@ struct SessionView: View {
 
     /// The transcript's own backdrop, so the fade under the composer hides
     /// scrolled-away rows in the colour they were already drawn on.
-    private var backdrop: Color { Color(nsColor: .textBackgroundColor) }
+    private var backdrop: Color { AppTheme.background }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,10 +49,9 @@ struct SessionView: View {
                              bottomInset: composerHeight + 16)
                 .overlay(alignment: .bottom) { floatingComposer }
         }
-        .overlay(alignment: .topTrailing) {
-            NotificationStack(controller: controller)
-                .padding(12)
-        }
+        // Notifications no longer float over the transcript: the content header's
+        // bell opens them in the right panel, where the list has the full height
+        // of the column and cannot cover the conversation.
         .animation(.easeInOut(duration: 0.18), value: controller.trustState)
     }
 
@@ -124,9 +123,6 @@ struct SessionView: View {
                 Image(systemName: "text.append")
                     .imageScale(.small)
                     .foregroundStyle(.secondary)
-                Text(queuedMessages.count == 1 ? "1 message queued" : "\(queuedMessages.count) messages queued")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 Button("Clear") { Task { await controller.clearQueue() } }
                     .font(.caption)
@@ -140,12 +136,18 @@ struct SessionView: View {
             queuedMessageList
                 .padding(.bottom, 5)
         }
-        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Self.queueFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(.separator.opacity(0.6))
         )
     }
+
+    /// The queue card’s fill. Opaque on purpose: the card sits above the composer,
+    /// and a translucent fill let whatever was under it ghost through. It is the
+    /// palette’s elevated surface in the dark appearance and its own light grey in
+    /// the light one, so it always steps away from the transcript behind it.
+    private static let queueFill = AppTheme.queueFill
 
     /// A short queue grows to fit; a long one scrolls rather than shouldering the
     /// composer off the bottom of the window.
@@ -183,9 +185,46 @@ struct SessionView: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer(minLength: 0)
+            queueActions(for: message)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
+    }
+
+    /// The three things a queued message can have done to it, as icon buttons so
+    /// the row still reads as a line of text. Steering is offered only for a
+    /// follow-up: a steering message is already going in at the current tool
+    /// boundary, so steering it again would move it for no reason.
+    @ViewBuilder
+    private func queueActions(for message: QueuedPrompt) -> some View {
+        HStack(spacing: 2) {
+            if message.kind == .followUp {
+                queueButton("arrow.up.forward", help: "Steer into the current turn") {
+                    Task { await controller.act(on: .steer, message: message.text) }
+                }
+            }
+            queueButton("pencil", help: "Edit in the composer") {
+                Task { await controller.act(on: .edit, message: message.text) }
+            }
+            queueButton("trash", help: "Remove from the queue") {
+                Task { await controller.act(on: .remove, message: message.text) }
+            }
+        }
+    }
+
+    private func queueButton(
+        _ systemImage: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .imageScale(.small)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     private var queuedMessages: [QueuedPrompt] {

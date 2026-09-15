@@ -2,10 +2,13 @@
 //  InspectorView.swift
 //  PiCode
 //
-//  The contextual inspector: Changes, Files, Terminal, Tree, Context.
+//  The right panel: a single viewer, not a tab bar. Whatever the user last
+//  selected in the conversation — a file's contents, an edit's diff, a command's
+//  output, or any other tool's result — is shown here, with its path (or a title
+//  when there is no path) along the top.
 //
-//  Everything here is read from Pi or from the working tree on disk. The
-//  inspector never edits files; Pi is the only actor that changes a project.
+//  Everything here is read from Pi or from the working tree on disk. The panel
+//  never edits files; Pi is the only actor that changes a project.
 //
 
 import SwiftUI
@@ -15,48 +18,319 @@ struct InspectorView: View {
 
     var body: some View {
         Group {
-            if let controller = state.activeController {
+            if state.isNotificationsVisible {
+                NotificationsPanel(state: state)
+            } else if let controller = state.activeController, let artifact = state.inspectorArtifact {
                 VStack(spacing: 0) {
-                    tabPicker
+                    ArtifactHeader(artifact: artifact, controller: controller)
                     Divider()
-                    pane(controller)
+                    ArtifactContentView(artifact: artifact, controller: controller)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
                 EmptyStateView(
                     systemImage: "sidebar.right",
-                    title: "No session selected",
-                    message: "Open a session to inspect its changes, files, and context."
+                    title: "Nothing selected",
+                    message: "Click a change, a file, a command, or a tool result in the conversation to open it here."
                 )
             }
         }
         .frame(maxHeight: .infinity)
     }
+}
 
-    private var tabPicker: some View {
-        Picker("Inspector", selection: $state.inspectorTab) {
-            ForEach(AppState.InspectorTab.allCases, id: \.self) { tab in
-                Label(tab.label, systemImage: tab.systemImage)
-                    .labelStyle(.iconOnly)
-                    .help(tab.label)
-                    .tag(tab)
+// MARK: - Notifications
+
+/// The notification list, shown where an artifact would be when the content
+/// header's bell is on. It is the same data `PiSessionController` already keeps;
+/// the panel only draws it and lets the user dismiss entries.
+struct NotificationsPanel: View {
+    @Bindable var state: AppState
+
+    private var controller: PiSessionController? { state.activeController }
+    private var notifications: [ExtensionNotification] { controller?.notifications ?? [] }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// Mirrors `ArtifactHeader`: the panel's own line starts on the same row as
+    /// the conversation's, with the title on the left and the actions on the right.
+    private var header: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bell")
+                .imageScale(.small)
+                .foregroundStyle(.secondary)
+                .frame(width: 16, alignment: .center)
+
+            Text("Notifications")
+                .font(Typography.body)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            if !notifications.isEmpty {
+                Button("Clear All") { controller?.dismissAllNotifications() }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+                    .help("Dismiss every notification in this session")
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 12)
+        // The same band as `ContentHeader` — the two lines share the window's top
+        // row — but a half-point tighter on each side, so the panel's rule sits one
+        // point above the conversation's rather than a full point below it.
+        .padding(.vertical, 15.5)
+        .background(AppTheme.elevated)
     }
 
     @ViewBuilder
-    private func pane(_ controller: PiSessionController) -> some View {
-        switch state.inspectorTab {
-        case .changes: ChangesPane(state: state, controller: controller)
-        case .files: FilesPane(state: state, controller: controller)
-        case .terminal: TerminalPane(controller: controller)
-        case .tree: TreePane(state: state, controller: controller)
-        case .context: ContextPane(state: state, controller: controller)
+    private var content: some View {
+        if notifications.isEmpty {
+            EmptyStateView(
+                systemImage: "bell.slash",
+                title: "No notifications",
+                message: "Messages Pi extensions send with `notify` appear here instead of over the conversation."
+            )
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(notifications.reversed()) { notification in
+                        row(notification)
+                        Divider().padding(.leading, 38)
+                    }
+                }
+            }
+            .background(AppTheme.elevated)
         }
+    }
+
+    private func row(_ notification: ExtensionNotification) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: notification.level.systemImage)
+                .imageScale(.small)
+                .foregroundStyle(tint(notification.level))
+                .frame(width: 16, alignment: .center)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(notification.message)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                HStack(spacing: 6) {
+                    if let source = notification.sourceName {
+                        Text(source)
+                    }
+                    Text(Format.relativeTime(notification.timestamp))
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                controller?.dismissNotification(notification.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.tertiary)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss notification")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func tint(_ level: ExtensionNotification.Level) -> Color {
+        switch level {
+        case .info: return .accentColor
+        case .warning: return .orange
+        case .error: return .red
+        }
+    }
+}
+
+/// The one line along the top of the panel: what is open, and where it lives. A
+/// file's path is the title; a call with no file gets its own name instead. It is
+/// one line only — the panel's own header is context, not a place for a second
+/// summary that the content below already says.
+struct ArtifactHeader: View {
+    var artifact: AppState.InspectorArtifact
+    var controller: PiSessionController
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .imageScale(.small)
+                .foregroundStyle(.secondary)
+                .frame(width: 16, alignment: .center)
+
+            Text(title)
+                .font(Typography.body)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(title)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        // Matches `ContentHeader`'s band and is a half-point tighter on each side,
+        // so the panel's rule sits one point above the conversation's.
+        .padding(.vertical, 15.5)
+        .background(AppTheme.elevated)
+    }
+
+    /// The file the artifact is about, when it has one.
+    private var path: String? {
+        switch artifact {
+        case .file(let path, _): return path
+        case .change(let path): return path
+        case .tool(let id):
+            guard let item = item(id), item.kind == .toolCall else { return nil }
+            return item.toolFilePath
+        }
+    }
+
+    private var title: String {
+        if let path { return path.abbreviatingHomeDirectory }
+        switch artifact {
+        case .file(let path, _), .change(let path):
+            return (path as NSString).lastPathComponent
+        case .tool(let id):
+            guard let item = item(id) else { return "Tool" }
+            if item.kind == .toolCall {
+                return item.commandText == nil ? (item.toolName ?? "Tool") : "Command"
+            }
+            return item.toolName ?? "Tool result"
+        }
+    }
+
+    private var systemImage: String {
+        switch artifact {
+        case .change: return "plusminus.circle"
+        case .file: return "doc.text"
+        case .tool(let id):
+            guard let item = item(id) else { return "wrench.and.screwdriver" }
+            return QuietFamily.of(item)?.systemImage ?? "wrench.and.screwdriver"
+        }
+    }
+
+    private func item(_ id: String) -> TranscriptItem? {
+        controller.items.first { $0.id == id }
+    }
+}
+
+/// The body of the panel: the selected call, file, or diff, with all the room the
+/// column has.
+struct ArtifactContentView: View {
+    var artifact: AppState.InspectorArtifact
+    var controller: PiSessionController
+
+    var body: some View {
+        switch artifact {
+        case .tool(let id):
+            if let item = controller.items.first(where: { $0.id == id }) {
+                ScrollView {
+                    QuietStepContent(item: item, controller: controller)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                EmptyStateView(
+                    systemImage: "questionmark.folder",
+                    title: "Not available",
+                    message: "This call is no longer part of the conversation."
+                )
+            }
+        case .file(let path, let line):
+            FileArtifactView(path: path, line: line)
+        case .change(let path):
+            ChangeArtifactView(path: path, controller: controller)
+        }
+    }
+}
+
+/// A file on disk, in the same numbered, highlighted viewer the file browser used.
+struct FileArtifactView: View {
+    var path: String
+    var line: Int?
+
+    @State private var preview: FilePreview?
+
+    var body: some View {
+        Group {
+            if let preview {
+                if let error = preview.error {
+                    BannerView(level: .error, title: "Cannot preview this file", message: error, onDismiss: nil)
+                        .padding(12)
+                    Spacer(minLength: 0)
+                } else {
+                    CodeViewer(text: preview.text, language: preview.language, highlightLine: line)
+                }
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .task(id: path) { preview = FilePreviewLoader.load(path: path) }
+    }
+}
+
+/// A file the agent changed, as a working-tree diff. It is resolved against the
+/// same lists the Changes pane used — the session's own writes first, then git —
+/// so a path Pi reported relative to the project still finds its status.
+struct ChangeArtifactView: View {
+    var path: String
+    var controller: PiSessionController
+
+    @State private var diff: String?
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView().controlSize(.small).padding(16)
+            } else if let diff, !diff.isEmpty {
+                DiffView(diff: diff)
+            } else {
+                EmptyStateView(
+                    systemImage: "doc.text.magnifyingglass",
+                    title: "No text diff",
+                    message: "This file is binary, untracked, or unchanged on disk. Open the edit call itself to see the change Pi made."
+                )
+            }
+        }
+        .task(id: path) { await load() }
+    }
+
+    private func load() async {
+        isLoading = true
+        diff = await controller.diff(for: resolvedChange())
+        isLoading = false
+    }
+
+    private func resolvedChange() -> GitFileChange {
+        let absolute = path.isAbsolutePath
+            ? path
+            : (controller.projectPath as NSString).appendingPathComponent(path)
+        let candidates = controller.git.changes + controller.recentFileChanges.map {
+            GitFileChange(path: $0.path, oldPath: nil, status: $0.kind.gitStatus, isStaged: false,
+                          additions: $0.additions, deletions: $0.deletions)
+        }
+        if let match = candidates.first(where: { $0.path == path || $0.path == absolute }) {
+            return match
+        }
+        return GitFileChange(path: path, oldPath: nil, status: .modified, isStaged: false,
+                             additions: nil, deletions: nil)
     }
 }
 
@@ -346,7 +620,7 @@ struct DiffView: View {
             }
             .padding(.vertical, 4)
         }
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(AppTheme.elevated)
     }
 
     private struct Line {

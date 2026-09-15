@@ -22,16 +22,20 @@ struct ComposerTextView: NSViewRepresentable {
     /// you are answering are set at the same scale.
     static let fontSize: CGFloat = Typography.baseSize
 
-    /// The composer box has a fixed dark fill (#2a2b2b) in every appearance, so
-    /// the text and caret need fixed light colors too — the dynamic defaults
-    /// would render black-on-black in light mode.
+    /// The composer box is dark in every appearance (#212121 in the dark one,
+    /// #2a2b2b in the light one), so the text and caret need fixed light colors
+    /// too — the dynamic defaults would render black-on-black in light mode.
     static let textColor = NSColor(red: 0.92, green: 0.92, blue: 0.93, alpha: 1)
     static let caretColor = NSColor(red: 0.92, green: 0.92, blue: 0.93, alpha: 1)
+    static let placeholderColor = NSColor(red: 0.92, green: 0.92, blue: 0.93, alpha: 0.45)
 
-    /// How many lines the box shows before it scrolls instead of growing. Two
-    /// lines is the whole budget: the composer floats over the transcript (§6),
-    /// and every line it grows is a line of the conversation it covers.
-    static let visibleLines = 2
+    /// How many lines the box always shows, and how many it shows before it
+    /// scrolls instead of growing any further. The composer floats over the
+    /// transcript (§6), so its ceiling is deliberately low: two lines is the
+    /// floor that keeps the box from collapsing to a sliver, six is the most of
+    /// the conversation it may cover as a prompt grows.
+    static let minimumLines = 2
+    static let maximumLines = 6
 
     /// One line of this view's own font, as AppKit lays it out. Derived rather
     /// than hardcoded: the font is what decides it, and a metric that silently
@@ -148,8 +152,8 @@ struct ComposerTextView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
-    /// The height the editor actually wants: as many lines as are in it, never
-    /// more than `visibleLines`.
+    /// The height the editor actually wants: as many lines as are in it, held
+    /// between `minimumLines` and `maximumLines`.
     ///
     /// Without this the view reports no size of its own and SwiftUI hands it the
     /// largest height allowed, so the box was always as tall as `maxHeight` —
@@ -166,8 +170,8 @@ struct ComposerTextView: NSViewRepresentable {
               let layout = textView.layoutManager else { return nil }
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container).height
-        let height = min(max(used + Self.textInset.height * 2, Self.height(forLines: 1)),
-                         Self.height(forLines: Self.visibleLines))
+        let height = min(max(used + Self.textInset.height * 2, Self.height(forLines: Self.minimumLines)),
+                         Self.height(forLines: Self.maximumLines))
         return CGSize(width: proposal.width ?? nsView.frame.width, height: height)
     }
 
@@ -179,7 +183,9 @@ struct ComposerTextView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
 
-        let textView = NSTextView()
+        let textView = PlaceholderTextView()
+        textView.placeholder = placeholder
+        textView.placeholderColor = Self.placeholderColor
         textView.delegate = context.coordinator
         textView.isRichText = false
         textView.allowsUndo = true
@@ -213,6 +219,7 @@ struct ComposerTextView: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? NSTextView else { return }
 
+        (textView as? PlaceholderTextView)?.placeholder = placeholder
         textView.isEditable = isEnabled
 
         if textView.string != text {
@@ -230,5 +237,29 @@ struct ComposerTextView: NSViewRepresentable {
                 textView.window?.makeFirstResponder(textView)
             }
         }
+    }
+}
+
+/// The composer's text view, with the placeholder drawn in the text system's own
+/// coordinates. A SwiftUI `Text` overlaid on the editor lays its first line out
+/// separately from the text view, so the two never quite shared a baseline; this
+/// draws from the same container origin the real text uses, which makes them the
+/// same line by construction.
+private final class PlaceholderTextView: NSTextView {
+    var placeholder: String = ""
+    var placeholderColor: NSColor = ComposerTextView.placeholderColor
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, !placeholder.isEmpty else { return }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.systemFont(ofSize: ComposerTextView.fontSize),
+            .foregroundColor: placeholderColor
+        ]
+        let origin = textContainerOrigin
+        // Real glyphs start one `lineFragmentPadding` inside the container, so the
+        // placeholder has to as well or it hangs left of the text it stands in for.
+        let x = origin.x + (textContainer?.lineFragmentPadding ?? 0)
+        (placeholder as NSString).draw(at: NSPoint(x: x, y: origin.y), withAttributes: attributes)
     }
 }

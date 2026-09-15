@@ -200,7 +200,7 @@ enum SessionReplayTest {
                 switch row {
                 case .item:
                     continue
-                case .group(let group):
+                case .group(let group, _):
                     foldedItems += group.count
                     if group.count == 1 { foldedSingletons += 1 } else { foldedMultiway += 1 }
                     // Reasoning is folded but never drawn: `TranscriptRow.visibleSteps`
@@ -227,12 +227,11 @@ enum SessionReplayTest {
                         if let family = QuietFamily.of(item) {
                             foldedByFamily[family, default: 0] += 1
                             if family == .thinking { foldedThinking += 1 }
-                        } else if item.kind == .assistant {
-                            // A finished turn folds Pi's notes between calls too, so
-                            // the whole turn is one "Worked for" line. Prose is the
-                            // one thing besides the quiet families that may fold.
-                            foldedNarration += 1
                         } else {
+                            // A note Pi wrote between calls is an ordinary message,
+                            // not process, so it must never fold. If one does, the
+                            // check below fails.
+                            if item.kind == .assistant { foldedNarration += 1 }
                             nonQuietFold += 1
                         }
                         // A failure must stay visible on the folded line, so a
@@ -249,19 +248,33 @@ enum SessionReplayTest {
                     // Two folded rows in a row means the fold stopped early: the
                     // run between them was folded too, so the boundary was
                     // invented rather than found.
-                    if index > 0, case .group = rows[index - 1] { adjacentGroups += 1 }
+                    if index > 0,
+                       case .group(_, let previousLive) = rows[index - 1],
+                       !previousLive,
+                       !row.isLiveTurn {
+                        adjacentGroups += 1
+                    }
                 }
             }
             // A run is maximal: if two neighbours both fold, nothing may sit
-            // between them in the *input* either.
+            // between them in the *input* either. Only a finished turn claims this:
+            // a live turn deliberately draws one line per task, so its foldable
+            // neighbours are not expected to share a row.
+            var liveItemIDs = Set<String>()
+            for row in rows {
+                guard case .group(let group, let isLiveTurn) = row, isLiveTurn else { continue }
+                for item in group { liveItemIDs.insert(item.id) }
+            }
             for index in items.indices.dropFirst() {
                 let previous = items[index - 1]
                 let current = items[index]
                 guard QuietFamily.of(previous) != nil,
                       QuietFamily.of(current) != nil else { continue }
+                guard !liveItemIDs.contains(previous.id),
+                      !liveItemIDs.contains(current.id) else { continue }
                 // They are adjacent *and* foldable, so they must share a row.
                 let shared = rows.contains { row in
-                    guard case .group(let group) = row else { return false }
+                    guard case .group(let group, _) = row else { return false }
                     return group.contains { $0.id == previous.id } && group.contains { $0.id == current.id }
                 }
                 if !shared { splitRuns += 1 }

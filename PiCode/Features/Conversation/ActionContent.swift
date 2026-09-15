@@ -21,7 +21,7 @@ struct CommandStepContent: View {
 
     var body: some View {
         if let transcript {
-            SyntaxText(text: transcript, language: .shell)
+            ActionCodeBlock(text: transcript, language: .shell, isPlain: true)
         } else if item.isStreaming {
             ToolRunningLine()
         }
@@ -48,7 +48,7 @@ struct ReadStepContent: View {
 
     var body: some View {
         if let output = item.toolOutput, !output.isEmpty {
-            SyntaxText(text: output, language: language)
+            ActionCodeBlock(text: output, language: language, isPlain: true)
         } else if item.isStreaming {
             ToolRunningLine()
         }
@@ -72,9 +72,43 @@ struct EditStepContent: View {
     var body: some View {
         let blocks = item.editBlocks
         if !blocks.isEmpty {
-            SyntaxText(text: ToolDiff.unified(blocks), language: .diff)
+            ActionCodeBlock(text: ToolDiff.unified(blocks), language: .diff)
         } else if item.isStreaming {
             ToolRunningLine()
+        }
+    }
+}
+
+/// The well the three quiet actions draw their machine text in.
+///
+/// A command's terminal transcript, a file's contents and a diff are all the same
+/// kind of thing — a block of text to be scanned rather than read — so they share
+/// one container. A diff keeps the well: its red/green lines are a class of their
+/// own and the recessed background is what makes them read as one block. A command
+/// and a read do not — in the panel they are the only thing on screen, so they are
+/// drawn as plain machine text with no border or background to box them in.
+/// All three are set two steps below the app's reading size, because the panel is
+/// a reference to glance at beside the conversation, not a second reading column.
+struct ActionCodeBlock: View {
+    var text: String
+    var language: SyntaxLanguage
+    /// Plain machine text, without the recessed well. Commands and reads use this;
+    /// diffs and any other caller get the well.
+    var isPlain: Bool = false
+
+    var body: some View {
+        if isPlain {
+            SyntaxText(text: text, language: language, font: Typography.codeBlockCompact)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            SyntaxText(text: text, language: language, font: Typography.codeBlockCompact)
+                .padding(9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.06))
+                )
         }
     }
 }

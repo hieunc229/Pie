@@ -24,11 +24,14 @@ enum ComposerMetrics {
     /// pills, small enough that a single line does not look like a capsule.
     static let cornerRadius: CGFloat = 18
 
-    /// The box's own padding. Roomy on purpose: the prompt should sit in the box
-    /// rather than press against its edge, and the text starts another
-    /// `ComposerTextView.textInset.width` in from here.
+    /// The box's own padding. Roomy on the sides and underneath: the prompt should
+    /// sit in the box rather than press against its edge, and the controls need air
+    /// below the text they act on. There is deliberately *none* on top — the editor
+    /// already carries its own text inset, and the box must shrink to exactly the
+    /// editor's height plus this chrome, so a two-line prompt is a two-line box and
+    /// not a box with a blank band above it.
     static let boxHorizontalPadding: CGFloat = 12
-    static let boxTopPadding: CGFloat = 9
+    static let boxTopPadding: CGFloat = 0
     static let boxBottomPadding: CGFloat = 8
 
     /// Between the editor and the control row, and a little more before an
@@ -41,10 +44,10 @@ enum ComposerMetrics {
     /// this is caught rather than silently absorbed.
     static let controlRowHeight: CGFloat = 20
 
-    /// The editor's own height, so the box stops growing after two lines and
-    /// starts scrolling instead.
-    static var editorMinHeight: CGFloat { ComposerTextView.height(forLines: 1) }
-    static var editorMaxHeight: CGFloat { ComposerTextView.height(forLines: ComposerTextView.visibleLines) }
+    /// The editor's own height: two lines always visible, six before it starts
+    /// scrolling instead of growing further.
+    static var editorMinHeight: CGFloat { ComposerTextView.height(forLines: ComposerTextView.minimumLines) + 8 }
+    static var editorMaxHeight: CGFloat { ComposerTextView.height(forLines: ComposerTextView.maximumLines) + 8 }
 
     /// The box's height for an editor of `editorHeight` — the number the harness
     /// checks the rendered box against. Attachments add a row on top.
@@ -112,31 +115,32 @@ struct ComposerView: View {
     /// text, then the controls (§6).
     private var composerBox: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                ComposerTextView(
-                    text: $text,
-                    placeholder: placeholder,
-                    focusTick: focusTick,
-                    sendKey: state.preferences.sendKey,
-                    suggestionsActive: !suggestions.isEmpty,
-                    isEnabled: controller.connection.isConnected,
-                    onSend: { send() },
-                    onFollowUp: { send(delivery: .followUp) },
-                    onEscape: handleEscape,
-                    onMoveSuggestion: moveSuggestion,
-                    onAcceptSuggestion: acceptCurrentSuggestion
-                )
-                .frame(minHeight: ComposerMetrics.editorMinHeight, maxHeight: ComposerMetrics.editorMaxHeight)
-
-                if text.isEmpty {
-                    Text(placeholder)
-                        .font(.system(size: ComposerTextView.fontSize))
-                        .foregroundStyle(Color(nsColor: ComposerTextView.textColor).opacity(0.45))
-                        .padding(.leading, ComposerTextView.textInset.width)
-                        .padding(.top, ComposerTextView.textInset.height)
-                        .allowsHitTesting(false)
-                }
-            }
+            // The placeholder is drawn inside the text view, at the same origin
+            // as real text, so the two cannot sit on different lines.
+            ComposerTextView(
+                text: $text,
+                placeholder: placeholder,
+                focusTick: focusTick,
+                sendKey: state.preferences.sendKey,
+                suggestionsActive: !suggestions.isEmpty,
+                isEnabled: controller.connection.isConnected,
+                onSend: { send() },
+                onFollowUp: { send(delivery: .followUp) },
+                onEscape: handleEscape,
+                onMoveSuggestion: moveSuggestion,
+                onAcceptSuggestion: acceptCurrentSuggestion
+            )
+            .frame(minHeight: ComposerMetrics.editorMinHeight, maxHeight: ComposerMetrics.editorMaxHeight)
+            .padding(.top, 8)
+            
+            // `.frame(minHeight:maxHeight:)` is flexible: the composer floats in
+            // an overlay, so the stack that holds the box is proposed the whole
+            // pane height and hands the surplus to the only child that will take
+            // it — the editor — which then sits at `editorMaxHeight` even when it
+            // is empty (a blank band above the placeholder). `fixedSize` proposes
+            // no height, so the frame resolves to the height `sizeThatFits`
+            // measured for the text, and the box is two lines when the prompt is.
+            .fixedSize(horizontal: false, vertical: true)
 
             if !attachments.isEmpty {
                 attachmentRow.padding(.top, ComposerMetrics.attachmentGap)
@@ -147,7 +151,7 @@ struct ComposerView: View {
         .padding(.horizontal, ComposerMetrics.boxHorizontalPadding)
         .padding(.top, ComposerMetrics.boxTopPadding)
         .padding(.bottom, ComposerMetrics.boxBottomPadding)
-        .background(Color(red: 0x2a / 255, green: 0x2b / 255, blue: 0x2b / 255), in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous))
+        .background(AppTheme.composerFill, in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous)
                 .stroke(isDropTargeted ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: isDropTargeted ? 2 : 1)
@@ -161,7 +165,7 @@ struct ComposerView: View {
     private var placeholder: String {
         if !controller.connection.isConnected { return "Pi is not running…" }
         if controller.runtime.isBusy { return "Steer Pi, or queue a follow-up…" }
-        return "Ask Pi to change something in this project…"
+        return "Ask Pi to do something"
     }
 
     private var attachmentRow: some View {
@@ -215,9 +219,13 @@ struct ComposerView: View {
 
             Spacer(minLength: 8)
 
-            modelMenu
-            thinkingMenu
-            primaryActionButton
+            // The model/reasoning control and the send button are the two ends of
+            // one action — choose how, then do it — so they sit apart from the
+            // attachment controls and with a clear gap between them.
+            HStack(spacing: 10) {
+                modelThinkingMenu
+                primaryActionButton
+            }
         }
         .font(.system(size: 12))
     }
@@ -274,7 +282,10 @@ struct ComposerView: View {
         }
     }
 
-    private var modelMenu: some View {
+    /// Model and reasoning effort, as one control: the model's name, the effort
+    /// beside it when the model is reasoning, and a chevron that opens both
+    /// pickers. They are one choice — how Pi will answer — so they are one menu.
+    private var modelThinkingMenu: some View {
         Menu {
             ForEach(providers, id: \.self) { provider in
                 Section(provider) {
@@ -291,51 +302,58 @@ struct ComposerView: View {
                     }
                 }
             }
-            Divider()
-            Button("Cycle Model") { Task { await controller.cycleModel() } }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "cpu")
-                Text(controller.model?.displayName ?? "Model")
-                    .lineLimit(1)
-            }
-            .font(.callout)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .foregroundStyle(.secondary)
-        .help("Model used for new prompts")
-    }
 
-    private var thinkingMenu: some View {
-        Menu {
-            ForEach(controller.thinkingLevels, id: \.self) { level in
-                Button {
-                    Task { await controller.setThinkingLevel(level) }
-                } label: {
-                    if level == controller.thinkingLevel {
-                        Label(level, systemImage: "checkmark")
-                    } else {
-                        Text(level)
+            Divider()
+
+            Section("Reasoning effort") {
+                ForEach(controller.thinkingLevels, id: \.self) { level in
+                    Button {
+                        Task { await controller.setThinkingLevel(level) }
+                    } label: {
+                        if level == controller.thinkingLevel {
+                            Label(level, systemImage: "checkmark")
+                        } else {
+                            Text(level)
+                        }
                     }
                 }
+                if controller.thinkingLevels.isEmpty {
+                    Text("This model has no reasoning levels")
+                }
             }
-            if controller.thinkingLevels.isEmpty {
-                Text("This model has no thinking levels")
-            }
+
             Divider()
-            Button("Cycle Thinking Level") { Task { await controller.cycleThinkingLevel() } }
+            Button("Cycle Model") { Task { await controller.cycleModel() } }
+            if !controller.thinkingLevels.isEmpty {
+                Button("Cycle Reasoning Effort") { Task { await controller.cycleThinkingLevel() } }
+            }
         } label: {
+            // No hand-drawn chevron: `Menu` already draws its own indicator, and a
+            // second one in front of the model name read as two separate controls.
             HStack(spacing: 4) {
-                Image(systemName: "brain")
-                Text(controller.thinkingLevel ?? "Thinking")
+                Text(controller.model?.displayName ?? "Model")
+                    .lineLimit(1)
+                if let effort {
+                    Text(effort)
+                        .foregroundStyle(.tertiary)
+                }
             }
             .font(.callout)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
         .foregroundStyle(.secondary)
-        .help("Thinking level Pi uses for this session")
+        .help("Model and reasoning effort used for new prompts")
+    }
+
+    /// The reasoning effort to draw beside the model, or `nil` when the model is
+    /// not reasoning: an "off" level is not a second word to read, it is silence.
+    private var effort: String? {
+        guard let level = controller.thinkingLevel?.trimmingCharacters(in: .whitespaces),
+              !level.isEmpty,
+              level.lowercased() != "off"
+        else { return nil }
+        return level
     }
 
     // MARK: - Send

@@ -51,8 +51,16 @@ struct MarkdownListItem: Equatable, Identifiable {
 }
 
 enum MarkdownParser {
+    /// Parsing is pure, so its result is remembered: a visible reply is re-parsed
+    /// whenever the transcript's row list changes, and that is every streaming tick.
+    private static let cache = RenderCache<[MarkdownBlock]>(totalCostLimit: 2_000_000)
+
     /// Parses block structure. Safe to call on incomplete streaming text.
     static func parse(_ text: String) -> [MarkdownBlock] {
+        cache.value(forKey: text, cost: text.count) { parseUncached(text) }
+    }
+
+    private static func parseUncached(_ text: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
         let lines = text.components(separatedBy: "\n")
         var index = 0
@@ -312,6 +320,8 @@ enum MarkdownParser {
 // MARK: - Inline formatting
 
 enum MarkdownInline {
+    private static let cache = RenderCache<AttributedString>(totalCostLimit: 2_000_000)
+
     /// Rewrites plain-text path references like `Sources/App.swift:42` into
     /// `picode://` links so the transcript can open them on click.
     static func linkingFileReferences(_ text: String) -> String {
@@ -373,6 +383,13 @@ enum MarkdownInline {
 
     /// Builds an inline-attributed string, falling back to plain text.
     static func attributed(_ text: String) -> AttributedString {
+        cache.value(forKey: text, cost: text.count) { attributedUncached(text) }
+    }
+
+    /// The `attributed` work, split out so the pure result can be cached. One
+    /// paragraph is asked for on every body evaluation — the regex link pass and
+    /// Foundation's Markdown parse are both far too costly for that.
+    private static func attributedUncached(_ text: String) -> AttributedString {
         let prepared = linkingFileReferences(text)
         var options = AttributedString.MarkdownParsingOptions()
         options.interpretedSyntax = .inlineOnlyPreservingWhitespace
@@ -381,14 +398,15 @@ enum MarkdownInline {
             return AttributedString(text)
         }
         // Inline code is monospaced, matching the rest of the UI rather than the
-        // system default, at the same size as the prose around it — the transcript
-        // is one size, and code is not a second one. Its color is left alone so it
-        // reads the same as the surrounding text.
+        // system default, one step below the prose it sits in (`codeBlock`, not the
+        // reading size): a run of code inside a sentence has to recede from it, the
+        // same way a fenced block does, so it is not mistaken for the prose around
+        // it. Its color is left alone so it reads the same as the surrounding text.
         let codeRuns = attributed.runs
             .filter { $0.inlinePresentationIntent?.contains(.code) == true }
             .map(\.range)
         for range in codeRuns {
-            attributed[range].font = Typography.code
+            attributed[range].font = Typography.codeBlock
         }
         // A file link shows the file's own name, not the path the agent printed:
         // `TranscriptRows.swift` reads better inline than

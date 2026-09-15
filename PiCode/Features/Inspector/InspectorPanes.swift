@@ -283,7 +283,7 @@ struct CodeViewer: View {
             .onAppear { scroll(proxy) }
             .onChange(of: highlightLine) { _, _ in scroll(proxy) }
         }
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(AppTheme.elevated)
     }
 
     private var lines: [String] {
@@ -298,8 +298,14 @@ struct CodeViewer: View {
 
 // MARK: - Terminal
 
+/// Pi's bash surface. It is **not** a login shell (§6): every command goes
+/// through Pi's own `bash` tool, so what the user runs here and what the agent
+/// ran are one history, in one session. `TerminalPanel` draws it under the
+/// conversation; `onClose` lets that panel offer a dismiss button without the
+/// view knowing about `AppState`.
 struct TerminalPane: View {
     var controller: PiSessionController
+    var onClose: (() -> Void)? = nil
 
     @State private var command = ""
     @State private var expandedIds: Set<String> = []
@@ -327,6 +333,15 @@ struct TerminalPane: View {
                     WorkspaceLauncher.openTerminal(at: controller.projectPath)
                 }
                 .controlSize(.small)
+                if let onClose {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Hide the terminal panel")
+                    .accessibilityLabel("Hide the terminal panel")
+                }
             }
             Text("Commands run through Pi's bash tool, in the project directory, and are appended to this session.")
                 .font(.caption)

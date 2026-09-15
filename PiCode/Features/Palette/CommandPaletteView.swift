@@ -2,10 +2,12 @@
 //  CommandPaletteView.swift
 //  PiCode
 //
-//  One palette for commands and sessions.
+//  One palette for commands, projects, and sessions.
 //
 //  Every entry routes through the same `PaletteCommand` enum the menu bar uses,
-//  so a shortcut, a menu item, and a palette row can never drift apart.
+//  so a shortcut, a menu item, and a palette row can never drift apart. Projects
+//  and sessions are searches, not commands: a project row opens its most recent
+//  chat (or starts a new one), and a session row opens that chat.
 //
 
 import SwiftUI
@@ -36,7 +38,7 @@ struct CommandPaletteView: View {
         HStack(spacing: 8) {
             Image(systemName: "command")
                 .foregroundStyle(.secondary)
-            TextField("Run a command or search sessions", text: $state.paletteQuery)
+            TextField("Run a command, or search projects and chats", text: $state.paletteQuery)
                 .textFieldStyle(.plain)
                 .font(.title3)
                 .focused($isFieldFocused)
@@ -52,6 +54,19 @@ struct CommandPaletteView: View {
                     default: break
                     }
                 }
+
+            Button {
+                state.closePalette()
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .imageScale(.medium)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .help("Close")
+            .accessibilityLabel("Close")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -80,10 +95,30 @@ struct CommandPaletteView: View {
                         }
                     }
 
+                    if !state.paletteProjectResults.isEmpty {
+                        sectionHeader("Projects")
+                        ForEach(Array(state.paletteProjectResults.enumerated()), id: \.offset) { offset, project in
+                            let index = commands.count + offset
+                            row(
+                                index: index,
+                                systemImage: "folder",
+                                title: project.name,
+                                subtitle: project.displayPath,
+                                shortcut: nil,
+                                isEnabled: true
+                            ) {
+                                state.closePalette()
+                                dismiss()
+                                Task { await state.open(project: project) }
+                            }
+                            .id(index)
+                        }
+                    }
+
                     if !state.paletteResults.isEmpty {
                         sectionHeader("Sessions")
                         ForEach(Array(state.paletteResults.enumerated()), id: \.offset) { offset, result in
-                            let index = commands.count + offset
+                            let index = commands.count + state.paletteProjectResults.count + offset
                             row(
                                 index: index,
                                 systemImage: "bubble.left",
@@ -100,7 +135,7 @@ struct CommandPaletteView: View {
                         }
                     }
 
-                    if commands.isEmpty && state.paletteResults.isEmpty {
+                    if commands.isEmpty && state.paletteProjectResults.isEmpty && state.paletteResults.isEmpty {
                         Text(state.paletteQuery.isEmpty ? "Type to filter." : "No matches.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
@@ -182,7 +217,9 @@ struct CommandPaletteView: View {
         return true
     }
 
-    private var totalCount: Int { commands.count + state.paletteResults.count }
+    private var totalCount: Int {
+        commands.count + state.paletteProjectResults.count + state.paletteResults.count
+    }
 
     private func move(_ delta: Int) {
         guard totalCount > 0 else { return }
@@ -198,8 +235,13 @@ struct CommandPaletteView: View {
             state.closePalette()
             dismiss()
             onRun(command)
+        } else if index < commands.count + state.paletteProjectResults.count {
+            let project = state.paletteProjectResults[index - commands.count]
+            state.closePalette()
+            dismiss()
+            Task { await state.open(project: project) }
         } else {
-            let session = state.paletteResults[index - commands.count].session
+            let session = state.paletteResults[index - commands.count - state.paletteProjectResults.count].session
             state.closePalette()
             dismiss()
             Task { await state.open(session: session) }
