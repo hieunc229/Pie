@@ -51,4 +51,7 @@ enum Typography {
     /// reading column; nothing is boxing the plain text in to say it is apart, so the
     /// size is what makes it recede.
     static let codeBlockCompact = Font.system(size: baseSize - 2, design: .monospaced)
+
+    /// Syntax-highlighted code in the inspector sits two points below prose.
+    static let inspectorCode = Font.system(size: baseSize - 2, design: .monospaced)
 }

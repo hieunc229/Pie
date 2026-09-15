@@ -365,7 +365,14 @@ enum PiProviderService {
         }
     }
 
-    static let supportedAPIs = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]
+    static let supportedAPIs = [
+        "openai-completions",
+        "openai-responses",
+        "anthropic-messages",
+        "google-generative-ai",
+        "mistral-conversations",
+        "bedrock-converse-stream"
+    ]
 
     static func customProviders(at url: URL = PiPaths.modelsFile) -> [CustomProvider] {
         guard let root = try? readObject(at: url),

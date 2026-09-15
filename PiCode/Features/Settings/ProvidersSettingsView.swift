@@ -502,7 +502,7 @@ struct CustomProviderSheet: View {
             id: id.trimmingCharacters(in: .whitespaces),
             baseURL: baseURL.trimmingCharacters(in: .whitespaces),
             api: api,
-            apiKey: apiKey.isEmpty ? nil : apiKey,
+            apiKey: apiKey.isEmpty ? (models.isEmpty ? nil : "no-key-required") : apiKey,
             models: models,
             // Editing keeps fields PiCode does not expose, such as compat,
             // headers, samplingParams, and thinkingLevelMap.

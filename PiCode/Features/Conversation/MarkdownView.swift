@@ -129,14 +129,14 @@ struct MarkdownView: View {
     private func blockView(_ block: MarkdownBlock) -> some View {
         switch block {
         case .heading(let level, let text):
-            Text(inline(text))
+            MarkdownInlineText(source: text)
                 .font(headingFont(level))
                 .lineSpacing(TranscriptStyle.lineSpacing)
                 .textSelection(.enabled)
                 .padding(.top, level <= 2 ? 4 : 0)
 
         case .paragraph(let text):
-            Text(inline(text))
+            MarkdownInlineText(source: text)
                 .font(Typography.body)
                 .lineSpacing(TranscriptStyle.lineSpacing)
                 .textSelection(.enabled)
@@ -159,7 +159,7 @@ struct MarkdownView: View {
                 Rectangle()
                     .fill(.tertiary)
                     .frame(width: 3)
-                Text(inline(lines.joined(separator: "\n")))
+                MarkdownInlineText(source: lines.joined(separator: "\n"))
                     .font(Typography.body)
                     .lineSpacing(TranscriptStyle.lineSpacing)
                     .foregroundStyle(.secondary)
@@ -188,10 +188,6 @@ struct MarkdownView: View {
         }
     }
 
-    private func inline(_ text: String) -> AttributedString {
-        MarkdownInline.attributed(text)
-    }
-
     private func headingFont(_ level: Int) -> Font {
         // Headings keep their *weight*, not a size: the transcript is one column of
         // one size (`TranscriptStyle`), and a heading that grows breaks it.
@@ -215,7 +211,7 @@ struct MarkdownView: View {
                             .foregroundStyle(.secondary)
                             .frame(minWidth: 16, alignment: .trailing)
                     }
-                    Text(inline(item.text))
+                    MarkdownInlineText(source: item.text)
                         .font(Typography.body)
                         .lineSpacing(TranscriptStyle.lineSpacing)
                         .textSelection(.enabled)
@@ -278,7 +274,7 @@ struct CodeBlockView: View {
             Button {
                 withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
             } label: {
-                Label(isExpanded ? "Hide" : "Show",
+                Label("",
                       systemImage: isExpanded ? "chevron.up" : "chevron.down")
                     .font(Typography.body)
             }
@@ -308,7 +304,7 @@ struct MarkdownTableView: View {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                 GridRow {
                     ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
-                        Text(MarkdownInline.attributed(header))
+                        MarkdownInlineText(source: header)
                             .font(Typography.bodySemibold)
                             .lineSpacing(TranscriptStyle.lineSpacing)
                             .textSelection(.enabled)
@@ -320,7 +316,7 @@ struct MarkdownTableView: View {
                 ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                     GridRow {
                         ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                            Text(MarkdownInline.attributed(cell))
+                            MarkdownInlineText(source: cell)
                                 .font(Typography.body)
                                 .lineSpacing(TranscriptStyle.lineSpacing)
                                 .textSelection(.enabled)

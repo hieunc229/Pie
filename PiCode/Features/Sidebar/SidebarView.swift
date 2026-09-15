@@ -10,6 +10,7 @@
 //  lives in app preferences.
 //
 
+import Foundation
 import SwiftUI
 
 /// Sidebar row metrics and colours.
@@ -23,6 +24,9 @@ enum SidebarStyle {
     /// size (`Typography.baseSize`). 13pt regular: a menu of names, not a document,
     /// and nothing in it is a heading.
     static let rowFont = Typography.body
+    /// Project and chat names sit slightly below full label ink so the sidebar
+    /// stays quieter than the active conversation without becoming secondary.
+    static let rowTextOpacity = 0.85
     /// Left edge of the sidebar's own content: the search field's fill and the
     /// project glyph both start here.
     static let sidebarMargin: CGFloat = 10
@@ -104,19 +108,22 @@ enum SidebarStyle {
 
     /// The window's titlebar row — where macOS draws the traffic lights and the
     /// toolbar's own buttons, and therefore where the sidebar's search icon now
-    /// lives. A window with this app's `.hiddenTitleBar` style resolves to a
-    /// *compact* toolbar, whose band is 38pt tall, so its centre is 19pt below the
-    /// window's top edge; that strip is *above* the safe area the sidebar's own
+    /// lives. The unified toolbar configured by `PiCodeApp` is 52pt tall, so its
+    /// centre is 26pt below the window's top edge; that strip is *above* the safe
+    /// area the sidebar's own
     /// content starts in, which is why the button has to `ignoresSafeArea` to be
     /// drawn there. The toolbar's buttons (traffic lights included) are centred on
-    /// the same 19pt, so the icon reads as one row with them instead of as the top
-    /// of the list. Measured against the running window — a unified toolbar would
-    /// put the lights at 26pt, which is what this constant used to say — and
-    /// `run-sidebar-align.sh` checks the wiring that puts a button here.
-    static let titlebarRowCenter: CGFloat = 19
+    /// the same 26pt, so the icon reads as one row with them instead of as the top
+    /// of the list. Measured against the running window; a compact toolbar would
+    /// put the lights at 19pt instead. `run-sidebar-align.sh` checks the wiring
+    /// that puts a button here.
+    static let titlebarRowCenter: CGFloat = 26
     /// The square a top-bar icon button draws in. Fixed so the row's geometry is
     /// known and the icon cannot change the row it shares with the traffic lights.
     static let topBarButtonSize: CGFloat = 22
+    /// The rendered symbol inside both titlebar controls. Their hit areas stay at
+    /// `topBarButtonSize`; only the glyph is reduced.
+    static let topBarIconSize: CGFloat = 13
     /// The button's inset from the sidebar's trailing edge, the same margin the
     /// footer uses so the icon's edge lines up with the column.
     static var topBarTrailingInset: CGFloat { sidebarMargin }
@@ -175,6 +182,8 @@ struct SidebarView: View {
     /// commands. The sheet lives on `RootView`, so the closure is passed down
     /// rather than reached for.
     var onOpenPalette: () -> Void
+    /// Presents the window-owned settings modal from the fixed footer row.
+    var onOpenSettings: () -> Void
 
     @State private var isNewChatHovering = false
     @State private var isPackagesHovering = false
@@ -192,7 +201,7 @@ struct SidebarView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            footer
+            settingsFooter
         }
         .frame(maxHeight: .infinity)
         // The column's own fill: the system material in the light appearance, the
@@ -202,6 +211,15 @@ struct SidebarView: View {
         // row on the sidebar's trailing edge, level with the traffic lights and
         // the sidebar toggle. See `searchButton`.
         .overlay(alignment: .topTrailing) { searchButton }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let folder = urls.first(where: { url in
+                var isDirectory = ObjCBool(false)
+                return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                    && isDirectory.boolValue
+            }) else { return false }
+            Task { await state.addProject(path: folder.path) }
+            return true
+        }
     }
 
     // MARK: - New chat
@@ -222,7 +240,7 @@ struct SidebarView: View {
         } label: {
             HStack(spacing: SidebarStyle.iconTextSpacing) {
                 Image(systemName: "square.and.pencil")
-                    .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                    .font(.system(size: SidebarStyle.projectIconSize + 2, weight: .regular))
                     .frame(width: SidebarStyle.projectIconSize,
                            height: SidebarStyle.projectIconSize,
                            alignment: .leading)
@@ -252,7 +270,7 @@ struct SidebarView: View {
         } label: {
             HStack(spacing: SidebarStyle.iconTextSpacing) {
                 Image(systemName: "shippingbox")
-                    .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                    .font(.system(size: SidebarStyle.projectIconSize + 2, weight: .regular))
                     .frame(width: SidebarStyle.projectIconSize,
                            height: SidebarStyle.projectIconSize,
                            alignment: .leading)
@@ -281,13 +299,13 @@ struct SidebarView: View {
     /// It is the only control in the sidebar that leaves the safe area: the row it
     /// belongs to is the toolbar's, above the sidebar's content, so it is pulled
     /// up with `.ignoresSafeArea` and centred on `titlebarRowCenter` — the same
-    /// 19pt the traffic lights and the sidebar toggle sit on. It is a plain icon
+    /// 26pt the traffic lights and the sidebar toggle sit on. It is a plain icon
     /// in the toolbar's own weightless style, not a filled control, because it is
     /// a window control first and a menu control second.
     private var searchButton: some View {
         Button(action: onOpenPalette) {
             Image(systemName: "magnifyingglass")
-                .imageScale(.medium)
+                .font(.system(size: SidebarStyle.topBarIconSize, weight: .regular))
                 .frame(width: SidebarStyle.topBarButtonSize, height: SidebarStyle.topBarButtonSize)
                 .contentShape(Rectangle())
         }
@@ -298,6 +316,32 @@ struct SidebarView: View {
         .padding(.top, SidebarStyle.topBarTopInset)
         .padding(.trailing, SidebarStyle.topBarTrailingInset)
         .ignoresSafeArea(.container, edges: .top)
+    }
+
+    /// Settings is a window-level destination, so it stays fixed at the bottom
+    /// instead of scrolling with projects and chats.
+    private var settingsFooter: some View {
+        Button(action: onOpenSettings) {
+            HStack(spacing: SidebarStyle.iconTextSpacing) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                    .frame(
+                        width: SidebarStyle.projectIconSize,
+                        height: SidebarStyle.projectIconSize,
+                        alignment: .leading
+                    )
+                Text("Settings")
+                    .font(SidebarStyle.rowFont)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, SidebarStyle.sidebarMargin + SidebarStyle.projectIconRightShift)
+        .padding(.trailing, SidebarStyle.sidebarMargin)
+        .padding(.vertical, 9)
+        .help("Open provider settings")
     }
 
     // MARK: - List
@@ -317,7 +361,7 @@ struct SidebarView: View {
                         chats(of: project)
                     }
                 }
-                sectionLabel("Projects")
+                projectsSectionLabel
                 ForEach(unpinnedProjects) { project in
                     ProjectRow(state: state, project: project)
                     chats(of: project)
@@ -376,6 +420,37 @@ struct SidebarView: View {
             .accessibilityAddTraits(.isHeader)
     }
 
+    /// The refresh action belongs to the project collection, so it sits at the
+    /// trailing end of that collection's label instead of occupying a footer row.
+    private var projectsSectionLabel: some View {
+        HStack(spacing: 8) {
+            Text("Projects")
+                .font(SidebarStyle.rowFont)
+                .foregroundStyle(.secondary)
+                .offset(x: -SidebarStyle.projectIconOffset)
+                .accessibilityAddTraits(.isHeader)
+
+            Spacer(minLength: 0)
+
+            if state.isIndexing {
+                ProgressView().controlSize(.small)
+            }
+
+            Button {
+                Task { await state.refreshIndex() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Reload sessions from disk (⌘R)")
+            .accessibilityLabel("Reload sessions from disk")
+        }
+        .padding(.top, SidebarStyle.sectionLabelTopPadding)
+        .padding(.bottom, SidebarStyle.sectionLabelBottomPadding)
+        .frame(maxWidth: .infinity)
+    }
+
     /// The rows belonging to one project.
     ///
     /// These are plain rows rather than a `Section`: the sidebar list style turns
@@ -410,30 +485,6 @@ struct SidebarView: View {
                     .padding(.bottom, 4)
             }
         }
-    }
-
-    /// The footer is down to the one action that is not a chat: reload the index.
-    /// The other buttons and the rule above it are gone; the list and the footer
-    /// share the column's background, and the gap is the separation.
-    private var footer: some View {
-        HStack(spacing: 8) {
-            Button {
-                Task { await state.refreshIndex() }
-            } label: {
-                Label("Reload", systemImage: "arrow.clockwise")
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.borderless)
-            .help("Reload sessions from disk (⌘R)")
-
-            if state.isIndexing {
-                ProgressView().controlSize(.small)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, SidebarStyle.sidebarMargin)
-        .padding(.vertical, 7)
     }
 
     // MARK: - Helpers
@@ -499,6 +550,7 @@ struct ProjectRow: View {
                 Text(project.name)
                     .font(SidebarStyle.rowFont)
                     .lineLimit(1)
+                    .opacity(SidebarStyle.rowTextOpacity)
                     .accessibilityAddTraits(.isHeader)
                 if showsPin && project.isPinned {
                     Image(systemName: "pin.fill")
@@ -593,6 +645,7 @@ struct SessionRow: View {
                     .font(SidebarStyle.rowFont)
                     .lineLimit(1)
                     .foregroundStyle(.primary)
+                    .opacity(SidebarStyle.rowTextOpacity)
 
                 Spacer(minLength: 0)
 

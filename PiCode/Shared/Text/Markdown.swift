@@ -399,14 +399,14 @@ enum MarkdownInline {
         }
         // Inline code is monospaced, matching the rest of the UI rather than the
         // system default, one step below the prose it sits in (`codeBlock`, not the
-        // reading size): a run of code inside a sentence has to recede from it, the
-        // same way a fenced block does, so it is not mistaken for the prose around
-        // it. Its color is left alone so it reads the same as the surrounding text.
+        // reading size). A quiet grey backing separates the span from the sentence
+        // around it without changing its foreground colour.
         let codeRuns = attributed.runs
             .filter { $0.inlinePresentationIntent?.contains(.code) == true }
             .map(\.range)
         for range in codeRuns {
             attributed[range].font = Typography.codeBlock
+            attributed[range].backgroundColor = Color.gray.opacity(0.18)
         }
         // A file link shows the file's own name, not the path the agent printed:
         // `TranscriptRows.swift` reads better inline than

@@ -22,14 +22,19 @@ struct RootView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(state: state) {
-                state.openPalette()
-                sheet = .palette
-            }
+            SidebarView(
+                state: state,
+                onOpenPalette: {
+                    state.openPalette()
+                    sheet = .palette
+                },
+                onOpenSettings: { sheet = .settings }
+            )
             .navigationSplitViewColumnWidth(min: 234, ideal: 268, max: 360)
         } detail: {
             detailPane
         }
+        .background(SidebarToggleStyler(iconSize: SidebarStyle.topBarIconSize))
         .task {
             if state.phase == .starting { await state.launch() }
         }
@@ -55,6 +60,8 @@ struct RootView: View {
                 DeleteSessionSheet(state: state, session: session) { self.sheet = nil }
             case .projectSettings(let project):
                 ProjectSettingsSheet(state: state, project: project) { self.sheet = nil }
+            case .settings:
+                ProviderSettingsModal(state: state) { self.sheet = nil }
             }
         }
         .onChange(of: state.pendingProjectSettings) { _, project in
@@ -91,12 +98,32 @@ struct RootView: View {
                     if state.isInspectorVisible {
                         InspectorView(state: state)
                             .frame(minWidth: 280, idealWidth: 360, maxWidth: 560, maxHeight: .infinity)
-                            // The conversation's header is an overlay that reaches into the
-                            // titlebar band; the inspector's header is laid out in the
-                            // column, so it has to ignore the same safe area or it starts
-                            // one header lower than the conversation's. Ignoring it here
-                            // puts both headers on the window's top row.
-                            .ignoresSafeArea(.container, edges: .top)
+                            // Use an explicit horizontal offset. `move(edge:)`
+                            // inside `HSplitView` can inherit the split's changing
+                            // layout origin and look like a vertical transition.
+                            .transition(.offset(x: 560))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.22), value: state.isInspectorVisible)
+                // The project header belongs to the entire detail surface, not
+                // only the transcript. Keeping it above the split makes its fill
+                // and bottom rule continuous across the right panel as well.
+                .overlay(alignment: .top) {
+                    if state.phase == .ready, let controller = state.activeController {
+                        ContentHeader(
+                            projectName: state.selectedProject?.name ?? controller.projectName,
+                            isSidebarVisible: columnVisibility != .detailOnly,
+                            unreadNotificationCount: state.unreadNotificationCount,
+                            isShowingNotifications: state.isShowingNotifications,
+                            onToggleNotifications: { state.toggleNotifications() },
+                            isInspectorVisible: state.isInspectorVisible && !state.isNotificationsVisible,
+                            onToggleInspector: { state.toggleInspector() },
+                            isTerminalVisible: state.isTerminalVisible,
+                            onToggleTerminal: { state.toggleTerminal() },
+                            onOpenInFinder: { WorkspaceLauncher.reveal(controller.projectPath) },
+                            onOpenInVSCode: { openProjectInVSCode(controller.projectPath) }
+                        )
+                        .ignoresSafeArea(.container, edges: .top)
                     }
                 }
             }
@@ -118,30 +145,6 @@ struct RootView: View {
                     if state.isTerminalVisible {
                         TerminalPanel(state: state, controller: controller)
                     }
-                }
-                // The hidden title bar still carries the traffic lights and
-                // reserves their row as a top safe area, so a column that lays its
-                // header out *inside* the safe area starts one header below the
-                // window's top edge — a blank band above the conversation. The
-                // header is drawn as an overlay that `ignoresSafeArea`s into that
-                // band instead (the same way the sidebar's search icon reaches the
-                // row), so the band is the header and the transcript still begins
-                // directly under it.
-                .overlay(alignment: .top) {
-                    ContentHeader(
-                        projectName: state.selectedProject?.name ?? controller.projectName,
-                        isSidebarVisible: columnVisibility != .detailOnly,
-                        unreadNotificationCount: state.unreadNotificationCount,
-                        isShowingNotifications: state.isShowingNotifications,
-                        onToggleNotifications: { state.toggleNotifications() },
-                        isInspectorVisible: state.isInspectorVisible && !state.isNotificationsVisible,
-                        onToggleInspector: { state.toggleInspector() },
-                        isTerminalVisible: state.isTerminalVisible,
-                        onToggleTerminal: { state.toggleTerminal() },
-                        onOpenInFinder: { WorkspaceLauncher.reveal(controller.projectPath) },
-                        onOpenInVSCode: { openProjectInVSCode(controller.projectPath) }
-                    )
-                    .ignoresSafeArea(.container, edges: .top)
                 }
             } else {
                 WelcomeView(state: state)
@@ -334,6 +337,7 @@ struct RootView: View {
 /// Sheets that need a value or an action from the current session.
 enum RootSheet: Identifiable {
     case palette
+    case settings
     case rename(String)
     case renameChat(SessionRef)
     case compact
@@ -344,6 +348,7 @@ enum RootSheet: Identifiable {
     var id: String {
         switch self {
         case .palette: return "palette"
+        case .settings: return "settings"
         case .rename: return "rename"
         case .renameChat(let session): return "rename-\(session.id)"
         case .compact: return "compact"

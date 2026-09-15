@@ -175,7 +175,7 @@ struct TranscriptRowView: View {
                         .font(TranscriptStyle.text.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
-                Text(MarkdownInline.attributed(item.text))
+                MarkdownInlineText(source: item.text)
                     .font(TranscriptStyle.text)
                     .lineSpacing(TranscriptStyle.lineSpacing)
                     .textSelection(.enabled)

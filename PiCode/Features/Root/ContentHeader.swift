@@ -67,7 +67,6 @@ struct ContentHeader: View {
     /// button gets.
     @State private var isHoveringNotifications = false
     @State private var isHoveringInspector = false
-    @State private var isHoveringWorkspace = false
 
     /// The sidebar is closed, so the content reaches the window's leading edge.
     /// The traffic lights run to about 64pt and the system's sidebar toggle to
@@ -81,8 +80,8 @@ struct ContentHeader: View {
             Spacer(minLength: 8)
             // A gap of their own: the three controls are neighbours on one row,
             // not a single control split apart. The bell leads, then the workspace
-            // menu, then the panel toggle — the two state lights bracket the menu
-            // that is not one.
+            // menu, then the panel toggle. The opened menu handles its own
+            // trailing-edge alignment.
             HStack(spacing: 16) {
                 notificationsToggle
                 workspaceMenu
@@ -131,46 +130,21 @@ struct ContentHeader: View {
         }
     }
 
-    /// The workspace menu, drawn to the left of the bell: the actions that act on
+    /// The workspace menu, drawn to the right of notifications: the actions that act on
     /// the project as a whole rather than on the conversation — the terminal
     /// panel, and opening the folder in Finder or an editor. A menu rather than
     /// three more icons keeps the header's right edge from turning into a strip.
     ///
-    /// The square is always dimmed and lifts to full ink only under the pointer:
-    /// it is a menu, not a state control. Which item is on is carried by the item's
-    /// own label ("Hide Terminal") and by the panel being visibly open below, so
-    /// the icon does not need a lit state of its own.
+    /// The square shares the other controls' dimmed and full-ink states: it lights
+    /// while the terminal panel is open, or while the pointer is over it.
     private var workspaceMenu: some View {
-        Menu {
-            Button(action: onToggleTerminal) {
-                Label(isTerminalVisible ? "Hide Terminal" : "Show Terminal",
-                      systemImage: "terminal")
-            }
-            Divider()
-            Button(action: onOpenInFinder) {
-                Label("Open in Finder", systemImage: "folder")
-            }
-            Button(action: onOpenInVSCode) {
-                Label("Open in VS Code", systemImage: "chevron.left.forwardslash.chevron.right")
-            }
-        } label: {
-            Image(systemName: "equal.square")
-                .imageScale(.medium)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .onHover { isHoveringWorkspace = $0 }
-        // Dimming has to be applied to the `Menu`, not to the glyph: a
-        // `borderlessButton` menu snapshots its label as a template image and
-        // drops drawing modifiers set inside it (`.foregroundStyle` and even
-        // `.opacity` on the `Image` both render at full ink). Compositing the
-        // menu itself is the one form that survives, and it dims only the label —
-        // the popped-up items are their own window and stay at full strength.
-        .opacity(isHoveringWorkspace ? 1 : 0.55)
-        .help("Workspace actions")
-        .accessibilityLabel("Workspace actions")
+        WorkspaceMenuButton(
+            isTerminalVisible: isTerminalVisible,
+            onToggleTerminal: onToggleTerminal,
+            onOpenInFinder: onOpenInFinder,
+            onOpenInVSCode: onOpenInVSCode
+        )
+        .frame(width: 18, height: 18)
     }
 
     /// The notifications bell, drawn first, to the left of the workspace menu. Its
@@ -238,8 +212,7 @@ struct ContentHeader: View {
     }
 
     /// The hover-only tint: dimmed until the pointer arrives, then the same full
-    /// ink a lit panel toggle uses. The workspace menu uses this alone, so its
-    /// square reads as an affordance rather than as another status light.
+    /// ink a lit panel toggle uses.
     private func hoverTint(isHovering: Bool) -> Color {
         isHovering ? .primary : .primary.opacity(0.55)
     }

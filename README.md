@@ -1,10 +1,12 @@
-# PiCode
+<img src="assets/icon.png" height="96" width="96" />
+
+# Pie
 
 **A native macOS interface for [Pi Coding Agent](https://pi.dev/).**
 
 PiCode keeps Pi as the agent runtime and gives it a focused desktop interface for long-running coding sessions. Projects and chats stay close at hand, agent activity remains readable, and files, diffs, and command output open beside the conversation when you need them.
 
-![PiCode showing a project sidebar, coding conversation, and source-file inspector](assets/screenshots.png)
+![PiCode showing a project sidebar, coding conversation, and source-file inspector](assets/screenshot.png)
 
 > [!IMPORTANT]
 > PiCode is a client for Pi, not a fork or a replacement. It launches your installed `pi` executable in RPC mode, uses Pi's providers and session files, and leaves credentials under Pi's control.

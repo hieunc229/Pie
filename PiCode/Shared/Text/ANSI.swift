@@ -45,7 +45,12 @@ enum ANSIParser {
     }
 
     /// Builds a styled string, mapping SGR attributes to semantic colors.
-    static func attributed(_ text: String, scheme: ColorScheme, baseFont: Font = .system(.body, design: .monospaced)) -> AttributedString {
+    static func attributed(
+        _ text: String,
+        scheme: ColorScheme,
+        baseFont: Font = .system(.body, design: .monospaced),
+        defaultForeground: Color? = nil
+    ) -> AttributedString {
         var result = AttributedString()
         var state = SGRState()
 
@@ -99,7 +104,7 @@ enum ANSIParser {
             }
             var segment = AttributedString(String(text[start..<index]))
             segment.font = state.bold ? .system(.body, design: .monospaced).bold() : baseFont
-            segment.foregroundColor = state.foreground(scheme: scheme)
+            segment.foregroundColor = state.foreground(scheme: scheme, defaultColor: defaultForeground)
             if state.underline {
                 segment.underlineStyle = .single
             }
@@ -204,14 +209,14 @@ enum ANSIParser {
             }
         }
 
-        func foreground(scheme: ColorScheme) -> Color {
+        func foreground(scheme: ColorScheme, defaultColor: Color? = nil) -> Color {
             if let trueColor {
                 return Color(.sRGB, red: trueColor.r, green: trueColor.g, blue: trueColor.b)
             }
             if let foregroundIndex {
                 return ANSIPalette.color(index: foregroundIndex, scheme: scheme)
             }
-            return Color(nsColor: .labelColor)
+            return defaultColor ?? Color(nsColor: .labelColor)
         }
     }
 }

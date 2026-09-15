@@ -15,6 +15,7 @@ import SwiftUI
 
 struct InspectorView: View {
     @Bindable var state: AppState
+    @AppStorage("inspectorTextWrap") private var wrapsText = true
 
     var body: some View {
         Group {
@@ -22,9 +23,9 @@ struct InspectorView: View {
                 NotificationsPanel(state: state)
             } else if let controller = state.activeController, let artifact = state.inspectorArtifact {
                 VStack(spacing: 0) {
-                    ArtifactHeader(artifact: artifact, controller: controller)
+                    ArtifactHeader(artifact: artifact, controller: controller, wrapsText: $wrapsText)
                     Divider()
-                    ArtifactContentView(artifact: artifact, controller: controller)
+                    ArtifactContentView(artifact: artifact, controller: controller, wrapsText: wrapsText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
@@ -36,6 +37,7 @@ struct InspectorView: View {
             }
         }
         .frame(maxHeight: .infinity)
+        .background(AppTheme.background)
     }
 }
 
@@ -59,8 +61,8 @@ struct NotificationsPanel: View {
         }
     }
 
-    /// Mirrors `ArtifactHeader`: the panel's own line starts on the same row as
-    /// the conversation's, with the title on the left and the actions on the right.
+    /// Mirrors `ArtifactHeader`: this contextual line sits directly beneath the
+    /// shared content header, with the title left and actions right.
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: "bell")
@@ -82,11 +84,9 @@ struct NotificationsPanel: View {
             }
         }
         .padding(.horizontal, 12)
-        // The same band as `ContentHeader` — the two lines share the window's top
-        // row — but a half-point tighter on each side, so the panel's rule sits one
-        // point above the conversation's rather than a full point below it.
+        // A contextual row beneath the shared content header.
         .padding(.vertical, 15.5)
-        .background(AppTheme.elevated)
+        .background(AppTheme.background)
     }
 
     @ViewBuilder
@@ -106,7 +106,7 @@ struct NotificationsPanel: View {
                     }
                 }
             }
-            .background(AppTheme.elevated)
+            .background(AppTheme.background)
         }
     }
 
@@ -160,13 +160,14 @@ struct NotificationsPanel: View {
     }
 }
 
-/// The one line along the top of the panel: what is open, and where it lives. A
+/// The contextual line beneath the shared header: what is open, and where it lives. A
 /// file's path is the title; a call with no file gets its own name instead. It is
 /// one line only — the panel's own header is context, not a place for a second
 /// summary that the content below already says.
 struct ArtifactHeader: View {
     var artifact: AppState.InspectorArtifact
     var controller: PiSessionController
+    @Binding var wrapsText: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -182,12 +183,26 @@ struct ArtifactHeader: View {
                 .help(title)
 
             Spacer(minLength: 0)
+
+            Menu {
+                Toggle(isOn: $wrapsText) {
+                    Label("Text Wrap", systemImage: "text.justify.left")
+                }
+            } label: {
+                Image(systemName: "gearshape")
+                    .imageScale(.medium)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Viewer settings")
+            .accessibilityLabel("Viewer settings")
         }
         .padding(.horizontal, 12)
-        // Matches `ContentHeader`'s band and is a half-point tighter on each side,
-        // so the panel's rule sits one point above the conversation's.
+        // A contextual row beneath the shared content header.
         .padding(.vertical, 15.5)
-        .background(AppTheme.elevated)
+        .background(AppTheme.background)
     }
 
     /// The file the artifact is about, when it has one.
@@ -235,16 +250,13 @@ struct ArtifactHeader: View {
 struct ArtifactContentView: View {
     var artifact: AppState.InspectorArtifact
     var controller: PiSessionController
+    var wrapsText: Bool
 
     var body: some View {
         switch artifact {
         case .tool(let id):
             if let item = controller.items.first(where: { $0.id == id }) {
-                ScrollView {
-                    QuietStepContent(item: item, controller: controller)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                InspectorToolArtifactView(item: item, wrapsText: wrapsText)
             } else {
                 EmptyStateView(
                     systemImage: "questionmark.folder",
@@ -253,9 +265,9 @@ struct ArtifactContentView: View {
                 )
             }
         case .file(let path, let line):
-            FileArtifactView(path: path, line: line)
+            FileArtifactView(path: path, line: line, wrapsText: wrapsText)
         case .change(let path):
-            ChangeArtifactView(path: path, controller: controller)
+            ChangeArtifactView(path: path, controller: controller, wrapsText: wrapsText)
         }
     }
 }
@@ -264,6 +276,7 @@ struct ArtifactContentView: View {
 struct FileArtifactView: View {
     var path: String
     var line: Int?
+    var wrapsText: Bool
 
     @State private var preview: FilePreview?
 
@@ -275,7 +288,12 @@ struct FileArtifactView: View {
                         .padding(12)
                     Spacer(minLength: 0)
                 } else {
-                    CodeViewer(text: preview.text, language: preview.language, highlightLine: line)
+                    CodeViewer(
+                        text: preview.text,
+                        language: preview.language,
+                        highlightLine: line,
+                        wrapsText: wrapsText
+                    )
                 }
             } else {
                 ProgressView().controlSize(.small)
@@ -291,6 +309,7 @@ struct FileArtifactView: View {
 struct ChangeArtifactView: View {
     var path: String
     var controller: PiSessionController
+    var wrapsText: Bool
 
     @State private var diff: String?
     @State private var isLoading = true
@@ -300,7 +319,7 @@ struct ChangeArtifactView: View {
             if isLoading {
                 ProgressView().controlSize(.small).padding(16)
             } else if let diff, !diff.isEmpty {
-                DiffView(diff: diff)
+                DiffView(diff: diff, wrapsText: wrapsText)
             } else {
                 EmptyStateView(
                     systemImage: "doc.text.magnifyingglass",
@@ -603,51 +622,47 @@ struct ChangeRow: View {
 
 struct DiffView: View {
     var diff: String
+    var wrapsText = false
 
     var body: some View {
-        ScrollView([.vertical, .horizontal]) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    Text(line.text)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(line.color)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 0.5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        GeometryReader { geometry in
+            ScrollView(wrapsText ? .vertical : [.vertical, .horizontal]) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(lines) { line in
+                        HStack(alignment: .firstTextBaseline, spacing: 0) {
+                            Text(line.oldLine.map { String($0) } ?? "")
+                                .frame(width: 42, alignment: .trailing)
+                                .padding(.trailing, 8)
+                                .foregroundStyle(.tertiary)
+                                .background(line.gutterBackground)
+
+                            Text(line.newLine.map { String($0) } ?? "")
+                                .frame(width: 42, alignment: .trailing)
+                                .padding(.trailing, 8)
+                                .foregroundStyle(.tertiary)
+                                .background(line.gutterBackground)
+
+                            Text(line.marker)
+                                .frame(width: 20, alignment: .center)
+                                .foregroundStyle(line.markerColor)
+
+                            Text(line.text)
+                                .foregroundStyle(line.foreground)
+                                .fixedSize(horizontal: !wrapsText, vertical: false)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.trailing, 12)
+                        }
+                        .font(Typography.codeBlockCompact)
+                        .frame(maxWidth: .infinity, minHeight: 19, alignment: .leading)
                         .background(line.background)
                         .textSelection(.enabled)
+                    }
                 }
+                .frame(minWidth: geometry.size.width, alignment: .leading)
             }
-            .padding(.vertical, 4)
         }
-        .background(AppTheme.elevated)
+        .background(AppTheme.background)
     }
 
-    private struct Line {
-        var text: String
-        var color: Color
-        var background: Color
-    }
-
-    private var lines: [Line] {
-        diff.split(separator: "\n", omittingEmptySubsequences: false).map { rawLine in
-            let line = String(rawLine)
-            if line.hasPrefix("+++") || line.hasPrefix("---") {
-                return Line(text: line, color: .secondary, background: .clear)
-            }
-            if line.hasPrefix("@@") {
-                return Line(text: line, color: .accentColor, background: Color.accentColor.opacity(0.08))
-            }
-            if line.hasPrefix("+") {
-                return Line(text: line, color: .primary, background: Color.green.opacity(0.13))
-            }
-            if line.hasPrefix("-") {
-                return Line(text: line, color: .primary, background: Color.red.opacity(0.13))
-            }
-            if line.hasPrefix("diff ") || line.hasPrefix("index ") || line.hasPrefix("new file") || line.hasPrefix("deleted file") {
-                return Line(text: line, color: .secondary, background: .clear)
-            }
-            return Line(text: line, color: .primary, background: .clear)
-        }
-    }
+    private var lines: [GitDiffLine] { InspectorArtifactRendering.parseDiff(diff) }
 }

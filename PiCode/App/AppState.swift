@@ -137,13 +137,18 @@ final class AppState {
         isInspectorVisible = true
     }
 
-    /// Close the right panel and forget that it was showing notifications, so
-    /// reopening with the inspector toggle shows the artifact again. Only the bell
-    /// asks for the notification list.
+    /// Toggle the artifact viewer. If notifications currently own the one right
+    /// panel, switch that panel to the artifact instead of closing and reopening
+    /// two independent surfaces.
     func toggleInspector() {
+        if isShowingNotifications {
+            markNotificationsRead()
+            isNotificationsVisible = false
+            isInspectorVisible = true
+            return
+        }
         isInspectorVisible.toggle()
         if !isInspectorVisible {
-            markNotificationsRead()
             isNotificationsVisible = false
         }
     }
@@ -162,6 +167,7 @@ final class AppState {
         if isShowingNotifications {
             markNotificationsRead()
             isNotificationsVisible = false
+            isInspectorVisible = false
         } else {
             isNotificationsVisible = true
             isInspectorVisible = true
@@ -663,6 +669,12 @@ final class AppState {
 
     func addProject() async {
         guard let path = WorkspaceLauncher.chooseDirectory() else { return }
+        await addProject(path: path)
+    }
+
+    /// Register a folder supplied without the picker (for example, a Finder
+    /// drop), then open a fresh chat there just like “Open Project Folder…”.
+    func addProject(path: String) async {
         let canonical = CanonicalPath.of(path)
         await refreshIndex()
         if project(for: canonical) == nil {

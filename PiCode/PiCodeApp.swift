@@ -24,6 +24,9 @@ struct PiCodeApp: App {
         // bar or toolbar above it: the content runs to the top of the window and
         // the transcript's header is the only thing at the top.
         .windowStyle(.hiddenTitleBar)
+        // The unified row places the traffic lights and the system sidebar
+        // toggle on the project title's vertical centre.
+        .windowToolbarStyle(.unified)
         .commands { PiCodeCommands(state: state) }
 
         Settings {

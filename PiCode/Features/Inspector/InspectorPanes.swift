@@ -255,35 +255,39 @@ struct CodeViewer: View {
     var text: String
     var language: SyntaxLanguage
     var highlightLine: Int?
+    var wrapsText = false
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView([.vertical, .horizontal]) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("\(index + 1)")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.tertiary)
-                                .frame(width: 42, alignment: .trailing)
-                            Text(SyntaxHighlighter.highlight(line, language: language))
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: true, vertical: false)
+            GeometryReader { geometry in
+                ScrollView(wrapsText ? .vertical : [.vertical, .horizontal]) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                            HStack(alignment: .top, spacing: 8) {
+                                Text("\(index + 1)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 42, alignment: .trailing)
+                                Text(InspectorArtifactRendering.highlightedText(line, language: language))
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: !wrapsText, vertical: false)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(.vertical, 0.5)
+                            .padding(.trailing, 12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(highlightLine == index + 1 ? Color.accentColor.opacity(0.12) : .clear)
+                            .id(index + 1)
                         }
-                        .padding(.vertical, 0.5)
-                        .padding(.trailing, 12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(highlightLine == index + 1 ? Color.accentColor.opacity(0.12) : .clear)
-                        .id(index + 1)
                     }
+                    .frame(minWidth: geometry.size.width, alignment: .leading)
+                    .padding(.vertical, 6)
                 }
-                .padding(.vertical, 6)
             }
             .onAppear { scroll(proxy) }
             .onChange(of: highlightLine) { _, _ in scroll(proxy) }
         }
-        .background(AppTheme.elevated)
+        .background(AppTheme.background)
     }
 
     private var lines: [String] {
