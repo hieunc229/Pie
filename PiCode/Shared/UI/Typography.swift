@@ -24,10 +24,12 @@ import SwiftUI
 enum Typography {
     /// The one size for anything the user reads or types: menu rows, message
     /// content, code, and the composer.
-    static let baseSize: CGFloat = 13
+    static let baseSize: CGFloat = 14
 
     /// Prose. Regular weight, because a size is not a weight.
-    static let body = Font.system(size: baseSize, weight: .regular)
+    static let body = Font.system(size: baseSize, weight: .light)
+    
+    static let kerning: CGFloat = 0.2
 
     /// Prose that has to carry a little emphasis — a tool name, a label inside
     /// content. Bold is reserved for first-level headings.

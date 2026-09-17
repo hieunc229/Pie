@@ -37,7 +37,6 @@ struct PackagesView: View {
                     browseSection
                     statusArea
                 }
-                .padding(.top, 26)
                 .padding(.bottom, 28)
             }
             .frame(maxWidth: .infinity)

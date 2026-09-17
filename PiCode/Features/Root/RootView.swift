@@ -19,6 +19,8 @@ struct RootView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var composerFocusTick = 0
     @State private var sheet: RootSheet?
+    @State private var inspectorWidth: CGFloat = 360
+    @State private var inspectorWidthAtDragStart: CGFloat?
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -37,6 +39,10 @@ struct RootView: View {
         .background(SidebarToggleStyler(iconSize: SidebarStyle.topBarIconSize))
         .task {
             if state.phase == .starting { await state.launch() }
+        }
+        .onDisappear {
+            state.isInspectorVisible = false
+            state.isNotificationsVisible = false
         }
         .onChange(of: state.commandTick) { _, _ in
             if let command = state.lastCommand { perform(command) }
@@ -91,23 +97,41 @@ struct RootView: View {
             if state.phase == .ready && state.isPackagesVisible {
                 PackagesView(state: state, isSidebarVisible: columnVisibility != .detailOnly)
             } else {
-                HSplitView {
-                    detail
+                HStack(spacing: 0) {
+                    mainContentColumn
                         .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
 
                     if state.isInspectorVisible {
-                        InspectorView(state: state)
-                            .frame(minWidth: 280, idealWidth: 360, maxWidth: 560, maxHeight: .infinity)
-                            // Use an explicit horizontal offset. `move(edge:)`
-                            // inside `HSplitView` can inherit the split's changing
-                            // layout origin and look like a vertical transition.
-                            .transition(.offset(x: 560))
+                        HStack(spacing: 0) {
+                            Rectangle()
+                                .fill(Color(nsColor: .separatorColor))
+                                .frame(width: 1)
+                                .contentShape(Rectangle().inset(by: -3))
+                                .gesture(
+                                    DragGesture()
+                                        .onChanged { value in
+                                            if inspectorWidthAtDragStart == nil {
+                                                inspectorWidthAtDragStart = inspectorWidth
+                                            }
+                                            let startingWidth = inspectorWidthAtDragStart ?? inspectorWidth
+                                            inspectorWidth = min(560, max(280, startingWidth - value.translation.width))
+                                        }
+                                        .onEnded { _ in inspectorWidthAtDragStart = nil }
+                                )
+
+                            InspectorView(state: state)
+                                .frame(width: inspectorWidth)
+                                .frame(maxHeight: .infinity)
+                        }
+                        .transition(.move(edge: .trailing))
                     }
                 }
+                .offset(y: -ContentHeaderMetrics.contentLift)
+                .clipped()
+                .background(AppTheme.background)
                 .animation(.easeInOut(duration: 0.22), value: state.isInspectorVisible)
-                // The project header belongs to the entire detail surface, not
-                // only the transcript. Keeping it above the split makes its fill
-                // and bottom rule continuous across the right panel as well.
+                // The header is deliberately attached after pane clipping. Its
+                // titlebar portion must remain outside the detail safe area.
                 .overlay(alignment: .top) {
                     if state.phase == .ready, let controller = state.activeController {
                         ContentHeader(
@@ -118,8 +142,7 @@ struct RootView: View {
                             onToggleNotifications: { state.toggleNotifications() },
                             isInspectorVisible: state.isInspectorVisible && !state.isNotificationsVisible,
                             onToggleInspector: { state.toggleInspector() },
-                            isTerminalVisible: state.isTerminalVisible,
-                            onToggleTerminal: { state.toggleTerminal() },
+                            onOpenInTerminal: { state.openTerminal(at: controller.projectPath) },
                             onOpenInFinder: { WorkspaceLauncher.reveal(controller.projectPath) },
                             onOpenInVSCode: { openProjectInVSCode(controller.projectPath) }
                         )
@@ -129,6 +152,13 @@ struct RootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The visible header is attached to the complete detail split above. The
+    /// column itself stays content-only to avoid a second titlebar row.
+    @ViewBuilder
+    private var mainContentColumn: some View {
+        detail
     }
 
     @ViewBuilder

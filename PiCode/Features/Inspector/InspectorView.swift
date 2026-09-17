@@ -24,7 +24,6 @@ struct InspectorView: View {
             } else if let controller = state.activeController, let artifact = state.inspectorArtifact {
                 VStack(spacing: 0) {
                     ArtifactHeader(artifact: artifact, controller: controller, wrapsText: $wrapsText)
-                    Divider()
                     ArtifactContentView(artifact: artifact, controller: controller, wrapsText: wrapsText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -55,14 +54,13 @@ struct NotificationsPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    /// Mirrors `ArtifactHeader`: this contextual line sits directly beneath the
-    /// shared content header, with the title left and actions right.
+    /// Mirrors `ArtifactHeader` and the conversation header, with the title left
+    /// and actions right on the same titlebar-height row.
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: "bell")
@@ -83,10 +81,14 @@ struct NotificationsPanel: View {
                     .help("Dismiss every notification in this session")
             }
         }
-        .padding(.horizontal, 12)
-        // A contextual row beneath the shared content header.
-        .padding(.vertical, 15.5)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
         .background(AppTheme.background)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(height: 1)
+        }
     }
 
     @ViewBuilder
@@ -160,10 +162,9 @@ struct NotificationsPanel: View {
     }
 }
 
-/// The contextual line beneath the shared header: what is open, and where it lives. A
-/// file's path is the title; a call with no file gets its own name instead. It is
-/// one line only — the panel's own header is context, not a place for a second
-/// summary that the content below already says.
+/// The right panel's header: what is open, and where it lives. A file's path is
+/// the title; a call with no file gets its own name instead. It uses the main
+/// header's padding, background and bottom rule so the two columns meet cleanly.
 struct ArtifactHeader: View {
     var artifact: AppState.InspectorArtifact
     var controller: PiSessionController
@@ -199,10 +200,14 @@ struct ArtifactHeader: View {
             .help("Viewer settings")
             .accessibilityLabel("Viewer settings")
         }
-        .padding(.horizontal, 12)
-        // A contextual row beneath the shared content header.
-        .padding(.vertical, 15.5)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
         .background(AppTheme.background)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(height: 1)
+        }
     }
 
     /// The file the artifact is about, when it has one.

@@ -95,7 +95,7 @@ struct ProviderSettingsModal: View {
             Divider().padding(.vertical, 4)
 
             Button { isAddingProvider = true } label: {
-                Label("Add third-party provider", systemImage: "plus")
+                Label("Add provider", systemImage: "plus")
                     .font(Typography.body)
             }
             .buttonStyle(.plain)

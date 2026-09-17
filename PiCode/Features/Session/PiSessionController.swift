@@ -34,6 +34,7 @@ final class PiSessionController {
     let drafts: DraftStore
     private let trustService = ProjectTrustService()
     private let gitService = GitStatusService()
+    private let sessionHistoryReader = PiSessionHistoryReader()
 
     private(set) var sessionFile: String?
     private(set) var sessionId: String?
@@ -43,6 +44,8 @@ final class PiSessionController {
     /// window-level fact, so the controller reports the completion and `AppState`
     /// decides whether the badge is warranted.
     var onAgentCompleted: (() -> Void)?
+    var onSessionForked: (() -> Void)?
+    var isChangingBranch = false
 
     /// The background title run and the one-shot latch that keeps it to the first
     /// message. Nothing is retried: a chat that failed to earn a name is not worth
@@ -68,12 +71,23 @@ final class PiSessionController {
 
     private var baseMessages: [PiMessage] = []
     private var baseItems: [TranscriptItem] = []
+    private var allBaseItems: [TranscriptItem] = []
+    private var visibleTranscriptItemLimit = 80
+    private let transcriptPageItemCount = 80
+    private var localHistoryTask: Task<Void, Never>?
+    /// The session file whose entries the local reader last filled `entries`
+    /// from, so a resume reads it once — at init — instead of again once Pi
+    /// has finished booting. A failed read clears it so the next start retries.
+    private var localHistoryFile: String?
     private var optimisticUserItems: [TranscriptItem] = []
     private(set) var items: [TranscriptItem] = []
     /// The transcript's rows, already folded. `TranscriptRows.group` is pure but
     /// O(items), and the view used to call it inside its body — so every streaming
     /// tick re-walked the whole session. It is computed here, once per change.
     private(set) var rows: [TranscriptRow] = []
+    private(set) var responseMetadata: [String: TranscriptResponseMetadata] = [:]
+    private(set) var hasEarlierTranscript = false
+    private(set) var isLoadingTranscriptHistory = false
     private(set) var isStreaming = false {
         // Liveness is half of the fold's input: the same items lay out as a live
         // run (one line per step) or as a finished turn (one “Worked for” line),
@@ -214,6 +228,11 @@ final class PiSessionController {
         self.piVersion = installation.version
         self.sessionId = sessionFile.flatMap { Self.sessionID(fromFile: $0) }
         self.trustState = trustService.state(for: self.projectPath)
+        // The session file is on disk and Pi's process is not: reading it here
+        // puts the transcript on screen immediately, while Pi is still booting.
+        if sessionFile != nil {
+            beginLocalHistoryLoad()
+        }
     }
 
     private static func sessionID(fromFile path: String) -> String? {
@@ -304,11 +323,13 @@ final class PiSessionController {
         runtime = .idle
         record(kind: .connection, title: "Connected to Pi \(piVersion)",
                detail: arguments.joined(separator: " "))
+        beginLocalHistoryLoad()
         await refreshAll()
         await refreshGit(immediately: true)
     }
 
     func stop() {
+        localHistoryTask?.cancel()
         gitRefreshTask?.cancel()
         client?.stop()
         client = nil
@@ -325,6 +346,9 @@ final class PiSessionController {
         liveCompaction = false
         isStreaming = false
         isCompacting = false
+        // Pi may have appended to the file before it stopped; drop the cache
+        // key so the load in `start` reads it again.
+        localHistoryFile = nil
         await start()
     }
 
@@ -604,27 +628,51 @@ final class PiSessionController {
             }
             resetSessionState()
             record(kind: .sessionChange, title: "Cloned the current branch")
+            await refreshState()
+            onSessionForked?()
             await refreshAll()
         } catch {
             report(error, context: "Cloning the session failed")
         }
     }
 
-    func fork(fromEntryId entryId: String) async {
+    @discardableResult
+    func fork(fromEntryId entryId: String, prefill: Bool = true, editedText: String? = nil) async -> Bool {
+        guard !runtime.isBusy, !isChangingBranch else { return false }
+        isChangingBranch = true
+        defer { isChangingBranch = false }
         do {
             let response = try await request(.fork(entryId: entryId))
             if response.data?.bool("cancelled") == true {
                 record(kind: .sessionChange, title: "Fork cancelled by an extension")
-                return
+                return false
             }
+            let forkedText = response.data?.string("text")
             resetSessionState()
-            if let text = response.data?.string("text"), !text.isEmpty {
+
+            // Forking changes Pi's active session. Resolve that new identity before
+            // storing the returned prompt; otherwise it is written under the old
+            // draft key and ComposerView immediately replaces it with the new
+            // session's empty draft.
+            await refreshState()
+            onSessionForked?()
+            if let text = editedText ?? (prefill ? forkedText : nil), !text.isEmpty {
                 drafts.setText(text, for: draftKey)
+                if editedText == nil { composerPrefill = text }
             }
             record(kind: .sessionChange, title: "Forked from an earlier message")
+            if let editedText {
+                await refreshMessages()
+                let sent = await send(text: editedText)
+                if !sent { composerPrefill = editedText }
+                Task { await self.refreshAll() }
+                return sent
+            }
             await refreshAll()
+            return true
         } catch {
             report(error, context: "Forking failed")
+            return false
         }
     }
 
@@ -703,6 +751,7 @@ final class PiSessionController {
         }
         isCompacting = false
         runtime = .idle
+        await refreshEntries()
         await refreshAll()
     }
 
@@ -1017,6 +1066,7 @@ final class PiSessionController {
     /// effectively free (measured at 0.01s). That matters because this runs after
     /// every settled turn. If the cursor is rejected, the full fetch is retried.
     func refreshEntries() async {
+        await localHistoryTask?.value
         guard !isLoadingEntries else { return }
         isLoadingEntries = true
         defer { isLoadingEntries = false }
@@ -1054,6 +1104,7 @@ final class PiSessionController {
     func refreshForkPoints() async {
         guard let response = try? await request(.getForkMessages) else { return }
         forkPoints = response.data?.array("messages")?.map(PiForkPoint.init(json:)) ?? []
+        rebuildBaseItems()
     }
 
     func refreshLastAssistantText() async {
@@ -1298,8 +1349,8 @@ final class PiSessionController {
             recomposeItems()
             Task { [weak self] in
                 guard let self else { return }
-                await self.refreshMessages()
                 await self.refreshEntries()
+                await self.refreshMessages()
                 await self.refreshStats()
                 await self.refreshState()
             }
@@ -1531,16 +1582,61 @@ final class PiSessionController {
 
     // MARK: - Transcript composition
 
+    private var transcriptMessageOffset = 0
+
     private func rebuildBaseItems() {
-        let userIds = TranscriptBuilder.userEntryIds(entries: entries, leafId: leafId)
-        baseItems = TranscriptBuilder.items(messages: baseMessages, userEntryIds: userIds)
-        applyToolRuntime(to: &baseItems)
+        let history = TranscriptHistory.messages(entries: entries, leafId: leafId, context: baseMessages)
+        transcriptMessageOffset = history.count - baseMessages.count
+        let userIds = Self.visibleUserEntryIDs(messages: history, entries: entries,
+                                              leafId: leafId, forkPoints: forkPoints)
+        allBaseItems = TranscriptBuilder.items(messages: history, userEntryIds: userIds)
+        applyToolRuntime(to: &allBaseItems)
+        rebuildVisibleTranscript()
         // File changes are derived from the durable items' arguments, so they
         // change exactly when `baseItems` does — not on every live delta. Kept out
         // of `recomposeItems` so the streaming hot path does not re-aggregate the
         // whole session for a value that cannot have moved.
         recentFileChanges = aggregateFileChanges()
+    }
+
+    private func rebuildVisibleTranscript() {
+        var start = max(0, allBaseItems.count - visibleTranscriptItemLimit)
+        if start > 0, let userStart = allBaseItems[...start].lastIndex(where: { $0.kind == .user }) {
+            start = userStart
+        }
+        baseItems = Array(allBaseItems[start...])
+        hasEarlierTranscript = start > 0
         recomposeItems()
+    }
+
+    func loadEarlierTranscript() {
+        guard hasEarlierTranscript else { return }
+        // The previous page may have expanded backwards to include a long turn.
+        // Advance past the actual loaded range so every request adds history.
+        visibleTranscriptItemLimit = max(visibleTranscriptItemLimit, baseItems.count) + transcriptPageItemCount
+        rebuildVisibleTranscript()
+    }
+
+    private func beginLocalHistoryLoad() {
+        guard let path = sessionFile, localHistoryFile != path else { return }
+        localHistoryTask?.cancel()
+        localHistoryFile = path
+        isLoadingTranscriptHistory = true
+        localHistoryTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.isLoadingTranscriptHistory = false }
+            let values = await self.sessionHistoryReader.entries(at: path)
+            let loaded = values.map(PiSessionEntry.init(json:))
+            guard !Task.isCancelled, !loaded.isEmpty, self.sessionFile == path else {
+                self.localHistoryFile = nil
+                return
+            }
+            self.entries = loaded
+            self.leafId = loaded.last?.id
+            self.lastEntryId = loaded.last?.id
+            self.tree = PiTreeNode.buildTree(from: loaded, leafId: self.leafId)
+            self.rebuildBaseItems()
+        }
     }
 
     private func recomposeItems() {
@@ -1582,6 +1678,7 @@ final class PiSessionController {
             // be a line that opens onto nothing.
             return items.contains { $0.kind != .thinking }
         }
+        responseMetadata = TranscriptResponseUtils.metadata(for: rows)
     }
 
     /// Marks the transcript dirty and arranges one recompose on the next frame.
@@ -1633,7 +1730,7 @@ final class PiSessionController {
 
         if let turn = liveTurn {
             for (index, text) in turn.thinkingByIndex.sorted(by: { $0.key < $1.key }) where !text.isEmpty {
-                var item = TranscriptItem(id: "msg-\(turn.messageIndex)-thinking-\(index)", kind: .thinking)
+                var item = TranscriptItem(id: "msg-\(turn.messageIndex + transcriptMessageOffset)-thinking-\(index)", kind: .thinking)
                 item.text = text
                 item.isStreaming = true
                 item.timestamp = streamingStartedAt
@@ -1643,7 +1740,7 @@ final class PiSessionController {
             }
 
             for (index, text) in turn.textByIndex.sorted(by: { $0.key < $1.key }) where !text.isEmpty {
-                var item = TranscriptItem(id: "msg-\(turn.messageIndex)-assistant-\(index)", kind: .assistant)
+                var item = TranscriptItem(id: "msg-\(turn.messageIndex + transcriptMessageOffset)-assistant-\(index)", kind: .assistant)
                 item.text = text
                 item.isStreaming = true
                 item.timestamp = streamingStartedAt
@@ -1688,7 +1785,7 @@ final class PiSessionController {
     private func aggregateFileChanges() -> [FileChange] {
         var order: [String: Int] = [:]
         var result: [FileChange] = []
-        for item in baseItems {
+        for item in allBaseItems {
             for change in item.fileChanges {
                 if let index = order[change.path] {
                     result[index] = change
@@ -1721,8 +1818,16 @@ final class PiSessionController {
     /// Clears everything that belongs to the previous session so a new, cloned,
     /// forked, or switched session cannot inherit stale rows.
     private func resetSessionState() {
+        transcriptMessageOffset = 0
         baseMessages = []
         baseItems = []
+        allBaseItems = []
+        visibleTranscriptItemLimit = transcriptPageItemCount
+        hasEarlierTranscript = false
+        isLoadingTranscriptHistory = false
+        localHistoryTask?.cancel()
+        localHistoryTask = nil
+        localHistoryFile = nil
         optimisticUserItems = []
         toolRuntime.removeAll()
         bashRuntime.removeAll()

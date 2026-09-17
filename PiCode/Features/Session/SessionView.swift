@@ -47,6 +47,7 @@ struct SessionView: View {
 
             ConversationView(state: state, controller: controller,
                              bottomInset: composerHeight + 16)
+                .id(ObjectIdentifier(controller))
                 .overlay(alignment: .bottom) { floatingComposer }
         }
         // Notifications no longer float over the transcript: the content header's

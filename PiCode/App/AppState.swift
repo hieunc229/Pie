@@ -49,6 +49,9 @@ final class AppState {
 
     var selectedProjectPath: String?
     private(set) var selectedSessionKey: String?
+    private(set) var sessionOpenRevision = 0
+    private(set) var sessionOpenCompletedRevision = 0
+    private(set) var sessionOpeningKey: String?
 
     // MARK: - Search
 
@@ -63,10 +66,10 @@ final class AppState {
 
     // MARK: - Presentation
 
-    var isInspectorVisible: Bool {
-        get { preferences.showInspector }
-        set { preferences.showInspector = newValue; preferences.persist() }
-    }
+    /// Whether the right panel is open for the current window. This is
+    /// intentionally session-only: switching chats keeps an open inspector, but
+    /// closing and reopening the window always starts with the panel closed.
+    var isInspectorVisible = false
     /// What the right panel is showing. It is a single viewer, not a set of tabs:
     /// whatever the user last clicked in the conversation — a file's contents, an
     /// edit's diff, a command's output, or any other tool's result — is rendered
@@ -371,6 +374,9 @@ final class AppState {
         guard let installation else { return }
         let path = session.filePath
         let key = path.map(AppState.key(forSessionPath:)) ?? AppState.ephemeralKey(projectPath: session.cwd, id: session.id)
+        sessionOpenRevision += 1
+        let openingRevision = sessionOpenRevision
+        sessionOpeningKey = key
         let canonical = CanonicalPath.of(session.cwd)
         // An existing session keeps the folder it was created in. Only the
         // system prompt is a property of the project rather than of the session,
@@ -386,6 +392,9 @@ final class AppState {
                        sessionFile: path,
                        systemPrompt: settings.systemPrompt,
                        installation: installation)
+        if sessionOpenRevision == openingRevision, selectedSessionKey == key {
+            sessionOpenCompletedRevision = openingRevision
+        }
     }
 
     func startNewSession(projectPath: String) async {
@@ -459,6 +468,20 @@ final class AppState {
         )
         controller.onAgentCompleted = { [weak self] in self?.noteAssistantResponseCompleted() }
         controllers[key] = controller
+        controller.onSessionForked = { [weak self, weak controller] in
+            guard let self, let controller, let path = controller.sessionFile else { return }
+            let newKey = AppState.key(forSessionPath: path)
+            let oldKeys = self.controllers.filter { $0.value === controller }.map(\.key)
+            let wasSelected = oldKeys.contains { $0 == self.selectedSessionKey }
+            for oldKey in oldKeys where oldKey != newKey {
+                self.controllers.removeValue(forKey: oldKey)
+                self.lastAccess.removeValue(forKey: oldKey)
+            }
+            self.controllers[newKey] = controller
+            self.lastAccess[newKey] = Date()
+            if wasSelected { self.selectedSessionKey = newKey }
+            Task { await self.refreshIndex() }
+        }
         lastAccess[key] = Date()
         await controller.start()
         pruneControllers()

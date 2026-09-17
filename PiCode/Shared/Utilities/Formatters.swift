@@ -47,6 +47,19 @@ enum Format {
         return date.formatted(date: .omitted, time: .shortened)
     }
 
+    /// Stable transcript time, independent of the system's 12/24-hour setting.
+    static func messageTime(_ date: Date?) -> String {
+        guard let date else { return "" }
+        return messageTimeFormatter.string(from: date)
+    }
+
+    private static let messageTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "hh:mm a"
+        return formatter
+    }()
+
     /// Time-only label for the activity timeline.
     static func clockTime(_ date: Date?) -> String {
         guard let date else { return "" }

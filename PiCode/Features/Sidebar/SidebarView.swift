@@ -26,10 +26,14 @@ enum SidebarStyle {
     static let rowFont = Typography.body
     /// Project and chat names sit slightly below full label ink so the sidebar
     /// stays quieter than the active conversation without becoming secondary.
-    static let rowTextOpacity = 0.85
-    /// Left edge of the sidebar's own content: the search field's fill and the
-    /// project glyph both start here.
+    static let rowTextOpacity = 0.94
+    /// Inset for the sidebar's highlight shapes and trailing controls. Leading
+    /// row glyphs use `trafficLightColumn` so they align with the window.
     static let sidebarMargin: CGFloat = 10
+    /// The close traffic light's horizontal column in the compact title bar.
+    /// Sidebar glyphs and standalone labels share this mark so every line starts
+    /// on the same vertical axis as the window controls above it.
+    static let trafficLightColumn: CGFloat = 20
     /// Slightly larger than the text, the way a Finder folder glyph sits next to
     /// its name. Fixed width *and* height so the glyph cannot make a project row
     /// taller than a chat row — the two must keep the same vertical rhythm.
@@ -41,17 +45,17 @@ enum SidebarStyle {
     /// the project name (and therefore every chat title under it) exactly where it
     /// was.
     static let projectIconShift: CGFloat = 9
-    /// …and then 6pt back to the right, which is where the glyph sits now: hard
-    /// against the search field's edge it read as drifting away from its own name.
-    /// Drawing-only too, so the label does not move. Measured, not derived:
+    /// …and then back to the right until its leading edge meets the close traffic
+    /// light above it. Drawing-only too, so the label does not move. Measured, not
+    /// derived:
     /// `run-sidebar-align.sh` fails if the glyph's ink is not
     /// `sidebarMargin + projectIconRightShift` from the sidebar's edge.
-    static let projectIconRightShift: CGFloat = 6
+    static var projectIconRightShift: CGFloat { trafficLightColumn - sidebarMargin }
     /// What `.offset(x:)` actually applies. One name for the drawn position, so the
     /// view and the harness cannot disagree about which number is in force.
     static var projectIconOffset: CGFloat { projectIconShift - projectIconRightShift }
     /// Gap between the folder glyph and the project name.
-    static let iconTextSpacing: CGFloat = 10
+    static let iconTextSpacing: CGFloat = 14
     /// Not a metric, but the rule the two below encode: **no row carries vertical
     /// margin**. One chat sits as far below the previous chat as below a project,
     /// and a project sits as far below the chat above it as a chat does. The rhythm
@@ -89,7 +93,7 @@ enum SidebarStyle {
     /// Air below a group heading: none, the same as between two chats. The label is
     /// a row like any other on its bottom side, so the first project under it keeps
     /// the list's own pitch rather than inheriting a second margin from its heading.
-    static let sectionLabelBottomPadding: CGFloat = 0
+    static let sectionLabelBottomPadding: CGFloat = 4
     /// Secondary and empty-state text. Regular weight, like everything else in this
     /// menu: there is no bold, medium or semibold type anywhere in it, and the
     /// semantic styles are avoided here because they drag a weight along with their
@@ -340,7 +344,13 @@ struct SidebarView: View {
         .buttonStyle(.plain)
         .padding(.leading, SidebarStyle.sidebarMargin + SidebarStyle.projectIconRightShift)
         .padding(.trailing, SidebarStyle.sidebarMargin)
-        .padding(.vertical, 9)
+        .padding(.vertical, 13)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(height: 1)
+                .allowsHitTesting(false)
+        }
         .help("Open provider settings")
     }
 
@@ -411,13 +421,20 @@ struct SidebarView: View {
     /// chats.
     private func sectionLabel(_ title: String) -> some View {
         Text(title)
+        
             .font(SidebarStyle.rowFont)
+            .fontWeight(.regular)
             .foregroundStyle(.secondary)
+            .opacity(0.90)
             .offset(x: -SidebarStyle.projectIconOffset)
+            .accessibilityAddTraits(.isHeader)
+//            .font(SidebarStyle.rowFont)
+//            .foregroundStyle(.secondary)
+//            .offset(x: -SidebarStyle.projectIconOffset)
             .padding(.top, SidebarStyle.sectionLabelTopPadding)
             .padding(.bottom, SidebarStyle.sectionLabelBottomPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityAddTraits(.isHeader)
+//            .frame(maxWidth: .infinity, alignment: .leading)
+//            .accessibilityAddTraits(.isHeader)
     }
 
     /// The refresh action belongs to the project collection, so it sits at the
@@ -426,21 +443,24 @@ struct SidebarView: View {
         HStack(spacing: 8) {
             Text("Projects")
                 .font(SidebarStyle.rowFont)
+                .fontWeight(.regular)
                 .foregroundStyle(.secondary)
+                .opacity(0.90)
                 .offset(x: -SidebarStyle.projectIconOffset)
                 .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: 0)
 
             if state.isIndexing {
-                ProgressView().controlSize(.small)
+                ProgressView()
+                    .controlSize(.small)
             }
 
             Button {
                 Task { await state.refreshIndex() }
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white)
             }
             .buttonStyle(.borderless)
             .help("Reload sessions from disk (⌘R)")
@@ -531,6 +551,8 @@ struct ProjectRow: View {
     var showsPin: Bool = true
 
     @State private var isHovering = false
+    @State private var isNewChatHovering = false
+    @State private var isMenuHovering = false
 
     var body: some View {
         Button {
@@ -552,6 +574,7 @@ struct ProjectRow: View {
                     .lineLimit(1)
                     .opacity(SidebarStyle.rowTextOpacity)
                     .accessibilityAddTraits(.isHeader)
+                    .kerning(Typography.kerning)
                 if showsPin && project.isPinned {
                     Image(systemName: "pin.fill")
                         .imageScale(.small)
@@ -559,34 +582,62 @@ struct ProjectRow: View {
                 }
                 Spacer(minLength: 0)
             }
+            .padding(.trailing, SidebarStyle.topBarButtonSize * 2)
             .foregroundStyle(.primary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
+            HStack(spacing: 0) {
+                Menu {
+                    ProjectRowMenu(state: state, project: project)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                        .frame(
+                            width: SidebarStyle.topBarButtonSize,
+                            height: SidebarStyle.rowMinHeight
+                        )
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .foregroundStyle(
+                    isMenuHovering ? Color.white : Color(nsColor: .tertiaryLabelColor)
+                )
+                .onHover { isMenuHovering = $0 }
+                .help("Project actions")
+                .accessibilityLabel("Project actions for \(project.name)")
+
+                Button {
+                    Task { await state.startNewSession(projectPath: project.path) }
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                        .frame(
+                            width: SidebarStyle.topBarButtonSize,
+                            height: SidebarStyle.rowMinHeight
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(
+                    isNewChatHovering ? Color.white : Color(nsColor: .tertiaryLabelColor)
+                )
+                .onHover { isNewChatHovering = $0 }
+                .help("New chat in \(project.name)")
+                .accessibilityLabel("New chat in \(project.name)")
+            }
+            .opacity(isHovering ? 1 : 0)
+            .allowsHitTesting(isHovering)
+        }
         // A project is highlighted exactly like a chat: one fill, one shape, one
         // height. See `SidebarRowChrome`.
         .sidebarRow(fill: isHovering ? SidebarStyle.rowHighlightFill : .clear)
         .onHover { isHovering = $0 }
         .accessibilityValue(state.isCollapsed(project: project) ? "chats hidden" : "chats shown")
-        .contextMenu {
-            Button("New chat") {
-                Task { await state.startNewSession(projectPath: project.path) }
-            }
-            Divider()
-            Button("Open in Terminal") { state.openTerminal(at: project.path) }
-            Button("Reveal in Finder") { WorkspaceLauncher.reveal(project.path) }
-            Button("Copy Path") { state.copyToPasteboard(project.path) }
-            
-            Button(project.isPinned ? "Unpin Project" : "Pin Project") {
-                state.togglePin(project: project)
-            }
-            
-            Divider()
-            
-            Button("Settings…") {
-                state.presentProjectSettings(project)
-            }
-        }
+        .contextMenu { ProjectRowMenu(state: state, project: project) }
         .help(helpText)
     }
 
@@ -606,10 +657,10 @@ struct SessionRow: View {
     var isEphemeral: Bool = false
 
     @State private var isHovering = false
+    @State private var isMenuHovering = false
 
     var body: some View {
         Button {
-            guard !isSelected || state.activeController == nil else { return }
             Task { await state.open(session: session) }
         } label: {
             // The leading slot is a project's own mark, not a chat glyph: it stays
@@ -646,6 +697,7 @@ struct SessionRow: View {
                     .lineLimit(1)
                     .foregroundStyle(.primary)
                     .opacity(SidebarStyle.rowTextOpacity)
+                    .kerning(Typography.kerning)
 
                 Spacer(minLength: 0)
 
@@ -659,12 +711,39 @@ struct SessionRow: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+            .padding(.trailing, SidebarStyle.topBarButtonSize)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
+            Menu {
+                SessionRowMenu(state: state, session: session, isEphemeral: isEphemeral)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                    .frame(
+                        width: SidebarStyle.topBarButtonSize,
+                        height: SidebarStyle.rowMinHeight
+                    )
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .foregroundStyle(
+                isMenuHovering ? Color.white : Color(nsColor: .tertiaryLabelColor)
+            )
+            .onHover { isMenuHovering = $0 }
+            .opacity(isHovering ? 1 : 0)
+            .allowsHitTesting(isHovering)
+            .help("Chat actions")
+            .accessibilityLabel("Chat actions for \(session.displayName)")
+        }
         .sidebarRow(fill: (isSelected || isHovering) ? SidebarStyle.rowHighlightFill : .clear)
         .onHover { isHovering = $0 }
-        .contextMenu(menuItems: contextMenu)
+        .contextMenu {
+            SessionRowMenu(state: state, session: session, isEphemeral: isEphemeral)
+        }
         .help(helpText)
     }
 
@@ -675,32 +754,4 @@ struct SessionRow: View {
         return "\(location) — \(messages), updated \(Format.relativeTime(session.updatedAt))"
     }
 
-    @ViewBuilder
-    private func contextMenu() -> some View {
-        if isEphemeral {
-            Button("Keep Working") {
-                Task { await state.open(session: session) }
-            }
-        } else {
-            Button("Open") { Task { await state.open(session: session) } }
-        }
-        Button("Rename…") { state.presentRename(session: session) }
-        Button(session.isPinned ? "Unpin" : "Pin") { state.togglePin(session: session) }
-        Divider()
-        Button("Copy Session Path") {
-            if let path = session.filePath { state.copyToPasteboard(path) }
-        }
-        .disabled(session.filePath == nil)
-        Button("Reveal Session File") {
-            if let path = session.filePath { WorkspaceLauncher.reveal(path) }
-        }
-        .disabled(session.filePath == nil)
-        Button("Hide from Sidebar") { Task { await state.hide(session: session) } }
-        Divider()
-        Button("Delete Session…", role: .destructive) {
-            state.sessionPendingDeletion = session
-            state.run(.deleteSession)
-        }
-        .disabled(session.filePath == nil)
-    }
 }

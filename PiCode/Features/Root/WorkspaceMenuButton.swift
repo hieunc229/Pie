@@ -10,8 +10,7 @@ import AppKit
 import SwiftUI
 
 struct WorkspaceMenuButton: NSViewRepresentable {
-    var isTerminalVisible: Bool
-    var onToggleTerminal: () -> Void
+    var onOpenInTerminal: () -> Void
     var onOpenInFinder: () -> Void
     var onOpenInVSCode: () -> Void
 
@@ -29,7 +28,6 @@ struct WorkspaceMenuButton: NSViewRepresentable {
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleProportionallyDown
         button.contentTintColor = .labelColor
-        button.isActive = isTerminalVisible
         button.target = context.coordinator
         button.action = #selector(WorkspaceMenuCoordinator.showMenu(_:))
         button.toolTip = "Workspace actions"
@@ -40,7 +38,6 @@ struct WorkspaceMenuButton: NSViewRepresentable {
 
     func updateNSView(_ button: WorkspaceMenuControl, context: Context) {
         context.coordinator.update(from: self)
-        button.isActive = isTerminalVisible
         button.needsDisplay = true
     }
 }
@@ -48,10 +45,6 @@ struct WorkspaceMenuButton: NSViewRepresentable {
 final class WorkspaceMenuControl: NSButton {
     private var trackingAreaReference: NSTrackingArea?
     private var isHovered = false
-
-    var isActive = false {
-        didSet { updateAppearance() }
-    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -87,19 +80,17 @@ final class WorkspaceMenuControl: NSButton {
     }
 
     private func updateAppearance() {
-        alphaValue = isActive || isHovered ? 1 : 0.55
+        alphaValue = isHovered ? 1 : 0.55
     }
 }
 
 final class WorkspaceMenuCoordinator: NSObject {
-    private var isTerminalVisible = false
-    private var onToggleTerminal: () -> Void = {}
+    private var onOpenInTerminal: () -> Void = {}
     private var onOpenInFinder: () -> Void = {}
     private var onOpenInVSCode: () -> Void = {}
 
     func update(from button: WorkspaceMenuButton) {
-        isTerminalVisible = button.isTerminalVisible
-        onToggleTerminal = button.onToggleTerminal
+        onOpenInTerminal = button.onOpenInTerminal
         onOpenInFinder = button.onOpenInFinder
         onOpenInVSCode = button.onOpenInVSCode
     }
@@ -108,9 +99,9 @@ final class WorkspaceMenuCoordinator: NSObject {
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.addItem(menuItem(
-            title: isTerminalVisible ? "Hide Terminal" : "Show Terminal",
+            title: "Open in Terminal",
             image: WorkspaceApplicationIcons.terminal,
-            action: #selector(toggleTerminal)
+            action: #selector(openInTerminal)
         ))
         menu.addItem(.separator())
         menu.addItem(menuItem(
@@ -132,7 +123,7 @@ final class WorkspaceMenuCoordinator: NSObject {
         menu.popUp(positioning: nil, at: origin, in: sender)
     }
 
-    @objc private func toggleTerminal() { onToggleTerminal() }
+    @objc private func openInTerminal() { onOpenInTerminal() }
     @objc private func openInFinder() { onOpenInFinder() }
     @objc private func openInVSCode() { onOpenInVSCode() }
 

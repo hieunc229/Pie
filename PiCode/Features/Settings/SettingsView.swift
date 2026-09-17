@@ -81,8 +81,8 @@ struct GeneralSettings: View {
 
             Section("Workspace") {
                 Toggle("Show inspector", isOn: Binding(
-                    get: { state.preferences.showInspector },
-                    set: { state.preferences.showInspector = $0; state.preferences.persist() }
+                    get: { state.isInspectorVisible },
+                    set: { state.isInspectorVisible = $0 }
                 ))
                 Button("Open Project Folder…") { Task { await state.addProject() } }
                 if let path = state.selectedProjectPath {

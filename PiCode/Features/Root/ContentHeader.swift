@@ -20,11 +20,18 @@ import SwiftUI
 /// surface share, so a page that replaces the transcript lines up with it rather
 /// than approximating it.
 enum ContentHeaderMetrics {
+    static let titlebarBandHeight: CGFloat = 52
+    /// The requested compact visual height for the custom header.
+    static let height: CGFloat = 46
+    /// The compact header is shorter than the system titlebar band. The detail
+    /// surfaces move up by this amount so they meet its bottom rule directly.
+    static var contentLift: CGFloat { titlebarBandHeight - height }
+
     /// The leading inset for the header's own line: clear of the traffic lights
     /// and the sidebar toggle when the sidebar is closed, close to the window's
     /// edge when it is open. Measured against the running window, not derived.
     static func leadingInset(isSidebarVisible: Bool) -> CGFloat {
-        isSidebarVisible ? 14 : 124
+        isSidebarVisible ? 14 : 140
     }
 }
 
@@ -51,10 +58,7 @@ struct ContentHeader: View {
     let isInspectorVisible: Bool
     let onToggleInspector: () -> Void
 
-    /// Whether the terminal panel is open. It tints the workspace menu's square
-    /// so the menu states that one of its own actions is currently on.
-    let isTerminalVisible: Bool
-    let onToggleTerminal: () -> Void
+    let onOpenInTerminal: () -> Void
     let onOpenInFinder: () -> Void
     let onOpenInVSCode: () -> Void
 
@@ -95,8 +99,8 @@ struct ContentHeader: View {
         // first thing in the column rather than a second header under the window's
         // edge. The top and bottom padding are equal so the line sits centred in
         // its band rather than high in it.
-        .padding(.vertical, 16)
-        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: ContentHeaderMetrics.height)
         .background(backdrop)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -115,32 +119,30 @@ struct ContentHeader: View {
     @ViewBuilder
     private var projectContext: some View {
         if projectName != nil {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: "folder")
-                    .font(.system(size: Typography.baseSize))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: Typography.baseSize - 3))
                 if let projectName {
                     Text(projectName)
                         .font(Typography.body)
-                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .fontWeight(.regular)
+                        .kerning(Typography.kerning)
                 }
             }
         }
     }
 
     /// The workspace menu, drawn to the right of notifications: the actions that act on
-    /// the project as a whole rather than on the conversation — the terminal
-    /// panel, and opening the folder in Finder or an editor. A menu rather than
+    /// the project as a whole rather than on the conversation — opening the
+    /// folder in Terminal, Finder, or an editor. A menu rather than
     /// three more icons keeps the header's right edge from turning into a strip.
     ///
-    /// The square shares the other controls' dimmed and full-ink states: it lights
-    /// while the terminal panel is open, or while the pointer is over it.
+    /// The square shares the other controls' dimmed and full-ink hover states.
     private var workspaceMenu: some View {
         WorkspaceMenuButton(
-            isTerminalVisible: isTerminalVisible,
-            onToggleTerminal: onToggleTerminal,
+            onOpenInTerminal: onOpenInTerminal,
             onOpenInFinder: onOpenInFinder,
             onOpenInVSCode: onOpenInVSCode
         )

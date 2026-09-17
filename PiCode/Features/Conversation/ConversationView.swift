@@ -8,6 +8,35 @@
 
 import SwiftUI
 
+/// The transcript viewport's height, measured behind the scroll view so the
+/// prefetch below can reason in whole windows.
+private struct TranscriptViewportHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// How far the content's top edge sits above the viewport's top while the
+/// user scrolls up. Zero at the very top; it grows as the conversation
+/// scrolls down, so a small value means the top is near.
+private struct TranscriptTopGapKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// The transcript content's full height. While a session opens, every change
+/// to it is a row that materialized or a Markdown block that finished sizing
+/// — the bottom the first scroll landed on has moved, so opening follows it.
+private struct TranscriptContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct ConversationView: View {
     @Bindable var state: AppState
     var controller: PiSessionController
@@ -23,9 +52,13 @@ struct ConversationView: View {
     /// while a turn streams).
     var bottomInset: CGFloat = 0
 
-    @State private var isPinnedToBottom = true
+    @State var isPinnedToBottom = true
+    @State var isOpeningSession = true
+    @State var scrollState = ConversationScrollState()
+    @State var visibleTranscriptRowID: String?
 
-    private let bottomAnchor = "picode-transcript-bottom"
+    let bottomAnchor = "picode-transcript-bottom"
+    private let transcriptSpace = "picode-transcript"
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -34,6 +67,16 @@ struct ConversationView: View {
                 // (`ConversationColumn`), so the box lines up with the text.
                 ConversationColumn {
                     LazyVStack(alignment: .leading, spacing: 20) {
+                        if controller.isLoadingTranscriptHistory {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Loading earlier messages…")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                        }
+
                         if controller.items.isEmpty {
                             emptyState
                         } else {
@@ -45,14 +88,7 @@ struct ConversationView: View {
                             // happens. The rows are built from the same array the
                             // controller holds, so a line grows in place while a
                             // turn is streaming.
-                            ForEach(controller.rows) { row in
-                                switch row {
-                                case .item(let item):
-                                    TranscriptRowView(item: item, controller: controller)
-                                case .group(let items, let isLiveTurn):
-                                    ToolGroupView(row: .group(items, isLiveTurn: isLiveTurn), controller: controller)
-                                }
-                            }
+                            ConversationRowsView(controller: controller)
                         }
 
                         statusFooter
@@ -68,16 +104,55 @@ struct ConversationView: View {
 
                             Color.clear
                                 .frame(height: 1)
-                                .id(bottomAnchor)
                         }
-                        .onAppear { isPinnedToBottom = true }
-                        .onDisappear { isPinnedToBottom = false }
+                        .id(bottomAnchor)
                     }
-                    .padding(.top, 26)
+                    .scrollTargetLayout()
+                    .padding(.top, 12)
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(key: TranscriptContentHeightKey.self,
+                                                   value: geo.size.height)
+                                .preference(key: TranscriptBottomPositionKey.self,
+                                            value: geo.frame(in: .named(transcriptSpace)).maxY)
+                                .preference(key: TranscriptTopGapKey.self,
+                                            value: max(0, -geo.frame(in: .named(transcriptSpace)).minY))
+                        }
+                    )
                 }
                 .frame(maxWidth: .infinity)
             }
+            .scrollPosition(id: $visibleTranscriptRowID)
+            .defaultScrollAnchor(.bottom)
+            .coordinateSpace(name: transcriptSpace)
             .background(AppTheme.background)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: TranscriptViewportHeightKey.self,
+                                           value: proxy.size.height)
+                }
+            )
+            .onPreferenceChange(TranscriptViewportHeightKey.self) {
+                scrollState.viewportHeight = $0
+                followLatestWhileOpening(proxy)
+            }
+            .onPreferenceChange(TranscriptBottomPositionKey.self) { bottom in
+                scrollState.bottomY = bottom
+                guard let bottom, scrollState.viewportHeight > 0 else { return }
+                if isOpeningSession {
+                    followLatestWhileOpening(proxy)
+                } else if !scrollState.isPrepending {
+                    let pinned = bottom <= scrollState.viewportHeight + 2
+                    if isPinnedToBottom != pinned { isPinnedToBottom = pinned }
+                }
+            }
+            .onPreferenceChange(TranscriptContentHeightKey.self) { _ in
+                followLatestWhileOpening(proxy)
+            }
+            .onPreferenceChange(TranscriptTopGapKey.self) { topGap in
+                scrollState.topGap = topGap
+                prefetchEarlierTranscript(topGap: topGap)
+            }
             // Assistant text names files the way the agent saw them — usually
             // relative to the project — and change chips name them the way Pi
             // reported them, so both are resolved and handed to the inspector
@@ -91,8 +166,35 @@ struct ConversationView: View {
             .environment(\.piCodeOpenTool, PiCodeOpenToolAction { id in
                 state.openInInspector(toolId: id)
             })
+            .onAppear { beginOpeningSession(proxy) }
+            .onChange(of: state.sessionOpenRevision) { _, _ in
+                beginOpeningSession(proxy)
+            }
+            .onChange(of: state.sessionOpenCompletedRevision) { _, _ in
+                followLatestWhileOpening(proxy)
+            }
+            .onDisappear {
+                scrollState.generation = UUID()
+                scrollState.openingTask?.cancel()
+                scrollState.pageTask?.cancel()
+            }
+            .onChange(of: ObjectIdentifier(controller)) { _, _ in
+                beginOpeningSession(proxy)
+            }
+            .onChange(of: controller.sessionFile) { _, _ in
+                beginOpeningSession(proxy)
+            }
             .onChange(of: controller.items.count) { _, _ in
-                scrollIfPinned(proxy, animated: true)
+                if isOpeningSession {
+                    showLatest(proxy)
+                } else if !scrollState.isPrepending {
+                    scrollIfPinned(proxy, animated: false)
+                }
+            }
+            .onChange(of: controller.isLoadingTranscriptHistory) { _, isLoading in
+                if isOpeningSession, !isLoading, !controller.items.isEmpty {
+                    showLatest(proxy)
+                }
             }
             .onChange(of: streamingSignature) { _, _ in
                 scrollIfPinned(proxy, animated: false)
@@ -106,8 +208,19 @@ struct ConversationView: View {
             .onChange(of: bottomInset) { _, _ in
                 scrollIfPinned(proxy, animated: false)
             }
+            // Keep provisional layouts out of sight until the bottom has been
+            // measured. Opacity preserves layout and all scroll measurements.
+            .opacity(isOpeningSession ? 0 : 1)
+            .allowsHitTesting(!isOpeningSession)
+            .overlay {
+                if isOpeningSession {
+                    ProgressView("Loading conversation…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(AppTheme.background)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
-                if !isPinnedToBottom {
+                if !isOpeningSession, !isPinnedToBottom {
                     Button {
                         isPinnedToBottom = true
                         withAnimation(.easeOut(duration: 0.2)) {
@@ -190,14 +303,4 @@ struct ConversationView: View {
         return last.id.hashValue &+ last.text.count &+ (last.toolOutput?.count ?? 0)
     }
 
-    private func scrollIfPinned(_ proxy: ScrollViewProxy, animated: Bool) {
-        guard isPinnedToBottom else { return }
-        if animated {
-            withAnimation(.easeOut(duration: 0.18)) {
-                proxy.scrollTo(bottomAnchor, anchor: .bottom)
-            }
-        } else {
-            proxy.scrollTo(bottomAnchor, anchor: .bottom)
-        }
-    }
 }

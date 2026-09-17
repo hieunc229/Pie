@@ -85,7 +85,8 @@ enum TranscriptBuilder {
         private func appendUser(_ message: PiMessage, index: Int) {
             var entryId: String?
             if userEntryCursor < userEntryIds.count {
-                entryId = userEntryIds[userEntryCursor]
+                let candidate = userEntryIds[userEntryCursor]
+                entryId = candidate.isEmpty ? nil : candidate
                 userEntryCursor += 1
             }
             lastUserEntryId = entryId

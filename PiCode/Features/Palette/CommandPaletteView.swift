@@ -174,6 +174,7 @@ struct CommandPaletteView: View {
                     .foregroundStyle(.secondary)
                 Text(title)
                     .lineLimit(1)
+                    .fontWeight(.thin)
                 if let subtitle {
                     Text(subtitle)
                         .font(.caption)

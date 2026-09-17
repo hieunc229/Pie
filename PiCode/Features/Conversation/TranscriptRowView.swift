@@ -63,11 +63,20 @@ struct TranscriptRowView: View {
     var controller: PiSessionController
 
     @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovering = false
+    @State private var hoveredAction: String?
+    @State private var isEditing = false
 
     var body: some View {
         Group {
             switch item.kind {
-            case .user: userRow
+            case .user:
+                if isEditing, let entryId = item.forkEntryId {
+                    UserMessageEditor(text: item.text, entryId: entryId, controller: controller,
+                                      onCancel: { isEditing = false })
+                } else {
+                    userRow
+                }
             case .assistant: assistantRow
             // Reasoning is never drawn. Inside a run it is part of the fold but not
             // one of its steps (`TranscriptRow.visibleSteps`); on its own — which the
@@ -88,36 +97,87 @@ struct TranscriptRowView: View {
 
     // MARK: - User
 
-    /// The user's own message: the text, and a fill, and nothing else.
+    /// The user's own message: its text and the actions that belong to it.
     ///
     /// It used to carry a `You` badge, an avatar, a timestamp and a copy button,
     /// and a reply used to carry the model's name, the token count, the cost and the
     /// stop reason. None of that is the conversation: the transcript is what was
     /// said, and everything else is a fact about the turn that the inspector's
-    /// Context pane and the message's own context menu already hold. Copy and branch
-    /// are on that menu, where they cost nothing until asked for.
+    /// Context pane holds. Copy and edit stay immediately below the message they
+    /// affect; edit uses Pi's fork operation, so submitting the changed prompt adds
+    /// a new branch instead of rewriting session history.
     private var userRow: some View {
-        Text(item.text)
-            .font(TranscriptStyle.text)
-            .lineSpacing(TranscriptStyle.lineSpacing)
-            .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(TranscriptStyle.userBubbleFill(colorScheme),
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        // The spec calls for a compact prompt bubble on the trailing edge, so the
-        // bubble hugs its text and is capped rather than spanning the transcript.
-        .frame(maxWidth: 520, alignment: .trailing)
+        VStack(alignment: .trailing, spacing: 0) {
+            Text(item.text)
+                .font(TranscriptStyle.text)
+                .lineSpacing(TranscriptStyle.lineSpacing)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(TranscriptStyle.userBubbleFill(colorScheme),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                // The spec calls for a compact prompt bubble on the trailing edge,
+                // so the bubble hugs its text and is capped rather than spanning
+                // the transcript.
+                .frame(maxWidth: 520, alignment: .trailing)
+
+            HStack(spacing: 10) {
+                Spacer(minLength: 8)
+
+                HStack(spacing: 10) {
+                    if let timestamp = item.timestamp {
+                        Text(Format.messageTime(timestamp))
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button {
+                            WorkspaceLauncher.copyToPasteboard(item.text)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 13))
+                        }
+                        .foregroundStyle(hoveredAction == "copy" ? Color.white : Color.secondary)
+                        .onHover { hoveredAction = $0 ? "copy" : nil }
+                        .help("Copy message")
+                        .accessibilityLabel("Copy message")
+
+                        if item.forkEntryId != nil {
+                            Button {
+                                isEditing = true
+                            } label: {
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 13))
+                            }
+                            .foregroundStyle(hoveredAction == "edit" ? Color.white : Color.secondary)
+                            .onHover { hoveredAction = $0 ? "edit" : nil }
+                            .help("Edit this message and send it as a new branch")
+                            .accessibilityLabel("Edit message")
+                            .disabled(controller.runtime.isBusy || controller.isChangingBranch)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(isHovering)
+            }
+            .frame(maxWidth: 520)
+            .padding(.top, 12)
+        }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .opacity(item.isStreaming ? 0.75 : 1)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
         .contextMenu {
             Button("Copy Message") { WorkspaceLauncher.copyToPasteboard(item.text) }
-            if let entryId = item.forkEntryId {
-                Button("Fork from Here…") {
-                    Task { await controller.fork(fromEntryId: entryId) }
+            if item.forkEntryId != nil {
+                Button("Edit Message…") {
+                    isEditing = true
                 }
+                .disabled(controller.runtime.isBusy || controller.isChangingBranch)
             }
         }
     }
@@ -129,17 +189,7 @@ struct TranscriptRowView: View {
     /// useful: it named the mechanism of the turn in the middle of the answer.
     private var assistantRow: some View {
         MarkdownView(text: item.text, isStreaming: item.isStreaming)
-            .contextMenu {
-                Button("Copy Message") { WorkspaceLauncher.copyToPasteboard(item.text) }
-                // Pi forks at user messages (`get_fork_messages` returns user entries
-                // only), so an assistant reply branches from the message that asked
-                // for it — the text Pi hands back is that message, ready to edit.
-                if let entryId = item.forkEntryId {
-                    Button("Branch from the message above…") {
-                        Task { await controller.fork(fromEntryId: entryId) }
-                    }
-                }
-            }
+            .equatable()
     }
 
     // MARK: - Tool result without a call
@@ -264,8 +314,8 @@ struct TranscriptRowView: View {
         HStack(spacing: 8) {
             if let timestamp = item.timestamp {
                 Text(Format.timestamp(timestamp))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
             }
             CopyButton(text: copyText, help: "Copy this message")
         }
