@@ -135,7 +135,7 @@ enum QuietFamily: String, CaseIterable {
 /// of calls can all be finished while the turn is not: Pi may be thinking, or
 /// writing the answer, and a finished sub-run must not claim “Worked for 2s” in
 /// the middle of the work. Only a completed turn earns the duration line (§11).
-enum TranscriptRow: Identifiable {
+enum TranscriptRow: Identifiable, Equatable {
     case item(TranscriptItem)
     case group([TranscriptItem], isLiveTurn: Bool = false)
 

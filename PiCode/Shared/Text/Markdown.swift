@@ -405,8 +405,8 @@ enum MarkdownInline {
             .filter { $0.inlinePresentationIntent?.contains(.code) == true }
             .map(\.range)
         for range in codeRuns {
-            attributed[range].font = Typography.codeBlock
-            attributed[range].backgroundColor = Color.gray.opacity(0.18)
+            attributed[range].font = Typography.codeBlock.weight(.regular)
+            attributed[range].backgroundColor = AppTheme.inlineCodeFill
         }
         // A file link shows the file's own name, not the path the agent printed:
         // `TranscriptRows.swift` reads better inline than

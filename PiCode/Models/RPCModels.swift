@@ -32,6 +32,7 @@ struct PiModel: Identifiable, Equatable, Hashable {
     var api: String?
     var baseURL: String?
     var reasoning: Bool
+    var thinkingEfforts: [String]
     var input: [String]
     var contextWindow: Int?
     var maxTokens: Int?
@@ -45,6 +46,7 @@ struct PiModel: Identifiable, Equatable, Hashable {
         self.api = json.string("api")
         self.baseURL = json.string("baseUrl")
         self.reasoning = json.bool("reasoning") ?? false
+        self.thinkingEfforts = json.object("thinking")?.array("efforts")?.compactMap(\.stringValue) ?? []
         self.input = json.array("input")?.compactMap(\.stringValue) ?? ["text"]
         self.contextWindow = json.int("contextWindow")
         self.maxTokens = json.int("maxTokens")
@@ -659,43 +661,19 @@ struct PiTreeNode: Identifiable, Equatable {
     /// Pi and this function use for siblings. Entries whose parent is missing are
     /// roots, matching Pi's handling of orphaned chains.
     static func buildTree(from entries: [PiSessionEntry], leafId: String?) -> [PiTreeNode] {
-        let known = Set(entries.map(\.id))
-        var childrenByParent: [String: [PiSessionEntry]] = [:]
-        var roots: [PiSessionEntry] = []
-        for entry in entries {
-            if let parentId = entry.parentId, known.contains(parentId) {
-                childrenByParent[parentId, default: []].append(entry)
-            } else {
-                roots.append(entry)
-            }
-        }
-
-        // `label` entries are separate nodes that name another entry.
-        var labels: [String: (text: String, timestamp: Date?)] = [:]
-        for entry in entries where entry.type == "label" {
-            if let targetId = entry.targetId, let text = entry.label {
-                labels[targetId] = (text, entry.timestamp)
-            }
-        }
-
-        func makeNode(_ entry: PiSessionEntry) -> PiTreeNode {
-            let label = labels[entry.id]
-            return PiTreeNode(
-                entry: entry,
-                children: (childrenByParent[entry.id] ?? []).map(makeNode),
-                label: label?.text,
-                labelTimestamp: label?.timestamp
-            )
-        }
-
-        return roots.map(makeNode)
+        _ = leafId
+        return SessionTreeBuilder.build(from: entries)
     }
 
     /// Depth-first flattening with depth, used for the outline list.
     func flattened(depth: Int = 0) -> [(node: PiTreeNode, depth: Int)] {
-        var result: [(PiTreeNode, Int)] = [(self, depth)]
-        for child in children {
-            result.append(contentsOf: child.flattened(depth: depth + 1))
+        var result: [(PiTreeNode, Int)] = []
+        var stack: [(node: PiTreeNode, depth: Int)] = [(self, depth)]
+        while let current = stack.popLast() {
+            result.append(current)
+            for child in current.node.children.reversed() {
+                stack.append((child, current.depth + 1))
+            }
         }
         return result
     }
@@ -845,10 +823,27 @@ extension ISO8601DateFormatter {
 extension String {
     /// Collapses newlines for compact list rows.
     func oneLinePreview(limit: Int = 120) -> String {
-        let collapsed = split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        // Reads only as far as the preview needs. The sidebar asks for a chat's
+        // title on every redraw, and a first prompt can be a pasted file: the
+        // whole string used to be split and rejoined each time.
+        var collapsed = ""
+        var lineStart = startIndex
+        while lineStart < endIndex, collapsed.count <= limit {
+            let lineEnd = self[lineStart...].firstIndex(where: \.isNewline) ?? endIndex
+            if let first = self[lineStart..<lineEnd].firstIndex(where: { !$0.isWhitespace }) {
+                let budget = limit + 1 - collapsed.count
+                let cut = index(first, offsetBy: budget, limitedBy: lineEnd) ?? lineEnd
+                var piece = self[first..<cut]
+                // A line is trimmed at its end; a cut line only when nothing but
+                // whitespace was cut off (the scan stops at the first letter).
+                if cut == lineEnd || !self[cut..<lineEnd].contains(where: { !$0.isWhitespace }) {
+                    while let last = piece.last, last.isWhitespace { piece = piece.dropLast() }
+                }
+                if !collapsed.isEmpty { collapsed += " " }
+                collapsed += piece
+            }
+            lineStart = lineEnd < endIndex ? index(after: lineEnd) : endIndex
+        }
         if collapsed.count <= limit { return collapsed }
         let index = collapsed.index(collapsed.startIndex, offsetBy: limit)
         return String(collapsed[..<index]) + "…"

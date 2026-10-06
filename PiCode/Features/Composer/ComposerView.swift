@@ -22,7 +22,7 @@ import SwiftUI
 enum ComposerMetrics {
     /// Rounded enough that the box reads as one soft object next to the sidebar's
     /// pills, small enough that a single line does not look like a capsule.
-    static let cornerRadius: CGFloat = 18
+    static let cornerRadius: CGFloat = 22
 
     /// The box's own padding. Roomy on the sides and underneath: the prompt should
     /// sit in the box rather than press against its edge, and the controls need air
@@ -30,19 +30,25 @@ enum ComposerMetrics {
     /// already carries its own text inset, and the box must shrink to exactly the
     /// editor's height plus this chrome, so a two-line prompt is a two-line box and
     /// not a box with a blank band above it.
-    static let boxHorizontalPadding: CGFloat = 12
+    static let boxHorizontalPadding: CGFloat = 14
     static let boxTopPadding: CGFloat = 0
-    static let boxBottomPadding: CGFloat = 8
+    static let boxBottomPadding: CGFloat = 10
 
     /// Between the editor and the control row, and a little more before an
     /// attachment chip row when one is showing.
     static let editorControlGap: CGFloat = 7
     static let attachmentGap: CGFloat = 8
 
+    /// The context strip the box sits on: how much of it shows above the box,
+    /// and how far the box overlaps it so the strip reads as tucked behind.
+    static let contextStripHeight: CGFloat = 36
+    static let contextStripOverlap: CGFloat = 18
+    static let contextStripInset: CGFloat = 14
+
     /// What one control row takes. Not a guess: the harness measures the drawn
     /// box against `boxHeight(forEditor:)`, so a control that grows taller than
     /// this is caught rather than silently absorbed.
-    static let controlRowHeight: CGFloat = 20
+    static let controlRowHeight: CGFloat = 28
 
     /// The editor's own height: two lines always visible, six before it starts
     /// scrolling instead of growing further.
@@ -60,6 +66,10 @@ struct ComposerView: View {
     @Bindable var state: AppState
     var controller: PiSessionController
     var focusTick: Int
+    /// What the agent has to say above the box — trust prompts, notices,
+    /// extension widgets, the queue. Drawn in the same light, borderless band
+    /// as the context strip, tucked behind the top of the box.
+    var tray: AnyView? = nil
 
     @State private var text = ""
     @State private var attachments: [Attachment] = []
@@ -69,6 +79,7 @@ struct ComposerView: View {
     @State private var isSending = false
     @State private var attachmentError: String?
     @State private var isDropTargeted = false
+    @State private var isModelPickerPresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -85,7 +96,30 @@ struct ComposerView: View {
                 BannerView(level: .warning, title: "Attachment not added", message: attachmentError, onDismiss: { self.attachmentError = nil })
             }
 
-            composerBox
+            VStack(spacing: 0) {
+                if isTucked {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if let tray {
+                            tray.environment(\.isInComposerTray, true)
+                        }
+                        if controller.items.isEmpty {
+                            ComposerContextStrip(state: state, controller: controller)
+                        }
+                    }
+                        .padding(.bottom, ComposerMetrics.contextStripOverlap)
+                        .background(
+                            UnevenRoundedRectangle(
+                                topLeadingRadius: 16,
+                                topTrailingRadius: 16,
+                                style: .continuous
+                            )
+                            .fill(AppTheme.composerContextFill)
+                        )
+                        .padding(.horizontal, ComposerMetrics.contextStripInset)
+                }
+                composerBox
+                    .padding(.top, isTucked ? -ComposerMetrics.contextStripOverlap : 0)
+            }
         }
         .onAppear { loadDraft() }
         .onChange(of: controller.draftKey) { _, _ in loadDraft() }
@@ -104,6 +138,12 @@ struct ComposerView: View {
             suggestionIndex = 0
             refreshFileMatchesIfNeeded()
         }
+    }
+
+    /// Whether a band sits behind the top of the box: the context strip of an
+    /// empty chat, the agent's tray, or both.
+    private var isTucked: Bool {
+        controller.items.isEmpty || tray != nil
     }
 
     // MARK: - Editor
@@ -154,8 +194,9 @@ struct ComposerView: View {
         .background(AppTheme.composerFill, in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius, style: .continuous)
-                .stroke(isDropTargeted ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: isDropTargeted ? 2 : 1)
+                .stroke(isDropTargeted ? Color.accentColor : AppTheme.composerStroke, lineWidth: isDropTargeted ? 2 : 1)
         )
+        .shadow(color: AppTheme.composerShadow, radius: 10, y: 4)
         .dropDestination(for: URL.self) { urls, _ in
             addAttachments(urls)
             return true
@@ -165,7 +206,7 @@ struct ComposerView: View {
     private var placeholder: String {
         if !controller.connection.isConnected { return "Pi is not running…" }
         if controller.runtime.isBusy { return "Steer Pi, or queue a follow-up…" }
-        return "Ask Pi to do something"
+        return "Do anything"
     }
 
     private var attachmentRow: some View {
@@ -210,8 +251,8 @@ struct ComposerView: View {
     /// interrupt, a steering/follow-up dropdown) is either redundant with Return
     /// or lives on the stop button's own shortcut.
     private var controlRow: some View {
-        HStack(spacing: 2) {
-            iconButton("paperclip", help: "Attach images or text files — drag and drop works too") {
+        HStack(spacing: 10) {
+            iconButton("plus", size: 16, help: "Attach images or text files — drag and drop works too") {
                 chooseAttachments()
             }
 
@@ -222,20 +263,33 @@ struct ComposerView: View {
             // The model/reasoning control and the send button are the two ends of
             // one action — choose how, then do it — so they sit apart from the
             // attachment controls and with a clear gap between them.
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 modelThinkingMenu
+                iconButton("mic", size: 15, help: "Dictate (uses macOS Dictation)") {
+                    startDictation()
+                }
                 primaryActionButton
             }
         }
-        .font(.system(size: 12))
+        .frame(height: ComposerMetrics.controlRowHeight)
+        .font(.system(size: 13))
     }
 
-    private func iconButton(_ systemImage: String, help: String, action: @escaping () -> Void) -> some View {
+    /// Asks the focused composer to start macOS Dictation, the same action
+    /// Edit ▸ Start Dictation sends.
+    private func startDictation() {
+        state.run(.focusComposer)
+        DispatchQueue.main.async {
+            NSApp.sendAction(Selector(("startDictation:")), to: nil, from: nil)
+        }
+    }
+
+    private func iconButton(_ systemImage: String, size: CGFloat = 12.5, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 12.5))
+                .font(.system(size: size, weight: .regular))
                 .foregroundStyle(.secondary)
-                .frame(width: 22, height: 20)
+                .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -257,9 +311,9 @@ struct ComposerView: View {
                 }
             } label: {
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 22, height: 22)
+                    .frame(width: 28, height: 28)
                     .background(Circle().fill(Color.accentColor))
                     .contentShape(Circle())
             }
@@ -270,10 +324,10 @@ struct ComposerView: View {
                 send(delivery: .automatic)
             } label: {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(canSend ? Color.accentColor : Color(nsColor: .tertiaryLabelColor)))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(canSend ? 1 : 0.55))
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(Color.accentColor.opacity(canSend ? 1 : 0.4)))
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
@@ -282,68 +336,40 @@ struct ComposerView: View {
         }
     }
 
-    /// Model and reasoning effort, as one control: the model's name, the effort
-    /// beside it when the model is reasoning, and a chevron that opens both
-    /// pickers. They are one choice — how Pi will answer — so they are one menu.
+    /// Model and reasoning effort remain one control, but the catalog opens in a
+    /// popover rather than a native menu so provider and model names are
+    /// searchable. The popover also names the harness that supplied the catalog.
     private var modelThinkingMenu: some View {
-        Menu {
-            ForEach(providers, id: \.self) { provider in
-                Section(provider) {
-                    ForEach(controller.availableModels.filter { $0.provider == provider }) { model in
-                        Button {
-                            Task { await controller.setModel(model) }
-                        } label: {
-                            if model.id == controller.model?.id {
-                                Label(model.displayName, systemImage: "checkmark")
-                            } else {
-                                Text(model.displayName)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Divider()
-
-            Section("Reasoning effort") {
-                ForEach(controller.thinkingLevels, id: \.self) { level in
-                    Button {
-                        Task { await controller.setThinkingLevel(level) }
-                    } label: {
-                        if level == controller.thinkingLevel {
-                            Label(level, systemImage: "checkmark")
-                        } else {
-                            Text(level)
-                        }
-                    }
-                }
-                if controller.thinkingLevels.isEmpty {
-                    Text("This model has no reasoning levels")
-                }
-            }
-
-            Divider()
-            Button("Cycle Model") { Task { await controller.cycleModel() } }
-            if !controller.thinkingLevels.isEmpty {
-                Button("Cycle Reasoning Effort") { Task { await controller.cycleThinkingLevel() } }
-            }
+        Button {
+            isModelPickerPresented.toggle()
         } label: {
-            // No hand-drawn chevron: `Menu` already draws its own indicator, and a
-            // second one in front of the model name read as two separate controls.
             HStack(spacing: 4) {
                 Text(controller.model?.displayName ?? "Model")
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 if let effort {
-                    Text(effort)
-                        .foregroundStyle(.tertiary)
+                    Text(effort.capitalized)
+                        .foregroundStyle(.secondary)
                 }
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 2)
             }
-            .font(.callout)
+            .font(.system(size: 13.5))
+            .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
         .fixedSize()
         .foregroundStyle(.secondary)
         .help("Model and reasoning effort used for new prompts")
+        .popover(isPresented: $isModelPickerPresented, arrowEdge: .bottom) {
+            ComposerModelPicker(
+                controller: controller,
+                state: state,
+                onDismiss: { isModelPickerPresented = false }
+            )
+        }
     }
 
     /// The reasoning effort to draw beside the model, or `nil` when the model is
@@ -518,9 +544,6 @@ struct ComposerView: View {
         return text
     }
 
-    private var providers: [String] {
-        Array(Set(controller.availableModels.map(\.provider))).sorted()
-    }
 }
 
 // MARK: - Suggestions list

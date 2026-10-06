@@ -64,6 +64,25 @@ struct GitStatusService {
         )
     }
 
+    // MARK: - Branches
+
+    /// Local branches, most recently committed first.
+    func branches(directory: String) async -> [String] {
+        let result = await git(["-C", directory, "for-each-ref", "--sort=-committerdate",
+                                "--format=%(refname:short)", "refs/heads"])
+        guard result.exitCode == 0 else { return [] }
+        return result.stdout.split(separator: "\n").map(String.init)
+    }
+
+    /// Switches the working tree to `branch`, creating it first when `create`.
+    /// Returns git's error text on failure. Only ever run for an explicit pick
+    /// in the composer's branch menu.
+    func switchBranch(directory: String, to branch: String, create: Bool = false) async -> String? {
+        let args = create ? ["-C", directory, "switch", "-c", branch] : ["-C", directory, "switch", branch]
+        let result = await git(args)
+        return result.exitCode == 0 ? nil : result.stderr.oneLinePreview(limit: 200)
+    }
+
     // MARK: - Diffs
 
     func diff(directory: String, path: String, staged: Bool) async -> String {

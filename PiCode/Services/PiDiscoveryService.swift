@@ -12,19 +12,6 @@
 
 import Foundation
 
-struct PiInstallation: Equatable {
-    var executableURL: URL
-    var version: String
-    /// PATH from the login shell, forwarded to the child process so `pi` can
-    /// resolve `node` and other runtime dependencies.
-    var shellPath: String?
-    var shell: String?
-    /// How the executable was located, for diagnostics.
-    var origin: String
-
-    var displayPath: String { executableURL.path.abbreviatingHomeDirectory }
-}
-
 enum PiDiscoveryResult: Equatable {
     case found(PiInstallation)
     case missing(searched: [String], shellPath: String?, detail: String?)

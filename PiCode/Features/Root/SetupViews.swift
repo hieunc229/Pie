@@ -28,19 +28,52 @@ struct WelcomeView: View {
     @Bindable var state: AppState
 
     var body: some View {
-        EmptyStateView(
-            systemImage: "sparkles.rectangle.stack",
-            title: "No session selected",
-            message: "Pick a session in the sidebar, or start a new one in the selected project. PiCode runs your own `pi` binary and shows the real transcript.",
-            actionTitle: state.selectedProject == nil ? "Open a project folder" : "New session",
-            action: {
+        VStack(spacing: 22) {
+            BuildPromptHero(projectName: state.selectedProject?.name)
+            Button(state.selectedProject == nil ? "Open a project folder" : "New chat") {
                 if let project = state.selectedProject?.path {
                     Task { await state.startNewSession(projectPath: project) }
                 } else {
                     Task { await state.addProject() }
                 }
             }
-        )
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The landing line of an empty chat: the app's mark over one question that
+/// names the project the chat runs in.
+struct BuildPromptHero: View {
+    var projectName: String?
+
+    var body: some View {
+        VStack(spacing: 26) {
+            ZStack {
+                Image(systemName: "seal")
+                    .font(.system(size: 58, weight: .ultraLight))
+                Text(">_")
+                    .font(.system(size: 17, weight: .medium, design: .monospaced))
+            }
+            .foregroundStyle(.secondary)
+            .accessibilityHidden(true)
+
+            title
+                .font(.system(size: 28, weight: .regular))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private var title: Text {
+        guard let projectName else { return Text("What should we build?") }
+        return Text("What should we build in ")
+            + Text(projectName).underline(true, pattern: .dot, color: .secondary)
+            + Text("?")
     }
 }
 

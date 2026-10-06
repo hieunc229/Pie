@@ -56,7 +56,7 @@ check_source "$PREFERENCES" 'case commandReturn' "SendKey still has a Command-Re
 check_absent "$PREFERENCES" 'case shiftReturn' "SendKey has no third mode the harness would miss"
 
 check_source "$COMPOSER" 'ComposerAccessControl(controller: controller)' "access/trust sits in the control row"
-check_source "$COMPOSER" 'iconButton("paperclip"' "attach sits in the control row"
+check_source "$COMPOSER" 'iconButton("plus"' "attach sits in the control row"
 check_source "$COMPOSER" 'in: RoundedRectangle(cornerRadius: ComposerMetrics.cornerRadius' \
     "the box is the only filled shape, at ComposerMetrics.cornerRadius"
 check_source "$COMPOSER" 'onFollowUp: { send(delivery: .followUp) }' "Option-Return can queue a follow-up"
@@ -97,14 +97,14 @@ check_source "$TEXTVIEW" 'static let minimumLines = 2' "the editor never drops b
 check_source "$TEXTVIEW" 'static let maximumLines = 6' "the editor scrolls after six lines"
 check_source "$COMPOSER" 'ComposerMetrics.editorMaxHeight' "the editor is clamped to the six-line metric"
 
-# Order on the row: paperclip left, the model + reasoning menu and send right. A
+# Order on the row: attach (+) left, the model + reasoning menu and send right. A
 # move is exactly the kind of change that leaves the code compiling and the
 # layout wrong.
 python3 - "$COMPOSER" <<'PY'
 import re, sys
 source = open(sys.argv[1]).read()
 row = source[source.index('private var controlRow'):source.index('private func iconButton')]
-order = ['iconButton("paperclip"', 'ComposerAccessControl(controller: controller)', 'modelThinkingMenu', 'primaryActionButton']
+order = ['iconButton("plus"', 'ComposerAccessControl(controller: controller)', 'modelThinkingMenu', 'primaryActionButton']
 positions = [row.find(token) for token in order]
 if all(p >= 0 for p in positions) and positions == sorted(positions):
     print("  ok   the row reads attach · access · model+reasoning · send")

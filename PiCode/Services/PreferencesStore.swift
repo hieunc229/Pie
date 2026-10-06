@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import SwiftUI
 import Observation
 
 @Observable
@@ -18,6 +19,14 @@ final class PreferencesStore {
         case dark
 
         var id: String { rawValue }
+        /// `nil` follows the system.
+        var colorScheme: ColorScheme? {
+            switch self {
+            case .system: return nil
+            case .light: return .light
+            case .dark: return .dark
+            }
+        }
         var label: String {
             switch self {
             case .system: return "System"
@@ -49,6 +58,11 @@ final class PreferencesStore {
     var showTerminal: Bool
     var defaultThinkingLevel: String?
     var defaultModelQualifiedID: String?
+    /// Last model selected in each harness. Model identifiers are not portable:
+    /// the same provider can expose different ids in Pi, OMP, or another agent.
+    var defaultModelByHarness: [String: String]
+    /// Harness new sessions use unless the project or the user chooses another.
+    var defaultHarnessID: HarnessID
     var confirmBeforeDeletingSessions: Bool
     var notificationsEnabled: Bool
     var recordRPCPayloads: Bool
@@ -57,9 +71,12 @@ final class PreferencesStore {
     var pinnedSessions: Set<String>
     /// Session ids whose sidebar entry was dismissed. Never deletes the file.
     var hiddenSessions: Set<String>
-    /// Projects whose chats are folded away in the sidebar. A decoration like a
-    /// pin: it hides rows, it never touches a session file.
-    var collapsedProjects: Set<String>
+    /// Projects whose chats the sidebar shows. The sidebar starts as a list of
+    /// projects — one is folded until the user opens it — so this stores the
+    /// *expanded* set: an absent path means folded, and the empty default is every
+    /// project closed. A decoration like a pin: it hides rows, it never touches a
+    /// session file.
+    var expandedProjects: Set<String>
     var lastProjectPath: String?
     var reducedMotionOverride: Bool?
     /// PiCode-only per-project settings (name, launch folder, system prompt),
@@ -77,7 +94,14 @@ final class PreferencesStore {
         showSidebar = defaults.object(forKey: Keys.showSidebar) as? Bool ?? true
         showTerminal = defaults.object(forKey: Keys.showTerminal) as? Bool ?? false
         defaultThinkingLevel = defaults.string(forKey: Keys.defaultThinkingLevel)
-        defaultModelQualifiedID = defaults.string(forKey: Keys.defaultModel)
+        let legacyPiModel = defaults.string(forKey: Keys.defaultModel)
+        defaultModelQualifiedID = legacyPiModel
+        var storedModels = defaults.dictionary(forKey: Keys.defaultModelsByHarness) as? [String: String] ?? [:]
+        if storedModels[HarnessID.pi.rawValue] == nil, let legacyPiModel {
+            storedModels[HarnessID.pi.rawValue] = legacyPiModel
+        }
+        defaultModelByHarness = storedModels
+        defaultHarnessID = HarnessID(rawValue: defaults.string(forKey: Keys.defaultHarness) ?? "") ?? .pi
         confirmBeforeDeletingSessions = defaults.object(forKey: Keys.confirmDelete) as? Bool ?? true
         notificationsEnabled = defaults.object(forKey: Keys.notifications) as? Bool ?? false
         recordRPCPayloads = defaults.bool(forKey: Keys.recordPayloads)
@@ -85,7 +109,7 @@ final class PreferencesStore {
         pinnedProjects = Set(defaults.stringArray(forKey: Keys.pinnedProjects) ?? [])
         pinnedSessions = Set(defaults.stringArray(forKey: Keys.pinnedSessions) ?? [])
         hiddenSessions = Set(defaults.stringArray(forKey: Keys.hiddenSessions) ?? [])
-        collapsedProjects = Set(defaults.stringArray(forKey: Keys.collapsedProjects) ?? [])
+        expandedProjects = Set(defaults.stringArray(forKey: Keys.expandedProjects) ?? [])
         lastProjectPath = defaults.string(forKey: Keys.lastProject)
         reducedMotionOverride = defaults.object(forKey: Keys.reducedMotion) as? Bool
         if let data = defaults.data(forKey: Keys.projectSettings) {
@@ -103,6 +127,8 @@ final class PreferencesStore {
         defaults.set(showTerminal, forKey: Keys.showTerminal)
         defaults.set(defaultThinkingLevel, forKey: Keys.defaultThinkingLevel)
         defaults.set(defaultModelQualifiedID, forKey: Keys.defaultModel)
+        defaults.set(defaultModelByHarness, forKey: Keys.defaultModelsByHarness)
+        defaults.set(defaultHarnessID.rawValue, forKey: Keys.defaultHarness)
         defaults.set(confirmBeforeDeletingSessions, forKey: Keys.confirmDelete)
         defaults.set(notificationsEnabled, forKey: Keys.notifications)
         defaults.set(recordRPCPayloads, forKey: Keys.recordPayloads)
@@ -110,7 +136,7 @@ final class PreferencesStore {
         defaults.set(Array(pinnedProjects), forKey: Keys.pinnedProjects)
         defaults.set(Array(pinnedSessions), forKey: Keys.pinnedSessions)
         defaults.set(Array(hiddenSessions), forKey: Keys.hiddenSessions)
-        defaults.set(Array(collapsedProjects), forKey: Keys.collapsedProjects)
+        defaults.set(Array(expandedProjects), forKey: Keys.expandedProjects)
         defaults.set(lastProjectPath, forKey: Keys.lastProject)
         defaults.set(reducedMotionOverride, forKey: Keys.reducedMotion)
         if projectSettingsByPath.isEmpty {
@@ -149,6 +175,8 @@ final class PreferencesStore {
         static let showTerminal = "showTerminal"
         static let defaultThinkingLevel = "defaultThinkingLevel"
         static let defaultModel = "defaultModel"
+        static let defaultModelsByHarness = "defaultModelByHarness"
+        static let defaultHarness = "defaultHarnessID"
         static let confirmDelete = "confirmBeforeDeletingSessions"
         static let notifications = "notificationsEnabled"
         static let recordPayloads = "recordRPCPayloads"
@@ -156,7 +184,7 @@ final class PreferencesStore {
         static let pinnedProjects = "pinnedProjects"
         static let pinnedSessions = "pinnedSessions"
         static let hiddenSessions = "hiddenSessions"
-        static let collapsedProjects = "collapsedProjects"
+        static let expandedProjects = "expandedProjects"
         static let lastProject = "lastProjectPath"
         static let reducedMotion = "reducedMotionOverride"
         static let projectSettings = "projectSettings"

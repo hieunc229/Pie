@@ -16,9 +16,6 @@ import SwiftUI
 
 struct PackagesView: View {
     @Bindable var state: AppState
-    /// Whether the sidebar is showing, so the header clears the traffic lights
-    /// when it is not — the same rule `ContentHeader` follows.
-    var isSidebarVisible: Bool
 
     @State private var model = PackagesModel()
     @State private var pendingInstall: PiPackageService.GalleryPackage?
@@ -28,6 +25,14 @@ struct PackagesView: View {
     private var backdrop: Color { AppTheme.background }
 
     var body: some View {
+        VStack(spacing: 0) {
+            header
+            content
+        }
+        .background(backdrop)
+    }
+
+    private var content: some View {
         ScrollView {
             ConversationColumn {
                 VStack(alignment: .leading, spacing: 22) {
@@ -42,9 +47,6 @@ struct PackagesView: View {
             .frame(maxWidth: .infinity)
         }
         .background(backdrop)
-        .overlay(alignment: .top) {
-            header.ignoresSafeArea(.container, edges: .top)
-        }
         .task {
             model.reloadInstalled(projectPath: state.selectedProjectPath)
             await model.performSearch()
@@ -99,9 +101,7 @@ struct PackagesView: View {
 
     // MARK: - Header
 
-    /// The page's own header, drawn in the titlebar band the way the transcript's
-    /// header is, so switching between a session and this page does not move the
-    /// first line down.
+    /// The page's own header: the top line of the content card.
     private var header: some View {
         HStack(spacing: 12) {
             HStack(spacing: 6) {
@@ -126,9 +126,8 @@ struct PackagesView: View {
             .help("Reload installed packages and refresh the gallery")
             .accessibilityLabel("Reload packages")
         }
-        .padding(.leading, ContentHeaderMetrics.leadingInset(isSidebarVisible: isSidebarVisible))
-        .padding(.trailing, 14)
-        .padding(.vertical, 16)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
         .background(backdrop)
         .overlay(alignment: .bottom) {

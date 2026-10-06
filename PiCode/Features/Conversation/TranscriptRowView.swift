@@ -45,15 +45,22 @@ enum TranscriptStyle {
     /// A little more air between lines than the system default, wherever text wraps
     /// — prose, reasoning, output. Monospaced output is the densest thing on the
     /// page and the thing most likely to be read line by line, so it gets it too.
-    static var lineSpacing: CGFloat {
+    ///
+    /// Computed once: every paragraph, list item and bubble reads it in its body,
+    /// and asking a fresh `NSLayoutManager` each time showed up while scrolling.
+    static let lineSpacing: CGFloat = {
         let natural = NSLayoutManager().defaultLineHeight(for: .systemFont(ofSize: Typography.baseSize))
         return max(0, Typography.baseSize * lineHeightMultiple - natural)
-    }
+    }()
+
+    /// The line a message's hover actions sit on: tall enough for the 13pt
+    /// action glyphs and the timestamp beside them.
+    static let actionRowHeight: CGFloat = 18
 
     static func userBubbleFill(_ scheme: ColorScheme) -> Color {
         switch scheme {
         case .dark: return Color(.sRGB, red: 0.20, green: 0.42, blue: 0.68, opacity: 0.40)
-        default: return Color(.sRGB, red: 0.84, green: 0.91, blue: 0.99, opacity: 1)
+        default: return Color(.sRGB, red: 0.906, green: 0.953, blue: 1.0, opacity: 1)
         }
     }
 }
@@ -123,9 +130,13 @@ struct TranscriptRowView: View {
                 // the transcript.
                 .frame(maxWidth: 520, alignment: .trailing)
 
+            // The actions are built only while the pointer is on the message,
+            // in a line of fixed height so showing them moves nothing. Built and
+            // hidden, they cost every message a row of buttons nobody sees.
             HStack(spacing: 10) {
                 Spacer(minLength: 8)
 
+                if isHovering {
                 HStack(spacing: 10) {
                     if let timestamp = item.timestamp {
                         Text(Format.messageTime(timestamp))
@@ -161,9 +172,9 @@ struct TranscriptRowView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .opacity(isHovering ? 1 : 0)
-                .allowsHitTesting(isHovering)
+                }
             }
+            .frame(height: TranscriptStyle.actionRowHeight)
             .frame(maxWidth: 520)
             .padding(.top, 12)
         }
@@ -195,71 +206,70 @@ struct TranscriptRowView: View {
     // MARK: - Tool result without a call
 
     private var toolResultRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "wrench.and.screwdriver")
-                    .imageScale(.small)
+                    .font(Typography.notice)
                     .foregroundStyle(.secondary)
                 Text("Tool result\(item.toolName.map { ": \($0)" } ?? "")")
-                    .font(TranscriptStyle.text.weight(.semibold))
+                    .font(Typography.noticeSemibold)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 rowActions
             }
             CollapsibleText(text: item.toolOutput ?? item.text, language: .plain)
         }
-        .padding(10)
-        .background(.quaternary.opacity(0.2), in: RoundedRectangle(cornerRadius: 9))
+        .noticeSurface()
     }
 
     // MARK: - System / error / compaction / retry
 
     private var systemRow: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: "info.circle")
-                .imageScale(.small)
+                .font(Typography.notice)
                 .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 3) {
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 6) {
                 if let badge = item.badge {
                     Text(badge)
-                        .font(TranscriptStyle.text.weight(.semibold))
+                        .font(Typography.noticeSemibold)
                         .foregroundStyle(.secondary)
                 }
                 MarkdownInlineText(source: item.text)
-                    .font(TranscriptStyle.text)
+                    .font(Typography.notice)
                     .lineSpacing(TranscriptStyle.lineSpacing)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
-        .padding(10)
-        .background(.quaternary.opacity(0.22), in: RoundedRectangle(cornerRadius: 9))
+        .noticeSurface()
     }
 
     private var errorRow: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.circle")
+                .font(Typography.notice)
+                .foregroundStyle(AppTheme.errorCardIcon)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Pi reported an error")
-                    .font(TranscriptStyle.text.weight(.semibold))
+                    .font(Typography.noticeSemibold)
                 Text(item.errorMessage ?? item.text)
-                    .font(TranscriptStyle.text)
+                    .font(Typography.notice)
                     .lineSpacing(TranscriptStyle.lineSpacing)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if let stopReason = item.stopReason {
                     Text("stop reason: \(stopReason)")
-                        .font(TranscriptStyle.code)
+                        .font(Typography.noticeCode)
                         .foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(10)
-        .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.red.opacity(0.35)))
+        .noticeSurface()
     }
 
     /// A compaction is a fact, not a document: one line saying the context was

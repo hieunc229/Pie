@@ -29,6 +29,12 @@ final class PiSessionController {
     /// none. Read once at init: changing it takes effect in the next process,
     /// which is exactly when Pi re-reads its system prompt anyway.
     private let systemPrompt: String?
+    /// Model a new session should start on, chosen per project. `nil` falls back
+    /// to the app default and then to the harness's own default.
+    private let modelOverride: String?
+    /// The harness this session runs on. Pi and Oh My Pi share the Pi-family RPC
+    /// transport; the descriptor carries the argv differences.
+    let harness: HarnessDescriptor
     private let installation: PiInstallation
     private let preferences: PreferencesStore
     let drafts: DraftStore
@@ -55,7 +61,10 @@ final class PiSessionController {
 
     /// Draft key: sessions Pi has not written to disk yet fall back to a
     /// project-scoped key so a draft survives process start.
-    var draftKey: String { sessionFile ?? "new:\(projectPath)" }
+    var draftKey: String {
+        let key = sessionFile ?? "new:\(projectPath)"
+        return harness.id == .pi ? key : "\(harness.id.rawValue):\(key)"
+    }
 
     // MARK: - Connection
 
@@ -64,7 +73,7 @@ final class PiSessionController {
     private(set) var piVersion: String
     private(set) var lastError: String?
     private(set) var protocolWarnings: [String] = []
-    private var client: PiRPCClient?
+    private var client: (any AgentRuntime)?
     private var exitReason: String?
 
     // MARK: - Transcript
@@ -74,6 +83,10 @@ final class PiSessionController {
     private var allBaseItems: [TranscriptItem] = []
     private var visibleTranscriptItemLimit = 80
     private let transcriptPageItemCount = 80
+    /// How much earlier history one scroll-up page adds. Smaller than the first
+    /// page on purpose: a page is laid out in one go on the main thread while the
+    /// user is scrolling, so a small page is a frame or two rather than a stall.
+    private let transcriptEarlierPageItemCount = 24
     private var localHistoryTask: Task<Void, Never>?
     /// The session file whose entries the local reader last filled `entries`
     /// from, so a resume reads it once — at init — instead of again once Pi
@@ -168,6 +181,7 @@ final class PiSessionController {
     private(set) var isLoadingEntries = false
     private(set) var stats: PiSessionStats?
     private(set) var availableModels: [PiModel] = []
+    private(set) var modelCatalogError: String?
     private(set) var thinkingLevels: [String] = []
     private(set) var forkPoints: [PiForkPoint] = []
     private(set) var commands: [PiCommand] = []
@@ -218,13 +232,17 @@ final class PiSessionController {
          installation: PiInstallation,
          preferences: PreferencesStore,
          drafts: DraftStore,
-         systemPrompt: String? = nil) {
+         systemPrompt: String? = nil,
+         modelOverride: String? = nil,
+         harness: HarnessDescriptor = HarnessDescriptor.descriptor(for: .pi)) {
         self.projectPath = CanonicalPath.of(projectPath)
         self.sessionFile = sessionFile
+        self.harness = harness
         self.installation = installation
         self.preferences = preferences
         self.drafts = drafts
         self.systemPrompt = systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.modelOverride = modelOverride
         self.piVersion = installation.version
         self.sessionId = sessionFile.flatMap { Self.sessionID(fromFile: $0) }
         self.trustState = trustService.state(for: self.projectPath)
@@ -257,34 +275,23 @@ final class PiSessionController {
         lastError = nil
         exitReason = nil
 
-        var arguments = ["--mode", "rpc"]
-        if let sessionFile {
-            arguments.append(contentsOf: ["--session", sessionFile])
-        }
-        arguments.append(contentsOf: trustLaunchArguments())
-        if let systemPrompt, !systemPrompt.isEmpty {
-            arguments.append(contentsOf: ["--append-system-prompt", systemPrompt])
-        }
-        if let model = preferences.defaultModelQualifiedID, !model.isEmpty, sessionFile == nil {
-            arguments.append(contentsOf: ["--model", model])
-        }
-        let extra = preferences.extraLaunchArguments
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
-        arguments.append(contentsOf: extra)
-
-        // Pi is a Node script: its own bin directory must win on PATH so the
-        // Node version it was installed with is the one that runs it.
-        let environment = PiDiscoveryService.launchEnvironment(
-            executable: installation.executableURL,
-            shellPath: installation.shellPath
-        )
-
-        let client = PiRPCClient(
-            executableURL: installation.executableURL,
-            workingDirectory: URL(fileURLWithPath: projectPath),
-            arguments: arguments,
-            environment: environment
+        let client = AgentRuntimeFactory.make(
+            descriptor: harness,
+            installation: installation,
+            projectPath: projectPath,
+            sessionFile: sessionFile,
+            systemPrompt: systemPrompt,
+            model: sessionFile == nil
+                ? modelOverride ?? preferences.defaultModelByHarness[harness.id.rawValue]
+                : nil,
+            trustArguments: trustLaunchArguments(),
+            extraArguments: preferences.extraLaunchArguments
+                .split(whereSeparator: \.isWhitespace)
+                .map(String.init),
+            environment: HarnessDiscoveryService.launchEnvironment(
+                executable: installation.executableURL,
+                shellPath: installation.shellPath
+            )
         )
         client.recordsPayloads = preferences.recordRPCPayloads
         client.onEvent = { [weak self] event, raw in
@@ -314,15 +321,14 @@ final class PiSessionController {
             connection = .failed(message: error.localizedDescription)
             runtime = .disconnected
             lastError = error.localizedDescription
-            record(kind: .connection, title: "Could not start Pi",
+            record(kind: .connection, title: "Could not start \(harness.displayName)",
                    detail: error.localizedDescription, isError: true)
             return
         }
 
         connection = .connected
         runtime = .idle
-        record(kind: .connection, title: "Connected to Pi \(piVersion)",
-               detail: arguments.joined(separator: " "))
+        record(kind: .connection, title: "Connected to \(harness.displayName) \(piVersion)")
         beginLocalHistoryLoad()
         await refreshAll()
         await refreshGit(immediately: true)
@@ -715,12 +721,15 @@ final class PiSessionController {
         guard !titleGenerationStarted, sessionName == nil else { return }
         titleGenerationStarted = true
         let installation = installation
+        let harness = harness
         let directory = projectPath
-        let model = state?.model?.qualifiedID ?? preferences.defaultModelQualifiedID
+        let model = state?.model?.qualifiedID
+            ?? preferences.defaultModelByHarness[harness.id.rawValue]
         titleTask = Task { [weak self] in
             let generated = await SessionTitleService.generate(
                 for: prompt,
                 installation: installation,
+                harness: harness,
                 directory: directory,
                 model: model
             )
@@ -825,7 +834,10 @@ final class PiSessionController {
     func setModel(_ model: PiModel) async {
         do {
             try await request(.setModel(provider: model.provider, modelId: model.id))
-            preferences.defaultModelQualifiedID = model.qualifiedID
+            preferences.defaultModelByHarness[harness.id.rawValue] = model.qualifiedID
+            // Keep the old Pi-only key during migration for code outside the
+            // harness-aware session path. It must never receive an OMP model.
+            if harness.id == .pi { preferences.defaultModelQualifiedID = model.qualifiedID }
             preferences.persist()
             record(kind: .sessionChange, title: "Model set to \(model.displayName)")
             await refreshState()
@@ -1034,11 +1046,36 @@ final class PiSessionController {
     }
 
     func refreshModels() async {
-        guard let response = try? await request(.getAvailableModels) else { return }
-        availableModels = response.data?.array("models")?.compactMap(PiModel.init(json:)) ?? []
+        do {
+            let response = try await request(.getAvailableModels)
+            availableModels = response.data?.array("models")?.compactMap(PiModel.init(json:)) ?? []
+            modelCatalogError = nil
+        } catch {
+            modelCatalogError = error.localizedDescription
+            record(kind: .connection, title: "Could not load \(harness.displayName) models",
+                   detail: error.localizedDescription, isError: true)
+        }
     }
 
     func refreshThinkingLevels() async {
+        // Several harnesses expose supported efforts in model metadata instead
+        // of implementing Pi's `get_available_thinking_levels` command.
+        let activeModel = state?.model
+        let catalogModel = activeModel.flatMap { selected in
+            availableModels.first { $0.qualifiedID == selected.qualifiedID }
+        }
+        let modelEfforts = activeModel?.thinkingEfforts.isEmpty == false
+            ? activeModel?.thinkingEfforts ?? []
+            : catalogModel?.thinkingEfforts ?? []
+        if !modelEfforts.isEmpty {
+            thinkingLevels = modelEfforts
+            return
+        }
+        if harness.id == .ohMyPi {
+            thinkingLevels = []
+            return
+        }
+
         guard let response = try? await request(.getAvailableThinkingLevels) else { return }
         thinkingLevels = response.data?.array("levels")?.compactMap(\.stringValue) ?? []
     }
@@ -1114,6 +1151,17 @@ final class PiSessionController {
 
     // MARK: - Git
 
+    func branches() async -> [String] {
+        await gitService.branches(directory: projectPath)
+    }
+
+    /// Returns git's error text when the switch fails.
+    func switchBranch(to branch: String, create: Bool = false) async -> String? {
+        let error = await gitService.switchBranch(directory: projectPath, to: branch, create: create)
+        await refreshGit(immediately: true)
+        return error
+    }
+
     func refreshGit(immediately: Bool = false) async {
         gitRefreshTask?.cancel()
         let path = projectPath
@@ -1144,7 +1192,7 @@ final class PiSessionController {
     @discardableResult
     private func request(_ command: RPCCommand,
                          timeout: TimeInterval = PiRPCClient.defaultTimeout) async throws -> RPCResponse {
-        guard let client, connection.isConnected else { throw PiRPCError.notRunning }
+        guard let client, connection.isConnected else { throw AgentRuntimeError.notRunning }
         return try await client.send(command, timeout: timeout)
     }
 
@@ -1166,16 +1214,20 @@ final class PiSessionController {
         liveTurn = nil
         liveCompaction = false
         recomposeItems()
-        record(kind: .connection, title: "Pi stopped (\(reasonText))",
+        record(kind: .connection, title: "\(harness.displayName) stopped (\(reasonText))",
                detail: exitReason, isError: code != 0)
     }
 
     private func handleStderr(_ line: String) {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        exitReason = trimmed
         if trimmed.localizedCaseInsensitiveContains("error") || trimmed.localizedCaseInsensitiveContains("fatal") {
+            exitReason = trimmed
             lastError = trimmed.oneLinePreview(limit: 300)
+        } else if exitReason == nil {
+            // Preserve the first useful line instead of replacing an actual
+            // error with a trailing hint such as “Run `omp --help`”.
+            exitReason = trimmed
         }
     }
 
@@ -1613,11 +1665,12 @@ final class PiSessionController {
         guard hasEarlierTranscript else { return }
         // The previous page may have expanded backwards to include a long turn.
         // Advance past the actual loaded range so every request adds history.
-        visibleTranscriptItemLimit = max(visibleTranscriptItemLimit, baseItems.count) + transcriptPageItemCount
+        visibleTranscriptItemLimit = max(visibleTranscriptItemLimit, baseItems.count) + transcriptEarlierPageItemCount
         rebuildVisibleTranscript()
     }
 
     private func beginLocalHistoryLoad() {
+        guard harness.id == .pi || harness.id == .ohMyPi else { return }
         guard let path = sessionFile, localHistoryFile != path else { return }
         localHistoryTask?.cancel()
         localHistoryFile = path
@@ -1626,7 +1679,12 @@ final class PiSessionController {
             guard let self else { return }
             defer { self.isLoadingTranscriptHistory = false }
             let values = await self.sessionHistoryReader.entries(at: path)
-            let loaded = values.map(PiSessionEntry.init(json:))
+            // Decoding a long session's entries (dates included) is tens of
+            // milliseconds; it runs off the main actor so opening a chat does not
+            // freeze the window while it happens.
+            let loaded = await Task.detached(priority: .userInitiated) {
+                values.map(PiSessionEntry.init(json:))
+            }.value
             guard !Task.isCancelled, !loaded.isEmpty, self.sessionFile == path else {
                 self.localHistoryFile = nil
                 return
@@ -1874,3 +1932,15 @@ final class PiSessionController {
 
     var hasPendingWork: Bool { isStreaming || isCompacting || runtime.isBusy }
 }
+
+#if DEBUG
+extension PiSessionController {
+    /// Grows the last reply as a stream would, through the same recompose path a
+    /// live delta takes. Used by the streaming benchmark only.
+    func debugGrowLastAssistant(by chunk: String) {
+        guard let index = allBaseItems.lastIndex(where: { $0.kind == .assistant }) else { return }
+        allBaseItems[index].text += chunk
+        rebuildVisibleTranscript()
+    }
+}
+#endif

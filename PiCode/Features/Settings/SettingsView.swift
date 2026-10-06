@@ -2,13 +2,8 @@
 //  SettingsView.swift
 //  PiCode
 //
-//  PiCode's own preferences, plus the one place PiCode edits configuration Pi
-//  owns: the Providers tab, which writes Pi's `auth.json` and `models.json` on
-//  explicit request. Everything else here is PiCode state, and the Pi tab only
-//  shows where Pi keeps its files.
-//
-//  The rule for that one exception: PiCode writes the *documented* shape of a
-//  file Pi already reads, never a private format, and never without a click.
+//  PiCode preferences, installed harness configuration, and third-party
+//  provider definitions. Harness-owned accounts stay with their harness.
 //
 
 import SwiftUI
@@ -16,25 +11,162 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var state: AppState
 
+    @State private var query = ""
+
     var body: some View {
-        TabView(selection: $state.settingsTab) {
-            GeneralSettings(state: state)
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(SettingsTab.general)
-            ComposerSettings(state: state)
-                .tabItem { Label("Composer", systemImage: "text.cursor") }
-                .tag(SettingsTab.composer)
-            SessionSettings(state: state)
-                .tabItem { Label("Sessions", systemImage: "bubble.left.and.text.bubble.right") }
-                .tag(SettingsTab.sessions)
-            ProvidersSettingsView(state: state)
-                .tabItem { Label("Providers", systemImage: "key") }
-                .tag(SettingsTab.providers)
-            PiSettingsTab(state: state)
-                .tabItem { Label("Pi", systemImage: "terminal") }
-                .tag(SettingsTab.pi)
+        HStack(spacing: 0) {
+            menu
+            Rectangle().fill(AppTheme.cardStroke).frame(width: 1)
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(AppTheme.background)
         }
-        .frame(width: 560, height: 520)
+        .onExitCommand { state.isSettingsPresented = false }
+    }
+
+    // MARK: - Left menu
+
+    private var visibleTabs: [SettingsTab] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return SettingsTab.allCases }
+        return SettingsTab.allCases.filter { $0.title.localizedCaseInsensitiveContains(trimmed) }
+    }
+
+    private var menu: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                Button {
+                    state.isSettingsPresented = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Back to app")
+                            .font(Typography.body)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+
+                searchField
+                    .padding(.top, 10)
+                    .padding(.bottom, 10)
+
+                ForEach(SettingsTab.Group.allCases) { group in
+                    let tabs = visibleTabs.filter { $0.group == group }
+                    if !tabs.isEmpty {
+                        Text(group.title)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.top, 14)
+                            .padding(.bottom, 4)
+                        ForEach(tabs) { settingsMenuRow($0) }
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 16)
+        }
+        .frame(width: 256)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(AppTheme.sidebar)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            TextField("Search", text: $query)
+                .textFieldStyle(.plain)
+                .font(Typography.body)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Capsule().fill(AppTheme.railSelection.opacity(0.5)))
+    }
+
+    private func settingsMenuRow(_ tab: SettingsTab) -> some View {
+        let isSelected = state.settingsTab == tab
+        return Button {
+            state.settingsTab = tab
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: tab.systemImage)
+                    .font(.system(size: 13, weight: .regular))
+                    .frame(width: 18)
+                Text(tab.title)
+                    .font(Typography.body)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(isSelected ? AppTheme.railSelection : .clear)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Content
+
+    private var content: some View {
+        ZStack(alignment: .top) {
+            Group {
+                switch state.settingsTab {
+                case .general: GeneralSettings(state: state)
+                case .harnesses: HarnessesSettingsView(state: state)
+                case .providers: ProvidersSettingsView(state: state)
+                case .composer: ComposerSettings(state: state)
+                case .sessions: SessionSettings(state: state)
+                case .pi: PiSettingsTab(state: state)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .padding(.horizontal, 22)
+
+            header
+        }
+        .frame(maxWidth: 860, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background(AppTheme.background)
+    }
+
+    /// The page title, pinned over the scrolling content. Equal space above and
+    /// below the text; the background fades out so rows slide under it softly.
+    private var header: some View {
+        HStack(alignment: .center) {
+            Text(state.settingsTab.title)
+                .font(.system(size: 30, weight: .semibold))
+            Spacer(minLength: 12)
+            if state.settingsTab == .harnesses { UpdateAllHarnessesButton(state: state) }
+        }
+        .padding(.horizontal, 40)
+        .frame(height: SettingsMetrics.headerHeight)
+        .frame(maxWidth: .infinity)
+        .background(
+            LinearGradient(
+                stops: [
+                    .init(color: AppTheme.background, location: 0),
+                    .init(color: AppTheme.background, location: 0.55),
+                    .init(color: AppTheme.background.opacity(0), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: SettingsMetrics.headerHeight + 24)
+            .frame(maxHeight: SettingsMetrics.headerHeight, alignment: .top)
+            .allowsHitTesting(false),
+            alignment: .top
+        )
     }
 }
 
@@ -42,12 +174,57 @@ struct SettingsView: View {
 /// instead of dropping the user on General.
 enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
     case general
+    case harnesses
+    case providers
     case composer
     case sessions
-    case providers
     case pi
 
     var id: String { rawValue }
+
+    /// The labelled clusters in the settings menu.
+    enum Group: String, CaseIterable, Identifiable {
+        case personal, integrations, coding
+
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .personal: return "Personal"
+            case .integrations: return "Integrations"
+            case .coding: return "Coding"
+            }
+        }
+    }
+
+    var group: Group {
+        switch self {
+        case .general, .composer: return .personal
+        case .harnesses, .providers: return .integrations
+        case .sessions, .pi: return .coding
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .general: return "General"
+        case .harnesses: return "Harnesses"
+        case .providers: return "Providers"
+        case .composer: return "Composer"
+        case .sessions: return "Sessions"
+        case .pi: return "Diagnostics"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general: return "gearshape"
+        case .harnesses: return "shippingbox"
+        case .providers: return "key"
+        case .composer: return "text.cursor"
+        case .sessions: return "bubble.left.and.text.bubble.right"
+        case .pi: return "stethoscope"
+        }
+    }
 }
 
 // MARK: - General
@@ -56,49 +233,61 @@ struct GeneralSettings: View {
     @Bindable var state: AppState
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Appearance", selection: Binding(
-                    get: { state.preferences.appearance },
-                    set: { state.preferences.appearance = $0; state.preferences.persist() }
-                )) {
-                    ForEach(PreferencesStore.Appearance.allCases) { option in
-                        Text(option.label).tag(option)
+        SettingsPage {
+            SettingsSection("Appearance") {
+                SettingsRow("Appearance", detail: "Match the system or force a light or dark window.") {
+                    Picker("", selection: Binding(
+                        get: { state.preferences.appearance },
+                        set: { state.preferences.appearance = $0; state.preferences.persist() }
+                    )) {
+                        ForEach(PreferencesStore.Appearance.allCases) { option in
+                            Text(option.label).tag(option)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
                 }
-
-                Toggle("Reduce motion", isOn: Binding(
-                    get: { state.preferences.reducedMotionOverride ?? false },
-                    set: { state.preferences.reducedMotionOverride = $0; state.preferences.persist() }
-                ))
-                .help("Overrides the system setting for PiCode's animations only")
-
-                Toggle("Notify when a long turn finishes", isOn: Binding(
-                    get: { state.preferences.notificationsEnabled },
-                    set: { state.preferences.notificationsEnabled = $0; state.preferences.persist() }
-                ))
+                SettingsRow("Reduce motion", detail: "Overrides the system setting for PiCode's animations only.") {
+                    Toggle("", isOn: Binding(
+                        get: { state.preferences.reducedMotionOverride ?? false },
+                        set: { state.preferences.reducedMotionOverride = $0; state.preferences.persist() }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+                SettingsRow("Notify when a long turn finishes") {
+                    Toggle("", isOn: Binding(
+                        get: { state.preferences.notificationsEnabled },
+                        set: { state.preferences.notificationsEnabled = $0; state.preferences.persist() }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
             }
 
-            Section("Workspace") {
-                Toggle("Show inspector", isOn: Binding(
-                    get: { state.isInspectorVisible },
-                    set: { state.isInspectorVisible = $0 }
-                ))
-                Button("Open Project Folder…") { Task { await state.addProject() } }
-                if let path = state.selectedProjectPath {
-                    HStack {
-                        Text(path.abbreviatingHomeDirectory)
-                            .font(.caption.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer(minLength: 0)
-                        CopyButton(text: path, help: "Copy project path")
+            SettingsSection("Workspace") {
+                SettingsRow("Show inspector", detail: "The panel with the session's changes and context.") {
+                    Toggle("", isOn: Binding(
+                        get: { state.isInspectorVisible },
+                        set: { state.isInspectorVisible = $0 }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+                SettingsRow(
+                    "Project folder",
+                    detail: state.selectedProjectPath?.abbreviatingHomeDirectory ?? "No project is selected."
+                ) {
+                    HStack(spacing: 8) {
+                        if let path = state.selectedProjectPath {
+                            CopyButton(text: path, help: "Copy project path")
+                        }
+                        Button("Open…") { Task { await state.addProject() } }
+                            .buttonStyle(.settingsPill)
                     }
                 }
             }
         }
-        .formStyle(.grouped)
-        .padding(.top, 8)
     }
 }
 
@@ -108,49 +297,65 @@ struct ComposerSettings: View {
     @Bindable var state: AppState
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Send key", selection: Binding(
-                    get: { state.preferences.sendKey },
-                    set: { state.preferences.sendKey = $0; state.preferences.persist() }
-                )) {
-                    ForEach(PreferencesStore.SendKey.allCases) { option in
-                        Text(option.label).tag(option)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-            }
-
-            Section("Defaults for new sessions") {
-                Picker("Thinking level", selection: Binding(
-                    get: { state.preferences.defaultThinkingLevel ?? "" },
-                    set: { state.preferences.defaultThinkingLevel = $0.isEmpty ? nil : $0; state.preferences.persist() }
-                )) {
-                    Text("Pi's default").tag("")
-                    Text("off").tag("off")
-                    Text("low").tag("low")
-                    Text("medium").tag("medium")
-                    Text("high").tag("high")
-                }
-                if let controller = state.activeController, !controller.availableModels.isEmpty {
-                    Picker("Model", selection: Binding(
-                        get: { state.preferences.defaultModelQualifiedID ?? "" },
-                        set: { state.preferences.defaultModelQualifiedID = $0.isEmpty ? nil : $0; state.preferences.persist() }
+        SettingsPage {
+            SettingsSection("Sending") {
+                SettingsRow("Send key", detail: "The key that sends a message from the composer.") {
+                    Picker("", selection: Binding(
+                        get: { state.preferences.sendKey },
+                        set: { state.preferences.sendKey = $0; state.preferences.persist() }
                     )) {
-                        Text("Pi's default").tag("")
-                        ForEach(controller.availableModels) { model in
-                            Text("\(model.provider)/\(model.id)").tag(model.qualifiedID)
+                        ForEach(PreferencesStore.SendKey.allCases) { option in
+                            Text(option.label).tag(option)
                         }
                     }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+
+            SettingsSection("Defaults for new sessions") {
+                SettingsRow("Thinking level") {
+                    Picker("", selection: Binding(
+                        get: { state.preferences.defaultThinkingLevel ?? "" },
+                        set: { state.preferences.defaultThinkingLevel = $0.isEmpty ? nil : $0; state.preferences.persist() }
+                    )) {
+                        Text("Pi's default").tag("")
+                        Text("off").tag("off")
+                        Text("low").tag("low")
+                        Text("medium").tag("medium")
+                        Text("high").tag("high")
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                if let controller = state.activeController, !controller.availableModels.isEmpty {
+                    SettingsRow("\(controller.harness.displayName) model") {
+                        Picker("", selection: Binding(
+                            get: { state.preferences.defaultModelByHarness[controller.harness.id.rawValue] ?? "" },
+                            set: {
+                                state.preferences.defaultModelByHarness[controller.harness.id.rawValue] = $0.isEmpty ? nil : $0
+                                if controller.harness.id == .pi {
+                                    state.preferences.defaultModelQualifiedID = $0.isEmpty ? nil : $0
+                                }
+                                state.preferences.persist()
+                            }
+                        )) {
+                            Text("\(controller.harness.displayName)'s default").tag("")
+                            ForEach(controller.availableModels) { model in
+                                Text("\(model.provider)/\(model.id)").tag(model.qualifiedID)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
                 } else {
-                    Text("Open a session to choose a default model. Pi's own default is used until then.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    SettingsRow(
+                        "Default model",
+                        detail: "Open a session to choose a default model. The selected harness's own default is used until then."
+                    )
                 }
             }
         }
-        .formStyle(.grouped)
-        .padding(.top, 8)
     }
 }
 
@@ -160,47 +365,52 @@ struct SessionSettings: View {
     @Bindable var state: AppState
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("Ask before deleting a session", isOn: Binding(
-                    get: { state.preferences.confirmBeforeDeletingSessions },
-                    set: { state.preferences.confirmBeforeDeletingSessions = $0; state.preferences.persist() }
-                ))
-                Toggle("Record RPC payloads", isOn: Binding(
-                    get: { state.preferences.recordRPCPayloads },
-                    set: { state.preferences.recordRPCPayloads = $0; state.preferences.persist() }
-                ))
-                .help("Keeps the last \(PiDiagnosticsLog.shared.limit) RPC payloads in memory for troubleshooting. Nothing is written to disk.")
+        SettingsPage {
+            SettingsSection("Sessions") {
+                SettingsRow("Ask before deleting a session") {
+                    Toggle("", isOn: Binding(
+                        get: { state.preferences.confirmBeforeDeletingSessions },
+                        set: { state.preferences.confirmBeforeDeletingSessions = $0; state.preferences.persist() }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+                SettingsRow(
+                    "Record RPC payloads",
+                    detail: "Keeps the last \(PiDiagnosticsLog.shared.limit) RPC payloads in memory for troubleshooting. Nothing is written to disk."
+                ) {
+                    Toggle("", isOn: Binding(
+                        get: { state.preferences.recordRPCPayloads },
+                        set: { state.preferences.recordRPCPayloads = $0; state.preferences.persist() }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
             }
 
-            Section("Pi's session storage") {
-                HStack {
-                    Text(PiPaths.sessionsDirectory.path.abbreviatingHomeDirectory)
-                        .font(.caption.monospaced())
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 0)
+            SettingsSection("Pi's session storage") {
+                SettingsRow(
+                    "Sessions folder",
+                    detail: "\(PiPaths.sessionsDirectory.path.abbreviatingHomeDirectory)\nPiCode indexes these files read-only and never rewrites them."
+                ) {
                     Button("Reveal") { WorkspaceLauncher.reveal(PiPaths.sessionsDirectory.path) }
-                        .controlSize(.small)
+                        .buttonStyle(.settingsPill)
                 }
-                Text("PiCode indexes these files read-only and never rewrites them.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
-            Section("Hidden and pinned") {
-                Text("\(state.preferences.pinnedSessions.count) pinned sessions, \(state.preferences.hiddenSessions.count) hidden sessions.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button("Forget Hidden Sessions") {
-                    state.preferences.hiddenSessions = []
-                    state.preferences.persist()
+            SettingsSection("Hidden and pinned") {
+                SettingsRow(
+                    "Hidden sessions",
+                    detail: "\(state.preferences.pinnedSessions.count) pinned sessions, \(state.preferences.hiddenSessions.count) hidden sessions."
+                ) {
+                    Button("Forget Hidden Sessions") {
+                        state.preferences.hiddenSessions = []
+                        state.preferences.persist()
+                    }
+                    .buttonStyle(.settingsPill)
                 }
-                .controlSize(.small)
             }
         }
-        .formStyle(.grouped)
-        .padding(.top, 8)
     }
 }
 
@@ -212,67 +422,73 @@ struct PiSettingsTab: View {
     @State private var showsPayloadLog = false
 
     var body: some View {
-        Form {
-            Section("Pi installation") {
+        SettingsPage {
+            SettingsSection("\(state.activeHarness.displayName) installation") {
                 if let installation = state.installation {
-                    LabeledContent("Version", value: installation.version)
-                    LabeledContent("Path") {
-                        Text(installation.displayPath)
-                            .font(.caption.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
+                    SettingsRow("Version") {
+                        Text(installation.version).foregroundStyle(.secondary)
                     }
+                    SettingsRow("Path", detail: installation.displayPath)
                 } else {
-                    Text(state.discoveryDetail ?? "Pi was not found yet.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button("Search Again") { Task { await state.retryDiscovery() } }
+                    SettingsRow("Not found", detail: state.discoveryDetail ?? "No harness was found yet.") {
+                        Button("Search Again") { Task { await state.retryDiscovery() } }
+                            .buttonStyle(.settingsPill)
+                    }
                 }
-                Button("Check Pi Version") { state.run(.checkForPiUpdates) }
-                Button("Show Setup Instructions") { state.run(.showPiSetup) }
+                SettingsRow("Version check") {
+                    Button("Check \(state.activeHarness.displayName) Version") { state.run(.checkForPiUpdates) }
+                        .buttonStyle(.settingsPill)
+                }
+                SettingsRow("Setup instructions") {
+                    Button("Show") { state.run(.showPiSetup) }
+                        .buttonStyle(.settingsPill)
+                }
             }
 
-            Section("Launch arguments") {
-                TextField("Extra arguments", text: Binding(
-                    get: { state.preferences.extraLaunchArguments },
-                    set: { state.preferences.extraLaunchArguments = $0; state.preferences.persist() }
-                ), prompt: Text("--verbose"))
-                .font(.system(.caption, design: .monospaced))
-                Text("Appended to every `pi --mode rpc` launch. PiCode never writes to Pi's settings files.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            SettingsSection("Launch arguments") {
+                SettingsBlock {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("Extra arguments", text: Binding(
+                            get: { state.preferences.extraLaunchArguments },
+                            set: { state.preferences.extraLaunchArguments = $0; state.preferences.persist() }
+                        ), prompt: Text("--verbose"))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.callout, design: .monospaced))
+                        Text("Appended to every `pi --mode rpc` launch. PiCode never writes to Pi's settings files.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
-            Section("Pi configuration") {
+            SettingsSection("Pi configuration") {
                 ForEach(configFiles, id: \.path) { file in
-                    HStack {
-                        Text(file.path.abbreviatingHomeDirectory)
-                            .font(.caption.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer(minLength: 0)
+                    SettingsRow(file.lastPathComponent, detail: file.path.abbreviatingHomeDirectory) {
                         if FileManager.default.fileExists(atPath: file.path) {
                             Button("Reveal") { WorkspaceLauncher.reveal(file.path) }
-                                .controlSize(.small)
+                                .buttonStyle(.settingsPill)
                         } else {
-                            Text("missing")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                            Text("missing").font(.caption).foregroundStyle(.tertiary)
                         }
                     }
                 }
-                Button("Open Pi's Folder") { state.run(.revealPiDirectory) }
+                SettingsRow("Pi's folder") {
+                    Button("Open") { state.run(.revealPiDirectory) }
+                        .buttonStyle(.settingsPill)
+                }
             }
 
-            Section("Diagnostics") {
-                LabeledContent("Recorded payloads", value: "\(PiDiagnosticsLog.shared.count)")
-                Button("View Payload Log") { showsPayloadLog = true }
-                Button("Clear") { PiDiagnosticsLog.shared.clear() }
+            SettingsSection("Diagnostics") {
+                SettingsRow("Recorded payloads", detail: "\(PiDiagnosticsLog.shared.count) recorded") {
+                    HStack(spacing: 8) {
+                        Button("View Payload Log") { showsPayloadLog = true }
+                            .buttonStyle(.settingsPill)
+                        Button("Clear") { PiDiagnosticsLog.shared.clear() }
+                            .buttonStyle(.settingsPill)
+                    }
+                }
             }
         }
-        .formStyle(.grouped)
-        .padding(.top, 8)
         .sheet(isPresented: $showsPayloadLog) {
             PayloadLogView()
         }

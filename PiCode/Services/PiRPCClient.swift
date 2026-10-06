@@ -36,10 +36,13 @@ enum PiRPCError: LocalizedError, Equatable {
     }
 }
 
-final class PiRPCClient: @unchecked Sendable {
+final class PiRPCClient: AgentRuntime, @unchecked Sendable {
     /// Default timeout for commands that should answer promptly. Long-running
     /// commands (bash, compact, export) opt out with `timeout: .infinity`.
     static let defaultTimeout: TimeInterval = 60
+
+    /// The harness this client is running (Pi or Oh My Pi). Set by the factory.
+    var descriptor: HarnessDescriptor = .descriptor(for: .pi)
 
     private let process: PiProcess
     private let lock = NSLock()
@@ -47,6 +50,8 @@ final class PiRPCClient: @unchecked Sendable {
     private var timeouts: [String: DispatchWorkItem] = [:]
     private var isStopped = false
     private var requestCounter = 0
+    private var negotiationTask: Task<Void, Error>?
+    private let frameDecoder = RPCFrameDecoder()
 
     /// Raw RPC records, for the diagnostics log. Never enabled by default.
     var recordsPayloads = false
@@ -80,8 +85,38 @@ final class PiRPCClient: @unchecked Sendable {
     // MARK: - Commands
 
     func send(_ command: RPCCommand, timeout: TimeInterval = PiRPCClient.defaultTimeout) async throws -> RPCResponse {
+        try await negotiateProtocolIfNeeded()
         let id = nextRequestID()
         return try await sendAwaitingResponse(command.json(id: id), timeout: timeout)
+    }
+
+    /// OMP protocol v2 splits responses larger than 1 MiB into ordered chunks.
+    /// Pi has no negotiation command, so it stays on its existing JSONL protocol.
+    private func negotiateProtocolIfNeeded() async throws {
+        guard descriptor.id == .ohMyPi else { return }
+        try await protocolNegotiationTask().value
+    }
+
+    private func protocolNegotiationTask() -> Task<Void, Error> {
+        lock.lock()
+        defer { lock.unlock() }
+        if let negotiationTask { return negotiationTask }
+        let task = Task { [weak self] in
+            guard let self else { throw PiRPCError.notRunning }
+            let response = try await self.sendAwaitingResponse(.object([
+                "id": .string("picode-negotiate-v2"),
+                "type": .string("negotiate_protocol"),
+                "protocolVersion": .number(2)
+            ]))
+            guard response.data?.int("protocolVersion") == 2 else {
+                throw PiRPCError.commandFailed(
+                    command: "negotiate_protocol",
+                    message: "Oh My Pi did not accept RPC protocol v2."
+                )
+            }
+        }
+        negotiationTask = task
+        return task
     }
 
     /// Sends an already-built request object and waits for the response carrying
@@ -169,9 +204,18 @@ final class PiRPCClient: @unchecked Sendable {
     }
 
     private func handleRecord(_ data: Data) {
-        guard let json = try? JSONCoding.decode(data) else {
+        guard let physicalFrame = try? JSONCoding.decode(data) else {
             let preview = String(data: data.prefix(200), encoding: .utf8) ?? "<binary>"
             onProtocolError?("Could not decode an RPC record: \(preview)")
+            return
+        }
+
+        let json: JSONValue
+        do {
+            guard let logicalFrame = try frameDecoder.push(physicalFrame) else { return }
+            json = logicalFrame
+        } catch {
+            onProtocolError?(error.localizedDescription)
             return
         }
 

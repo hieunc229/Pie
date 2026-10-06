@@ -82,6 +82,26 @@ struct SessionView: View {
     /// received but never shown is worse than one in the other slot.
     private var composerStack: some View {
         VStack(spacing: 8) {
+            ComposerView(
+                state: state,
+                controller: controller,
+                focusTick: composerFocusTick,
+                tray: hasTrayContent ? AnyView(trayContent) : nil
+            )
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 16)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: ComposerHeightKey.self, value: proxy.size.height)
+        })
+    }
+
+    // MARK: - Tray
+
+    /// Everything the agent has to say above the composer, drawn in the
+    /// composer's tray: one light, borderless band tucked behind the box.
+    private var trayContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
             ExtensionWidgetStrip(controller: controller, placement: .aboveEditor)
             ExtensionWidgetStrip(controller: controller, placement: .belowEditor)
 
@@ -102,14 +122,16 @@ struct SessionView: View {
             if !controller.queue.isEmpty {
                 queuedPrompts
             }
-
-            ComposerView(state: state, controller: controller, focusTick: composerFocusTick)
         }
-        .padding(.top, 8)
-        .padding(.bottom, 16)
-        .background(GeometryReader { proxy in
-            Color.clear.preference(key: ComposerHeightKey.self, value: proxy.size.height)
-        })
+    }
+
+    private var hasTrayContent: Bool {
+        !(controller.extensionWidgets[.aboveEditor] ?? [:]).isEmpty
+            || !(controller.extensionWidgets[.belowEditor] ?? [:]).isEmpty
+            || !controller.compatibilityNotices.isEmpty
+            || needsTrustDecision
+            || controller.trustState == .untrusted
+            || !controller.queue.isEmpty
     }
 
     // MARK: - Queue
@@ -126,29 +148,18 @@ struct SessionView: View {
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 Button("Clear") { Task { await controller.clearQueue() } }
-                    .font(.caption)
+                    .font(Typography.notice)
                     .buttonStyle(.borderless)
                     .help("Drop everything Pi has queued")
             }
-            .padding(.horizontal, 10)
-            .padding(.top, 7)
-            .padding(.bottom, 5)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
 
             queuedMessageList
                 .padding(.bottom, 5)
         }
-        .background(Self.queueFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(.separator.opacity(0.6))
-        )
     }
-
-    /// The queue card’s fill. Opaque on purpose: the card sits above the composer,
-    /// and a translucent fill let whatever was under it ghost through. It is the
-    /// palette’s elevated surface in the dark appearance and its own light grey in
-    /// the light one, so it always steps away from the transcript behind it.
-    private static let queueFill = AppTheme.queueFill
 
     /// A short queue grows to fit; a long one scrolls rather than shouldering the
     /// composer off the bottom of the window.
@@ -173,12 +184,12 @@ struct SessionView: View {
     private func queuedMessageRow(position: Int, _ message: QueuedPrompt) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Text("\(position)")
-                .font(.caption.monospacedDigit())
+                .font(Typography.notice.monospacedDigit())
                 .foregroundStyle(.tertiary)
                 .frame(width: 16, alignment: .trailing)
             VStack(alignment: .leading, spacing: 1) {
                 Text(message.text)
-                    .font(Typography.body)
+                    .font(Typography.notice)
                     .lineLimit(2)
                     .truncationMode(.tail)
                 Text(message.kind.caption)
@@ -188,7 +199,7 @@ struct SessionView: View {
             Spacer(minLength: 0)
             queueActions(for: message)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 16)
         .padding(.vertical, 5)
     }
 
@@ -268,15 +279,16 @@ struct SessionView: View {
             level: .warning,
             title: connectionTitle,
             message: connectionMessage,
-            actionTitle: "Restart Pi",
+            actionTitle: "Restart \(controller.harness.displayName)",
             action: { Task { await controller.restart() } }
         )
     }
 
     private var connectionTitle: String {
         switch controller.connection {
-        case .failed: return "Pi could not start"
-        case .disconnected(let reason): return "Pi stopped\(reason.map { " (\($0))" } ?? "")"
+        case .failed: return "\(controller.harness.displayName) could not start"
+        case .disconnected(let reason):
+            return "\(controller.harness.displayName) stopped\(reason.map { " (\($0))" } ?? "")"
         default: return controller.connection.label
         }
     }

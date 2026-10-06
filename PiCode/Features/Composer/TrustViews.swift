@@ -13,12 +13,12 @@ struct ProjectTrustPrompt: View {
     @Bindable var controller: PiSessionController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Label("This project can change how Pi behaves", systemImage: "lock.shield")
-                .font(.callout.weight(.semibold))
+                .font(Typography.noticeSemibold)
 
             Text("\(controller.projectPath.abbreviatingHomeDirectory) contains project resources Pi can load: settings, extensions, skills, prompts, themes, or system prompts. Pi will not load them unless you trust this project.")
-                .font(.callout)
+                .font(Typography.notice)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -44,12 +44,9 @@ struct ProjectTrustPrompt: View {
                 .help("Writes a trust decision for the parent directory, which Pi applies to this project by nearest-ancestor lookup.")
             }
         }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.orange.opacity(0.4))
-        )
+        // Drawn in the composer's tray, which supplies the fill and the shape.
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 }
 
@@ -61,16 +58,16 @@ struct UntrustedProjectNotice: View {
             Image(systemName: "lock")
                 .foregroundStyle(.secondary)
             Text("Project resources are not trusted, so Pi is running without them.")
-                .font(.callout)
+                .font(Typography.notice)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
             Button("Trust…") {
                 controller.setTrust(true, remember: true)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+        // Drawn in the composer's tray, which supplies the fill and the shape.
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 }
 
@@ -106,11 +103,15 @@ struct ComposerAccessControl: View {
         Button {
             isShowingPopover = true
         } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 12.5))
-                .foregroundStyle(tint)
-                .frame(width: 22, height: 20)
-                .contentShape(Rectangle())
+            HStack(spacing: 5) {
+                Image(systemName: "exclamationmark.circle")
+                    .font(.system(size: 13))
+                Text(accessLabel)
+                    .font(.system(size: 13.5))
+            }
+            .foregroundStyle(Color.orange)
+            .frame(height: 24)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Access: \(shortLabel)")
@@ -165,6 +166,17 @@ struct ComposerAccessControl: View {
         case .asked: return "Waiting for your decision"
         case .untrusted: return "This project is not trusted"
         case .unknown: return "Trust state unknown"
+        }
+    }
+
+    /// What the composer says about access. Pi always runs with the user's
+    /// own permissions, so a trusted project is plainly "Full access"; the other
+    /// states name what is still pending.
+    private var accessLabel: String {
+        switch controller.trustState {
+        case .trusted, .notRequired, .unknown: return "Full access"
+        case .asked: return "Trust project?"
+        case .untrusted: return "Not trusted"
         }
     }
 

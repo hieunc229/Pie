@@ -147,8 +147,8 @@ struct SessionIndex: @unchecked Sendable {
     }
 
     func loadAllSessions() -> [SessionRef] {
-        sessionFileURLs()
-            .compactMap { parse(fileURL: $0) }
+        (sessionFileURLs().compactMap { parse(fileURL: $0) }
+            + HarnessSessionIndex.load())
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
@@ -196,10 +196,8 @@ struct SessionIndex: @unchecked Sendable {
         var firstUserMessage: String?
         var messageCount = 0
 
-        let decoder = JSONDecoder()
-
         func ingest(_ line: Data.SubSequence) {
-            guard let value = try? decoder.decode(JSONValue.self, from: Data(line)) else { return }
+            guard let value = try? JSONCoding.decode(Data(line)) else { return }
             switch value.string("type") {
             case "session":
                 if sessionId == nil {

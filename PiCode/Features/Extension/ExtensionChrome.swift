@@ -28,20 +28,20 @@ struct ExtensionWidgetStrip: View {
         if !widgets.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(widgets.keys.sorted(), id: \.self) { key in
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(key)
-                            .font(.caption2.weight(.semibold))
+                            .font(.system(size: Typography.baseSize - 2, weight: .semibold))
                             .foregroundStyle(.tertiary)
                         ForEach(Array((widgets[key] ?? []).enumerated()), id: \.offset) { _, line in
-                            Text(ANSIParser.attributed(line, scheme: colorScheme, baseFont: .system(.caption, design: .monospaced)))
+                            Text(ANSIParser.attributed(line, scheme: colorScheme, baseFont: Typography.noticeCode))
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 6)
+                    // Drawn in the composer's tray, which supplies the fill.
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary.opacity(0.22), in: RoundedRectangle(cornerRadius: 7))
                 }
             }
         }

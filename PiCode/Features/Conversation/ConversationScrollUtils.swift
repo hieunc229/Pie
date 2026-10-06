@@ -1,3 +1,4 @@
+import QuartzCore
 import SwiftUI
 
 extension ConversationView {
@@ -48,7 +49,49 @@ extension ConversationView {
         }
     }
 
+    /// Keeps a few screens of earlier history laid out above the viewport,
+    /// adding one turn at a time while the transcript is at rest.
+    ///
+    /// Prepending a turn builds all of its rows in one main-thread pass — tens of
+    /// milliseconds for a long reply. Done on demand, that pass lands in the
+    /// middle of a scroll and is felt as a stall; done here, it lands while
+    /// nothing is moving, so scrolling up finds the history already in place.
+    /// The on-demand prefetch above stays as the fallback for a fast fling.
+    func startIdleHistoryFill() {
+        scrollState.idleFillTask?.cancel()
+        let generation = scrollState.generation
+        scrollState.idleFillTask = Task { @MainActor in
+            while !Task.isCancelled, generation == scrollState.generation {
+                do { try await Task.sleep(nanoseconds: 250_000_000) }
+                catch { return }
+                guard generation == scrollState.generation else { return }
+                guard controller.hasEarlierTranscript else { return }
+                guard !isOpeningSession, !scrollState.isPrepending,
+                      !controller.runtime.isBusy,
+                      scrollState.viewportHeight > 0,
+                      scrollState.topGap < scrollState.viewportHeight * Self.idleHistoryScreens,
+                      CACurrentMediaTime() - scrollState.lastScrollActivity > 0.4
+                else { continue }
+                scrollState.isPrepending = true
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    controller.loadEarlierTranscript()
+                }
+                do { try await Task.sleep(nanoseconds: 200_000_000) }
+                catch { return }
+                guard generation == scrollState.generation else { return }
+                scrollState.isPrepending = false
+            }
+        }
+    }
+
+    /// How many viewport heights of history the idle fill keeps above the
+    /// visible rows.
+    static let idleHistoryScreens: CGFloat = 8
+
     func beginOpeningSession(_ proxy: ScrollViewProxy) {
+        scrollState.idleFillTask?.cancel()
         scrollState.pageTask?.cancel()
         scrollState.isPrepending = false
         scrollState.topGap = .infinity
@@ -86,6 +129,7 @@ extension ConversationView {
                         isPinnedToBottom = true
                         isOpeningSession = false
                         scrollState.openingTask = nil
+                        startIdleHistoryFill()
                         return
                     }
                 } else {

@@ -27,13 +27,18 @@ enum Typography {
     static let baseSize: CGFloat = 14
 
     /// Prose. Regular weight, because a size is not a weight.
-    static let body = Font.system(size: baseSize, weight: .light)
-    
-    static let kerning: CGFloat = 0.2
+    static let body = Font.system(size: baseSize, weight: .regular)
 
     /// Prose that has to carry a little emphasis — a tool name, a label inside
     /// content. Bold is reserved for first-level headings.
     static let bodySemibold = Font.system(size: baseSize, weight: .semibold)
+
+    /// Agent notices — errors, banners, the composer's tray: one step below the
+    /// reading size, so what the agent says about the session recedes from the
+    /// conversation itself.
+    static let notice = Font.system(size: baseSize - 1, weight: .regular)
+    static let noticeSemibold = Font.system(size: baseSize - 1, weight: .semibold)
+    static let noticeCode = Font.system(size: baseSize - 1, design: .monospaced)
 
     /// Code, commands, paths and JSON: the same size as prose, in monospace.
     static let code = Font.system(size: baseSize, design: .monospaced)

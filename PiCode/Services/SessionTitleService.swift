@@ -35,22 +35,28 @@ enum SessionTitleService {
     /// becomes a session name.
     static func generate(for prompt: String,
                          installation: PiInstallation,
+                         harness: HarnessDescriptor,
                          directory: String,
                          model: String?) async -> String? {
         let message = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return nil }
 
-        var arguments = [
-            "--print",
-            "--mode", "text",
-            "--no-session",
-            "--no-tools",
-            "--no-extensions",
-            "--no-skills",
-            "--no-prompt-templates",
-            "--no-context-files",
-            "--no-approve"
-        ]
+        var arguments: [String]
+        switch harness.id {
+        case .pi:
+            arguments = [
+                "--print", "--mode", "text", "--no-session", "--no-tools",
+                "--no-extensions", "--no-skills", "--no-prompt-templates",
+                "--no-context-files", "--no-approve"
+            ]
+        case .ohMyPi:
+            arguments = [
+                "--print", "--mode", "text", "--no-session", "--no-tools",
+                "--no-extensions", "--no-skills", "--no-title"
+            ]
+        default:
+            return nil
+        }
         if let model, !model.isEmpty {
             arguments.append(contentsOf: ["--model", model])
         }

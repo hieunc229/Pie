@@ -47,8 +47,24 @@ struct ProjectSettings: Codable, Equatable {
     /// Text appended to Pi's system prompt for new sessions in this project,
     /// passed as `--append-system-prompt`.
     var systemPrompt: String = ""
+    /// Harness new chats in this project use. `nil` means the app default.
+    /// Stored as a raw `HarnessID` string so the model stays codable and stable.
+    var harnessID: String?
+    /// Last provider chosen for this project's harness, if the harness exposes a
+    /// model catalog.
+    var providerID: String?
+    /// Last model chosen for this project, qualified as `provider/model`.
+    var modelID: String?
 
-    var isEmpty: Bool { name.isEmpty && directory.isEmpty && systemPrompt.isEmpty }
+    var harness: HarnessID? {
+        get { harnessID.flatMap(HarnessID.init(rawValue:)) }
+        set { harnessID = newValue?.rawValue }
+    }
+
+    var isEmpty: Bool {
+        name.isEmpty && directory.isEmpty && systemPrompt.isEmpty
+            && harnessID == nil && providerID == nil && modelID == nil
+    }
 }
 
 /// A Pi session file discovered on disk or created through the app.
@@ -66,6 +82,19 @@ struct SessionRef: Identifiable, Equatable {
     /// PiCode-only pin, stored in app preferences.
     var isPinned: Bool = false
     var isEphemeral: Bool = false
+    var harnessID: HarnessID = .pi
+
+    var resumeIdentifier: String? {
+        switch harnessID {
+        case .pi, .ohMyPi: return filePath
+        default: return sessionId
+        }
+    }
+
+    var controllerKey: String {
+        if let filePath { return "session:\(filePath)" }
+        return "native:\(harnessID.rawValue):\(sessionId ?? id)"
+    }
 
     var displayName: String {
         if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }

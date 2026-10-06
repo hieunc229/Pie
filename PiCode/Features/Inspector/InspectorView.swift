@@ -240,7 +240,7 @@ struct ArtifactHeader: View {
         case .change: return "plusminus.circle"
         case .file: return "doc.text"
         case .tool(let id):
-            guard let item = item(id) else { return "wrench.and.screwdriver" }
+            guard let item = item(id) else { return "setting-4" }
             return QuietFamily.of(item)?.systemImage ?? "wrench.and.screwdriver"
         }
     }

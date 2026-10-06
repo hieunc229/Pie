@@ -177,29 +177,22 @@ struct DeleteSessionSheet: View {
     var session: SessionRef
     var onFinish: () -> Void
 
-    @State private var isDeleting = false
-    @State private var error: String?
-
     var body: some View {
         SheetScaffold(
             title: "Delete Session?",
             message: message,
-            primaryTitle: isDeleting ? "Deleting…" : "Delete",
+            primaryTitle: "Delete",
             primaryRole: .destructive,
-            isPrimaryDisabled: isDeleting || session.filePath == nil,
+            isPrimaryDisabled: session.filePath == nil,
             onCancel: onFinish
         ) {
-            Task {
-                isDeleting = true
-                do {
-                    try await state.delete(session: session)
-                    isDeleting = false
-                    onFinish()
-                } catch {
-                    self.error = error.localizedDescription
-                    isDeleting = false
-                }
-            }
+            // The answer is the decision, so nothing here waits on it: the row is
+            // already out of the sidebar and the file is unlinked before the sheet
+            // goes, and only the rescan runs behind the window. A failure has no
+            // sheet left to appear in, so it reports itself in the window's banner
+            // (`AppState.delete`).
+            state.delete(session: session)
+            onFinish()
         } content: {
             VStack(alignment: .leading, spacing: 10) {
                 if let path = session.filePath {
@@ -208,9 +201,6 @@ struct DeleteSessionSheet: View {
                         .textSelection(.enabled)
                         .lineLimit(3)
                         .truncationMode(.middle)
-                }
-                if let error {
-                    BannerView(level: .error, title: "Could not delete", message: error, onDismiss: { self.error = nil })
                 }
                 Text("Deleting removes the session's `.jsonl` file from disk and cannot be undone.")
                     .font(.caption)
@@ -243,6 +233,9 @@ struct ProjectSettingsSheet: View {
     @State private var name = ""
     @State private var directory = ""
     @State private var systemPrompt = ""
+    @State private var harnessID: HarnessID = .pi
+    @State private var provider = ""
+    @State private var model = ""
     @State private var isSaving = false
 
     var body: some View {
@@ -255,14 +248,14 @@ struct ProjectSettingsSheet: View {
         ) {
             Task {
                 isSaving = true
-                await state.updateProjectSettings(
-                    ProjectSettings(
-                        name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-                        directory: directory.trimmingCharacters(in: .whitespacesAndNewlines),
-                        systemPrompt: systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                    ),
-                    for: project
-                )
+                var settings = state.projectSettings(for: project)
+                settings.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                settings.directory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+                settings.systemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                settings.harness = harnessID
+                settings.providerID = provider.isEmpty ? nil : provider
+                settings.modelID = model.isEmpty ? nil : model
+                await state.updateProjectSettings(settings, for: project)
                 isSaving = false
                 onFinish()
             }
@@ -285,7 +278,49 @@ struct ProjectSettingsSheet: View {
                     }
                 }
 
-                field("System prompt", caption: "Appended to Pi's system prompt for new sessions in this project.") {
+                if !state.harnesses.usableHarnesses.isEmpty {
+                    field("Harness", caption: "Agent runtime new chats in this project use.") {
+                        Picker("Harness", selection: $harnessID) {
+                            ForEach(state.harnesses.usableHarnesses) { descriptor in
+                                Text(descriptor.displayName).tag(descriptor.id)
+                            }
+                        }
+                        .labelsHidden()
+                    }
+                }
+
+                if harnessID == .pi {
+                    field("Provider and model", caption: "Optional Pi configuration. Other harnesses own separate provider catalogs.") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Picker("Provider", selection: $provider) {
+                                Text("Automatic").tag("")
+                                ForEach(providerOptions, id: \.self) { id in
+                                    Text(id).tag(id)
+                                }
+                            }
+                            if !modelOptions.isEmpty {
+                                Picker("Model", selection: $model) {
+                                    Text("Automatic").tag("")
+                                    ForEach(modelOptions, id: \.self) { id in
+                                        Text(id).tag(id)
+                                    }
+                                }
+                            } else {
+                                TextField("Model", text: $model, prompt: Text("provider/model"))
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(.caption, design: .monospaced))
+                            }
+                        }
+                    }
+                } else if let descriptor = state.harnesses.usableHarnesses.first(where: { $0.id == harnessID }) {
+                    field("Provider and model", caption: "Configured independently by \(descriptor.displayName).") {
+                        Text("Choose from \(descriptor.displayName)'s reported model catalog after starting the chat.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                field("System prompt", caption: "Appended to the agent's system prompt for new sessions in this project.") {
                     TextEditor(text: $systemPrompt)
                         .font(.system(.body, design: .monospaced))
                         .frame(minHeight: 110)
@@ -297,8 +332,32 @@ struct ProjectSettingsSheet: View {
                 name = settings.name
                 directory = settings.directory
                 systemPrompt = settings.systemPrompt
+                harnessID = settings.harness ?? state.preferences.defaultHarnessID
+                provider = settings.providerID ?? ""
+                model = settings.modelID ?? ""
             }
         }
+    }
+
+    private var providerOptions: [String] {
+        var ids = Set(PiProviderService.credentials().map(\.provider))
+        for provider in PiProviderService.customProviders() { ids.insert(provider.id) }
+        if let controller = state.activeController {
+            for entry in controller.availableModels { ids.insert(entry.provider) }
+        }
+        return ids.sorted()
+    }
+
+    private var modelOptions: [String] {
+        guard !provider.isEmpty else { return [] }
+        var ids: [String] = []
+        if let custom = PiProviderService.customProviders().first(where: { $0.id == provider }) {
+            ids.append(contentsOf: custom.models.map(\.id))
+        }
+        if let controller = state.activeController {
+            ids.append(contentsOf: controller.availableModels.filter { $0.provider == provider }.map(\.id))
+        }
+        return Array(Set(ids)).sorted()
     }
 
     @ViewBuilder

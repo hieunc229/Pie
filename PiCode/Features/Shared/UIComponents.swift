@@ -9,6 +9,41 @@
 
 import SwiftUI
 
+// MARK: - Composer tray
+
+/// Whether a view is drawn inside the composer's tray — the light, borderless
+/// band tucked behind the top of the composer box. Notices drawn there drop
+/// their own card chrome (the tray is the card) and use the reading size.
+private struct ComposerTrayKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var isInComposerTray: Bool {
+        get { self[ComposerTrayKey.self] }
+        set { self[ComposerTrayKey.self] = newValue }
+    }
+}
+
+// MARK: - Notice surface
+
+/// The one surface for what the agent says outside the conversation — notices,
+/// errors, stray tool results, banners: the same light, borderless band as the
+/// strip behind the composer, so every agent message reads as one family.
+struct NoticeSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(AppTheme.composerContextFill,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+extension View {
+    func noticeSurface() -> some View { modifier(NoticeSurface()) }
+}
+
 // MARK: - Banner
 
 struct BannerView: View {
@@ -44,18 +79,20 @@ struct BannerView: View {
     var action: (() -> Void)?
     var onDismiss: (() -> Void)?
 
+    @Environment(\.isInComposerTray) private var isInComposerTray
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: level.systemImage)
                 .foregroundStyle(level.tint)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.callout.weight(.semibold))
+                    .font(Typography.noticeSemibold)
                 if let message, !message.isEmpty {
                     Text(message)
-                        .font(.callout)
+                        .font(Typography.notice)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
@@ -67,7 +104,7 @@ struct BannerView: View {
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderless)
-                    .font(.callout)
+                    .font(Typography.notice)
             }
 
             if let onDismiss {
@@ -82,13 +119,16 @@ struct BannerView: View {
                 .accessibilityLabel("Dismiss")
             }
         }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(level.tint.opacity(0.35))
-        )
-        .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+        .padding(.horizontal, 16)
+        .padding(.vertical, isInComposerTray ? 10 : 12)
+        // In the composer's tray the tray is the surface; anywhere else the
+        // banner brings its own.
+        .background {
+            if !isInComposerTray {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(AppTheme.composerContextFill)
+            }
+        }
     }
 }
 
@@ -271,6 +311,25 @@ struct DiffStatView: View {
     }
 }
 
+// MARK: - Light button style
+
+/// A button drawn entirely by SwiftUI: its label, dimmed while pressed.
+///
+/// On macOS `.borderless` is backed by a real `NSButton`, which is cheap once
+/// but not hundreds of times — and the transcript builds a few per row. Rows
+/// use this instead, so building a page of history creates no AppKit views.
+struct LightButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.5 : 1)
+            .contentShape(Rectangle())
+    }
+}
+
+extension ButtonStyle where Self == LightButtonStyle {
+    static var light: LightButtonStyle { LightButtonStyle() }
+}
+
 // MARK: - Copy button
 
 struct CopyButton: View {
@@ -290,8 +349,9 @@ struct CopyButton: View {
         } label: {
             Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
                 .imageScale(.small)
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.light)
         .help(help)
         .accessibilityLabel(help)
     }
@@ -335,8 +395,9 @@ struct CollapsibleText: View {
                         systemImage: isExpanded ? "chevron.up" : "chevron.down"
                     )
                     .font(Typography.body)
+                    .foregroundStyle(Color.accentColor)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.light)
             }
         }
         .onAppear {

@@ -10,7 +10,7 @@ struct ConversationRowsView: View {
         ForEach(controller.rows) { row in
             ConversationMessageRow(row: row, response: controller.responseMetadata[row.id],
                                    controller: controller, hover: hover)
-                .id(row.id)
+                .equatable()
         }
     }
 }

@@ -46,11 +46,23 @@ struct ToolGroupView: View {
     @State private var isExpanded = false
     @State private var isHovering = false
 
-    private var items: [TranscriptItem] { row.items }
-
     /// The steps the run draws. Reasoning is part of `items` — the run keeps its
     /// duration and its live state from it — but it is not one of them.
-    private var steps: [TranscriptItem] { row.visibleSteps }
+    ///
+    /// Derived once per row value, with the headline: both walk every item of
+    /// the run (a turn can be a hundred steps), and the body asks for them
+    /// several times and again on every hover.
+    private let steps: [TranscriptItem]
+    private let headline: String
+
+    init(row: TranscriptRow, controller: PiSessionController) {
+        self.row = row
+        self.controller = controller
+        self.steps = row.visibleSteps
+        self.headline = row.headline
+    }
+
+    private var items: [TranscriptItem] { row.items }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -131,9 +143,8 @@ struct ToolGroupView: View {
         steps.count == 1 ? steps.first : nil
     }
 
-    /// What the line says — that is `TranscriptRow`'s decision, not this view's,
-    /// so the smoke test can print the same words the transcript draws.
-    private var headline: String { row.headline }
+    // What the line says (`headline`) is `TranscriptRow`'s decision, not this
+    // view's, so the smoke test can print the same words the transcript draws.
 
     /// The one thing worth naming on a folded line: the command, or the file. Only
     /// when there is one call to name — a run of six has six answers, and the run's

@@ -29,13 +29,24 @@ final class AppState {
 
     let preferences = PreferencesStore()
     let drafts = DraftStore()
-    private let discovery = PiDiscoveryService()
+    /// Detects and remembers every coding-agent harness on this Mac.
+    let harnesses = HarnessRegistry()
+    /// Runs user-initiated harness installs and streams their output.
+    let installs = HarnessInstallService()
+    /// Newest published versions of the installed harnesses.
+    let harnessUpdates = HarnessUpdateChecker()
     private let index = SessionIndex()
+    /// Fast, rebuildable cache of the session list. The sidebar reads it at
+    /// launch so chats appear before the disk scan finishes.
+    private let catalog = SessionCatalogDatabase()
 
     // MARK: - Launch
 
     private(set) var phase: LaunchPhase = .starting
-    private(set) var installation: PiInstallation?
+    /// The harness new sessions use and whose version the UI reports.
+    private(set) var activeHarness: HarnessDescriptor = .descriptor(for: .pi)
+    /// The active harness's executable, when it is installed.
+    var installation: PiInstallation? { harnesses.installation(for: activeHarness.id) }
     private(set) var discoveryDetail: String?
     private(set) var searchedPaths: [String] = []
 
@@ -52,6 +63,56 @@ final class AppState {
     private(set) var sessionOpenRevision = 0
     private(set) var sessionOpenCompletedRevision = 0
     private(set) var sessionOpeningKey: String?
+
+    // MARK: - Navigation history
+
+    /// A chat the user was looking at, so Back / Forward can return to it.
+    struct NavigationEntry: Equatable {
+        var key: String
+        var projectPath: String?
+    }
+
+    private(set) var navigationBack: [NavigationEntry] = []
+    private(set) var navigationForward: [NavigationEntry] = []
+    private var isNavigatingHistory = false
+    var canGoBack: Bool { !navigationBack.isEmpty }
+    var canGoForward: Bool { !navigationForward.isEmpty }
+
+    /// Remember the chat on screen before the selection moves to `key`.
+    private func recordNavigation(to key: String) {
+        guard !isNavigatingHistory, let current = selectedSessionKey, current != key else { return }
+        navigationBack.append(NavigationEntry(key: current, projectPath: selectedProjectPath))
+        if navigationBack.count > 50 { navigationBack.removeFirst() }
+        navigationForward.removeAll()
+    }
+
+    func goBack() async { await navigate(from: \.navigationBack, to: \.navigationForward) }
+    func goForward() async { await navigate(from: \.navigationForward, to: \.navigationBack) }
+
+    /// Pops entries off `source` until one still resolves to a chat, pushing the
+    /// chat being left onto `destination`.
+    private func navigate(
+        from source: ReferenceWritableKeyPath<AppState, [NavigationEntry]>,
+        to destination: ReferenceWritableKeyPath<AppState, [NavigationEntry]>
+    ) async {
+        let leaving = selectedSessionKey.map { NavigationEntry(key: $0, projectPath: selectedProjectPath) }
+        while let entry = self[keyPath: source].popLast() {
+            isNavigatingHistory = true
+            defer { isNavigatingHistory = false }
+            if let session = projects.lazy.flatMap(\.sessions).first(where: { $0.controllerKey == entry.key }) {
+                await open(session: session)
+            } else if controllers[entry.key] != nil {
+                selectedSessionKey = entry.key
+                if let path = entry.projectPath { selectProject(path) }
+                isPackagesVisible = false
+                lastAccess[entry.key] = Date()
+            } else {
+                continue
+            }
+            if let leaving { self[keyPath: destination].append(leaving) }
+            return
+        }
+    }
 
     // MARK: - Search
 
@@ -109,7 +170,14 @@ final class AppState {
     /// Show the package browser in the detail column.
     func showPackages() {
         isPackagesVisible = true
+        isSettingsPresented = false
         isPalettePresented = false
+    }
+
+    /// Leave the package browser and return to whatever chat was showing.
+    func hidePackages() {
+        isPackagesVisible = false
+        isSettingsPresented = false
     }
 
     /// Text the inspector wants appended to the composer (e.g. an `@path`
@@ -219,8 +287,7 @@ final class AppState {
 
     func toggleTerminal() { isTerminalVisible.toggle() }
 
-    /// Opens the settings window on a specific tab. The window itself is raised
-    /// by the view layer, which owns the AppKit call.
+    /// Replaces the window content with Settings, on a specific tab.
     func openSettings(tab: SettingsTab) {
         settingsTab = tab
         isSettingsPresented = true
@@ -239,6 +306,23 @@ final class AppState {
             Task { await controller.restart() }
         }
         showToast("Restarting \(connected.count) session(s) to apply the provider change.")
+    }
+
+    /// Applies a provider-catalog change end to end: mirror the neutral registry
+    /// into every installed harness that needs a native file, then restart all
+    /// provider-aware sessions. Each adapter either reads its catalog at process
+    /// startup or supplies provider-specific launch configuration.
+    func providersDidChange() {
+        synchronizeProviders()
+        let affected: Set<HarnessID> = [.pi, .ohMyPi, .deepseekHarness, .claudeCode, .codex]
+        let connected = controllers.values.filter {
+            $0.connection.isConnected && affected.contains($0.harness.id)
+        }
+        guard !connected.isEmpty else { return }
+        for controller in connected {
+            Task { await controller.restart() }
+        }
+        showToast("Restarting \(connected.count) session(s) so the new providers appear.")
     }
     var isSettingsPresented = false
     /// Which settings tab is showing, so a command can open the relevant one.
@@ -269,7 +353,7 @@ final class AppState {
     private(set) var lastCommand: PaletteCommand?
 
     init() {
-        collapsedProjects = preferences.collapsedProjects
+        expandedProjects = preferences.expandedProjects
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
@@ -283,26 +367,84 @@ final class AppState {
 
     func launch() async {
         phase = .starting
-        switch await discovery.discover() {
-        case .found(let installation):
-            self.installation = installation
+        await harnesses.refresh()
+        synchronizeProviders()
+
+        if let descriptor = preferredHarness() {
+            activeHarness = descriptor
+            // Older builds allowed an installed harness with no adapter to be
+            // saved as the default, then silently launched Pi instead.  Repair
+            // that stale preference so Settings and new chats agree.
+            if preferences.defaultHarnessID != descriptor.id,
+               !harnesses.usableHarnesses.contains(where: { $0.id == preferences.defaultHarnessID }) {
+                preferences.defaultHarnessID = descriptor.id
+                preferences.persist()
+            }
             discoveryDetail = nil
             searchedPaths = []
             phase = .ready
+            installCachedIndex()
             await refreshIndex()
             restoreLastSession()
-        case .missing(let searched, _, let detail):
-            installation = nil
+        } else {
+            let detail = harnesses.missingDetail[.pi]
+                ?? "No coding-agent harness with a PiCode adapter is installed."
             discoveryDetail = detail
-            searchedPaths = searched
+            searchedPaths = []
             phase = .needsPi(detail: detail)
             isOnboardingPresented = true
         }
     }
 
+    /// The harness new sessions should use: the user's default when it is
+    /// installed with a working adapter, otherwise Pi, otherwise any usable one.
+    private func preferredHarness() -> HarnessDescriptor? {
+        let usable = harnesses.usableHarnesses
+        if let preferred = usable.first(where: { $0.id == preferences.defaultHarnessID }) {
+            return preferred
+        }
+        if let pi = usable.first(where: { $0.id == .pi }) { return pi }
+        return usable.first
+    }
+
+    /// The harness a new chat in `projectPath` should run on, honouring a
+    /// project override when that harness is installed.
+    func harness(forProject path: String) -> HarnessDescriptor? {
+        let settings = preferences.projectSettings(for: CanonicalPath.of(path))
+        let desired = settings.harness ?? preferences.defaultHarnessID
+        let usable = harnesses.usableHarnesses
+        if let match = usable.first(where: { $0.id == desired }) { return match }
+        return preferredHarness()
+    }
+
     func retryDiscovery() async {
         isOnboardingPresented = true
         await launch()
+    }
+
+    /// Re-export the neutral provider registry whenever installed harnesses
+    /// change. A newly installed runtime receives every existing provider.
+    func synchronizeProviders() {
+        do {
+            try ProviderRegistry.synchronize(
+                ProviderRegistry.providers(),
+                with: harnesses.installedHarnessIDs
+            )
+        } catch {
+            present(error: "Provider sync failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// The project's chosen model as a `provider/model` id. A model picked from a
+    /// custom provider arrives unqualified and is paired with its provider; a
+    /// qualified id is passed through untouched.
+    private func qualifiedModel(for path: String, harness: HarnessDescriptor) -> String? {
+        let settings = preferences.projectSettings(for: CanonicalPath.of(path))
+        guard let model = settings.modelID, !model.isEmpty else { return nil }
+        if model.contains("/") { return model }
+        guard let provider = settings.providerID, !provider.isEmpty else { return model }
+        guard HarnessProviderCatalog.supports(providerID: provider, on: harness.id) else { return nil }
+        return "\(provider)/\(model)"
     }
 
     // MARK: - Index maintenance
@@ -311,8 +453,38 @@ final class AppState {
         guard phase.isReady else { return }
         isIndexing = true
         let loaded = await index.loadAllProjects()
-        var adjusted: [ProjectGroup] = []
-        for var project in loaded {
+        // Reconcile newly persisted sessions with their existing controllers.
+        // Native IDs and file paths are different for Claude Code and Codex.
+        for session in loaded.flatMap(\.sessions) {
+            guard let oldKey = controllers.first(where: {
+                $0.value.harness.id == session.harnessID
+                    && ($0.value.sessionFile == session.resumeIdentifier
+                        || (session.sessionId != nil && $0.value.sessionId == session.sessionId))
+            })?.key, oldKey != session.controllerKey else { continue }
+            controllers[session.controllerKey] = controllers.removeValue(forKey: oldKey)
+            lastAccess[session.controllerKey] = lastAccess.removeValue(forKey: oldKey)
+            if selectedSessionKey == oldKey { selectedSessionKey = session.controllerKey }
+        }
+        projects = sort(decorate(loaded))
+        catalog.save(projects: projects)
+        isIndexing = false
+        lastIndexedAt = Date()
+    }
+
+    /// Draws the last persisted list the instant a disk scan begins. The scan
+    /// replaces it moments later, so this only removes the empty sidebar that
+    /// used to sit there while `refreshIndex()` read every file.
+    private func installCachedIndex() {
+        let cached = catalog.loadProjects()
+        guard !cached.isEmpty else { return }
+        projects = sort(decorate(cached))
+    }
+
+    /// Applies PiCode-owned decorations (pins, hidden flags, renames, launch
+    /// folder, trust) to a freshly loaded or cached session list.
+    private func decorate(_ loaded: [ProjectGroup]) -> [ProjectGroup] {
+        loaded.map { project in
+            var project = project
             project.isPinned = preferences.pinnedProjects.contains(project.path)
             project.trustState = ProjectTrustService().state(for: project.path)
             let settings = preferences.projectSettings(for: project.path)
@@ -320,14 +492,13 @@ final class AppState {
             if !settings.directory.isEmpty { project.workingDirectory = CanonicalPath.of(settings.directory) }
             var sessions = project.sessions.filter { !preferences.hiddenSessions.contains($0.id) }
             for sessionIndex in sessions.indices {
+                sessions[sessionIndex].name = SessionCatalogMetadata.title(for: sessions[sessionIndex])
+                    ?? sessions[sessionIndex].name
                 sessions[sessionIndex].isPinned = preferences.pinnedSessions.contains(sessions[sessionIndex].id)
             }
             project.sessions = sessions
-            adjusted.append(project)
+            return project
         }
-        projects = sort(adjusted)
-        isIndexing = false
-        lastIndexedAt = Date()
     }
 
     private func sort(_ projects: [ProjectGroup]) -> [ProjectGroup] {
@@ -371,13 +542,23 @@ final class AppState {
     static func key(forSessionPath path: String) -> String { "session:\(path)" }
 
     func open(session: SessionRef) async {
-        guard let installation else { return }
-        let path = session.filePath
-        let key = path.map(AppState.key(forSessionPath:)) ?? AppState.ephemeralKey(projectPath: session.cwd, id: session.id)
+        if session.isEphemeral, activeController?.harness.id == session.harnessID { return }
+        guard session.harnessID != .deepseekHarness else {
+            present(error: "DeepSeek's installed JSON-RPC adapter cannot resume saved sessions yet. Open this conversation in DeepSeek Harness: \(session.sessionId ?? session.id).")
+            return
+        }
+        let harness = HarnessDescriptor.descriptor(for: session.harnessID)
+        guard harnesses.isInstalled(harness.id) else {
+            present(error: "Install \(harness.displayName) to resume this session.")
+            return
+        }
+        let path = session.resumeIdentifier
+        let key = session.controllerKey
         sessionOpenRevision += 1
         let openingRevision = sessionOpenRevision
         sessionOpeningKey = key
         let canonical = CanonicalPath.of(session.cwd)
+        recordNavigation(to: key)
         // An existing session keeps the folder it was created in. Only the
         // system prompt is a property of the project rather than of the session,
         // so it follows the session when it is resumed.
@@ -391,20 +572,24 @@ final class AppState {
                        projectPath: session.cwd,
                        sessionFile: path,
                        systemPrompt: settings.systemPrompt,
-                       installation: installation)
+                       harness: harness)
         if sessionOpenRevision == openingRevision, selectedSessionKey == key {
             sessionOpenCompletedRevision = openingRevision
         }
     }
 
-    func startNewSession(projectPath: String) async {
-        guard let installation else { return }
+    /// Starts a new chat. `harnessOverride` opens the chat on a specific runtime
+    /// instead of the project/app default — used when the user picks another
+    /// harness from the composer's model menu.
+    func startNewSession(projectPath: String, harnessOverride: HarnessDescriptor? = nil) async {
         let canonical = CanonicalPath.of(projectPath)
+        guard let harness = harnessOverride ?? harness(forProject: canonical) else { return }
         let settings = preferences.projectSettings(for: canonical)
         // New chats honour the project's chosen folder; the sidebar still groups
         // them under the project the user clicked.
         let launchDirectory = settings.directory.isEmpty ? canonical : CanonicalPath.of(settings.directory)
         let key = AppState.ephemeralKey(projectPath: canonical, id: UUID().uuidString.prefix(8).description)
+        recordNavigation(to: key)
         selectedProjectPath = canonical
         selectedSessionKey = key
         isPackagesVisible = false
@@ -417,7 +602,7 @@ final class AppState {
                        projectPath: launchDirectory,
                        sessionFile: nil,
                        systemPrompt: settings.systemPrompt,
-                       installation: installation)
+                       harness: harness)
     }
 
     /// Start a chat in the project the user is already working in. The project
@@ -450,12 +635,16 @@ final class AppState {
                           projectPath: String,
                           sessionFile: String?,
                           systemPrompt: String?,
-                          installation: PiInstallation) async {
+                          harness: HarnessDescriptor) async {
         if let existing = controllers[key] {
             existing.onAgentCompleted = { [weak self] in self?.noteAssistantResponseCompleted() }
             lastAccess[key] = Date()
             await existing.refreshAll()
             pruneControllers()
+            return
+        }
+        guard let installation = harnesses.installation(for: harness.id) else {
+            present(error: "\(harness.displayName) is not installed.")
             return
         }
         let controller = PiSessionController(
@@ -464,7 +653,9 @@ final class AppState {
             installation: installation,
             preferences: preferences,
             drafts: drafts,
-            systemPrompt: systemPrompt
+            systemPrompt: systemPrompt,
+            modelOverride: qualifiedModel(for: projectPath, harness: harness),
+            harness: harness
         )
         controller.onAgentCompleted = { [weak self] in self?.noteAssistantResponseCompleted() }
         controllers[key] = controller
@@ -480,6 +671,7 @@ final class AppState {
             self.controllers[newKey] = controller
             self.lastAccess[newKey] = Date()
             if wasSelected { self.selectedSessionKey = newKey }
+            self.showToast("Branched — you are now in the new chat")
             Task { await self.refreshIndex() }
         }
         lastAccess[key] = Date()
@@ -499,6 +691,10 @@ final class AppState {
     /// (it is where the menu lives) and the window owns the sheet, so the two
     /// meet here rather than one reaching into the other's view state.
     var pendingProjectSettings: ProjectGroup?
+
+    /// A project whose first chat is waiting on a harness/provider/model choice.
+    /// The window owns the sheet; this is the request that opens it.
+    var pendingNewProjectPath: String?
 
     func projectSettings(for project: ProjectGroup) -> ProjectSettings {
         preferences.projectSettings(for: project.path)
@@ -533,11 +729,18 @@ final class AppState {
     /// never edits the file itself.
     func rename(session: SessionRef, to name: String) async {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let installation else { return }
+        if session.harnessID != .pi && session.harnessID != .ohMyPi {
+            guard !trimmed.isEmpty else { return }
+            SessionCatalogMetadata.rename(session, to: trimmed)
+            await refreshIndex()
+            return
+        }
+        let harness = HarnessDescriptor.descriptor(for: session.harnessID)
+        guard !trimmed.isEmpty, harnesses.isInstalled(harness.id) else { return }
 
         let controller: PiSessionController?
-        if let path = session.filePath {
-            let key = AppState.key(forSessionPath: path)
+        if let path = session.resumeIdentifier {
+            let key = session.controllerKey
             if controllers[key] == nil {
                 let canonical = CanonicalPath.of(session.cwd)
                 let settings = preferences.projectSettings(for: canonical)
@@ -545,7 +748,7 @@ final class AppState {
                                projectPath: session.cwd,
                                sessionFile: path,
                                systemPrompt: settings.systemPrompt,
-                               installation: installation)
+                               harness: harness)
             }
             controller = controllers[key]
         } else {
@@ -581,8 +784,8 @@ final class AppState {
     /// the one on screen is, which is what stops every unloaded row from showing a
     /// spinner whenever any one session runs.
     func isRunning(_ session: SessionRef) -> Bool {
-        if let path = session.filePath {
-            return controllers[AppState.key(forSessionPath: path)]?.hasPendingWork ?? false
+        if !session.isEphemeral {
+            return controllers[session.controllerKey]?.hasPendingWork ?? false
         }
         // A session that exists only in memory is the one being viewed.
         return activeController?.hasPendingWork ?? false
@@ -606,7 +809,18 @@ final class AppState {
     /// Removes a session by first asking Pi to end it, then deleting the file.
     /// Session files are never modified by the indexer; deletion is the only
     /// mutation and only after explicit confirmation.
-    func delete(session: SessionRef) async throws {
+    ///
+    /// The answer is the whole decision, so it takes effect at once: the session
+    /// leaves the index the sidebar draws — and the sheet that asked the question
+    /// closes with it — before the disk is asked anything. Only the rescan that
+    /// follows runs in the background, because that is the part that takes as
+    /// long as Pi's session folder takes to walk, and a delete still in flight is
+    /// not something the user has to sit and watch. The file itself is unlinked
+    /// here, on the main actor, so that no later rescan can disagree with the row
+    /// already gone; a failure reports itself in the window's banner instead of a
+    /// sheet that is no longer on screen, and the row returns by itself, because
+    /// the rescan only drops what the file system no longer has.
+    func delete(session: SessionRef) {
         if let path = session.filePath {
             let key = AppState.key(forSessionPath: path)
             if let controller = controllers[key] {
@@ -615,40 +829,59 @@ final class AppState {
                 lastAccess[key] = nil
             }
             if selectedSessionKey == key { selectedSessionKey = nil }
-            try FileManager.default.removeItem(atPath: path)
+            dropFromIndex(session.id)
+            do {
+                try FileManager.default.removeItem(atPath: path)
+            } catch {
+                present(error: "Could not delete \(session.displayName): \(error.localizedDescription)")
+            }
+            Task { await refreshIndex() }
         } else {
             preferences.hiddenSessions.insert(session.id)
             preferences.persist()
+            dropFromIndex(session.id)
+            Task { await refreshIndex() }
         }
-        await refreshIndex()
+    }
+
+    /// Takes a session out of the index the sidebar draws, without touching disk.
+    /// A project keeps its row: its folder is still there, and that is what the
+    /// rescan finds a moment later.
+    private func dropFromIndex(_ sessionID: String) {
+        guard let projectIndex = projects.firstIndex(where: { project in
+            project.sessions.contains { $0.id == sessionID }
+        }) else { return }
+        projects[projectIndex].sessions.removeAll { $0.id == sessionID }
     }
 
     func hide(session: SessionRef) async {
-        closeSession(key: session.filePath.map(AppState.key(forSessionPath:))
-            ?? AppState.ephemeralKey(projectPath: session.cwd, id: session.id))
+        closeSession(key: session.isEphemeral ? (selectedSessionKey ?? session.controllerKey) : session.controllerKey)
         preferences.hiddenSessions.insert(session.id)
         preferences.persist()
         await refreshIndex()
     }
 
-    /// Projects whose chats are folded away, mirrored from preferences so the
+    /// Projects whose chats the sidebar shows, mirrored from preferences so the
     /// sidebar redraws when it changes (`PreferencesStore` is not observable).
-    private(set) var collapsedProjects: Set<String>
+    /// The sidebar opens as a list of projects: a project is folded until it is in
+    /// this set, so an untouched install shows every chat hidden behind its
+    /// project's row.
+    private(set) var expandedProjects: Set<String>
 
     func isCollapsed(project: ProjectGroup) -> Bool {
-        collapsedProjects.contains(project.path)
+        !expandedProjects.contains(project.path)
     }
 
     /// Fold a project's chats away, or bring them back. The sidebar is a
     /// projection of Pi's session directory, so this hides rows and nothing else:
     /// no session file is read, written or deleted, and the project row stays put.
     func toggleCollapsed(project: ProjectGroup) {
-        if collapsedProjects.contains(project.path) {
-            collapsedProjects.remove(project.path)
+        if expandedProjects.contains(project.path) {
+            expandedProjects.remove(project.path)
         } else {
-            collapsedProjects.insert(project.path)
+            expandedProjects.insert(project.path)
         }
-        preferences.collapsedProjects = collapsedProjects
+        preferences.expandedProjects = expandedProjects
         preferences.persist()
     }
 
@@ -696,12 +929,12 @@ final class AppState {
     }
 
     /// Register a folder supplied without the picker (for example, a Finder
-    /// drop), then open a fresh chat there just like “Open Project Folder…”.
+    /// drop), then ask for the harness/provider/model before the first chat.
     func addProject(path: String) async {
         let canonical = CanonicalPath.of(path)
         await refreshIndex()
         if project(for: canonical) == nil {
-            // A folder with no Pi sessions yet still belongs in the sidebar, so
+            // A folder with no sessions yet still belongs in the sidebar, so
             // PiCode shows it immediately with an empty session list.
             let settings = preferences.projectSettings(for: canonical)
             let placeholder = ProjectGroup(
@@ -716,6 +949,21 @@ final class AppState {
             projects.insert(placeholder, at: 0)
         }
         selectProject(canonical)
+        // A brand-new project asks which harness, provider, and model its chats
+        // should use before the first session starts.
+        pendingNewProjectPath = canonical
+    }
+
+    /// Applies the harness/provider/model chosen for a new project and starts its
+    /// first chat.
+    func createProject(path: String, harness: HarnessDescriptor, provider: String?, model: String?) async {
+        let canonical = CanonicalPath.of(path)
+        var settings = preferences.projectSettings(for: canonical)
+        settings.harness = harness.id
+        settings.providerID = provider
+        settings.modelID = model
+        preferences.setProjectSettings(settings, for: canonical)
+        pendingNewProjectPath = nil
         await startNewSession(projectPath: canonical)
     }
 
@@ -783,6 +1031,7 @@ final class AppState {
     /// at another app, so a completion on screen is not counted; the transcript
     /// already shows it.
     func noteAssistantResponseCompleted() {
+        Task { await refreshIndex() }
         guard !NSApp.isActive else { return }
         completionBadgeCount += 1
         updateDockBadge()

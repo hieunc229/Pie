@@ -722,11 +722,13 @@ Consequences baked into the controller:
 - `PreferencesStore` owns: `appearance`, `sendKey`, `showInspector`, `showSidebar`,
   `defaultThinkingLevel`, `defaultModelQualifiedID`, `confirmBeforeDeletingSessions`,
   `notificationsEnabled`, `recordRPCPayloads`, `extraLaunchArguments`,
-  `pinnedProjects`, `pinnedSessions`, `hiddenSessions`, `collapsedProjects`,
+  `pinnedProjects`, `pinnedSessions`, `hiddenSessions`, `expandedProjects`,
   `lastProjectPath`, `reducedMotionOverride`. Anything else is not persisted
   yet — add it here. `PreferencesStore` is **not** observable, so anything the UI
-  must redraw on is mirrored into `AppState` (`collapsedProjects` is seeded in
-  `AppState.init` and written back on every toggle; `isInspectorVisible` is the
+  must redraw on is mirrored into `AppState` (`expandedProjects` is seeded in
+  `AppState.init` and written back on every toggle — it holds the projects whose
+  chats are *shown*, because a project the user has never opened starts folded;
+  `isInspectorVisible` is the
   older computed-property style and is the reason a "did the pane redraw?" bug is
   possible there).
 - `AppState.InspectorTab` is `String, CaseIterable, Identifiable` and exposes
@@ -1125,6 +1127,19 @@ Already closed by the harnesses (kept here so nobody re-opens them):
 
 - **Layout**: one type per file where practical; feature folders mirror the
   three-pane UI. New UI goes in the matching `Features/` folder.
+- **Deleting a session is answered by the sheet, not performed by it.** The
+  confirmation is the whole decision: `AppState.delete(session:)` takes the
+  session out of the index the sidebar draws and unlinks the file on the main
+  actor, then runs the rescan in a `Task`, and `DeleteSessionSheet` closes on the
+  same click. Nothing may be `await`ed before the sheet goes — a rescan walks
+  Pi's whole session folder (1617 ms on a 304-file fixture, and the harness
+  directories are bigger still), and a modal that waits for it reads as a hang.
+  Failures go to the window's banner (`present(error:)`), because there is no
+  sheet left to put them in, and the row returns by itself: the rescan is the
+  authority and only drops what the file system no longer has. Unlinking before
+  the rescan is what keeps a rescan that runs in between from putting the row
+  back. A delete is the only mutation of Pi's session files, so this is the only
+  place that has to get this right.
 - **Sidebar rows**: a project and its chats are the same rank, so they share
   `SidebarStyle.rowFont` — 13pt, `.regular`, and *nothing* in the menu is medium,
   semibold or bold (the semantic styles are avoided here because they drag a
@@ -1144,7 +1159,25 @@ Already closed by the harnesses (kept here so nobody re-opens them):
   because a shift that is drawing-only leaves the name — and every chat title
   aligned to it — exactly where it was. The search field carries no rule beneath
   it: its own recessed fill is the separation, and one `Divider()` (the footer's)
-  is all that is left in this view.
+  is all that is left in this view. A group draws `SidebarStyle.visibleRowLimit`
+  rows — a project's chats, and the projects under one heading — and puts the rest
+  behind one `ShowMoreRow`, because a sidebar is a menu of places you have worked,
+  not a directory listing: the lists are already newest-first, so the ten a group
+  draws are its ten most recent. A project's "show all" is forgotten by the fold
+  that closes it (`SidebarView.list` intersects the opened paths with
+  `state.expandedProjects`), so reopening a project shows its first ten again,
+  while a heading's lasts the session because a heading cannot be folded. The
+  control is a row and not a footer: same pitch, same hover pill, on the names'
+  column. A row's trailing controls take their ink from
+  `.foregroundStyle(.primary)` and their dim from `SidebarStyle.actionIdleOpacity`
+  applied as an `.opacity` *on the control* — never a literal `NSColor`, which
+  resolves against the wrong appearance and draws black on the dark sidebar, and
+  never a modifier inside the menu's label, which a `borderlessButton` menu drops
+  when it snapshots it (§10). That snapshot is also why both row menus label
+  themselves `Text(Image(systemName: "ellipsis"))` rather than `Image(…):` inside
+  a sidebar `List` an image-only label comes back from the snapshot empty, so the
+  menu button draws nothing at all, while the text-wrapped form draws (measured in
+  a render lab: `Image` label 0 ink, `Text(Image)` 255 at full ink, 151 dimmed).
 - **The content header's controls are one row of one state each.** The
   notification bell and the right panel's toggle share `ContentHeader.controlTint`
   and are mutually exclusive: active is full `.primary` (the design's "white"; not

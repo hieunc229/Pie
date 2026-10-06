@@ -2,43 +2,99 @@
 //  RootView.swift
 //  PiCode
 //
-//  Window layout: sessions sidebar, conversation, contextual inspector.
+//  Window layout: an icon rail on the window chrome, then one rounded card
+//  holding the sessions sidebar, the conversation and the contextual inspector.
 //
-//  The inspector is laid out as a plain pane beside the conversation rather
-//  than through the system `.inspector` column. The system column spans the full
-//  window height — toolbar included — so it stands a toolbar taller than the
-//  sidebar and conversation, which start below the toolbar. Laid out here, it is
-//  exactly as tall as they are and nothing about them moves when it opens.
+//  The panes are laid out here rather than through `NavigationSplitView`, so
+//  the card is one surface set into the chrome: the sidebar folds away inside
+//  it and the inspector opens inside it, and neither moves the other.
 //
 
 import SwiftUI
 
+/// The window's frame: the band the traffic lights sit in, and the inset of
+/// the content card from the window's edges.
+enum WindowChromeMetrics {
+    /// The unified toolbar's band. The traffic lights are centred in it, and the
+    /// content card starts just under it.
+    static let titlebarHeight: CGFloat = 40
+    static let titlebarRowCenter: CGFloat = 19
+    /// The card's inset from the window's trailing and bottom edges.
+    static let cardInset: CGFloat = 6
+    static let cardCornerRadius: CGFloat = 12
+    /// Where the sidebar toggle starts: just past the traffic lights.
+    static let sidebarToggleLeading: CGFloat = 84
+}
+
 struct RootView: View {
     @Bindable var state: AppState
 
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var isSidebarVisible = true
+    @State private var sidebarWidth: CGFloat = 268
+    @State private var sidebarWidthAtDragStart: CGFloat?
     @State private var composerFocusTick = 0
     @State private var sheet: RootSheet?
     @State private var inspectorWidth: CGFloat = 360
     @State private var inspectorWidthAtDragStart: CGFloat?
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(
+        HStack(spacing: 0) {
+            AppRail(
                 state: state,
-                onOpenPalette: {
-                    state.openPalette()
-                    sheet = .palette
-                },
-                onOpenSettings: { sheet = .settings }
+                onOpenPalette: openPalette,
+                onOpenSettings: { state.openSettings(tab: state.settingsTab) }
             )
-            .navigationSplitViewColumnWidth(min: 234, ideal: 268, max: 360)
-        } detail: {
-            detailPane
+            Group {
+                if state.isSettingsPresented {
+                    settingsCard
+                } else {
+                    contentCard
+                }
+            }
+                .padding(.trailing, WindowChromeMetrics.cardInset)
+                .padding(.bottom, WindowChromeMetrics.cardInset)
         }
-        .background(SidebarToggleStyler(iconSize: SidebarStyle.topBarIconSize))
+        .padding(.top, WindowChromeMetrics.titlebarHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            ZStack {
+                WindowVibrancy()
+                AppTheme.chrome
+            }
+        }
+        .overlay(alignment: .topLeading) { titlebarLeadingControls }
+        .overlay(alignment: .topTrailing) { titlebarTrailingControls }
+        .ignoresSafeArea()
+        // An empty toolbar keeps the window's unified titlebar band, which is
+        // what centres the traffic lights on `titlebarRowCenter`. Everything
+        // drawn in the band is this view's own, so the toolbar draws nothing.
+        .toolbar {
+            ToolbarItem(placement: .navigation) { Color.clear.frame(width: 1, height: 1) }
+        }
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .task {
             if state.phase == .starting { await state.launch() }
+            #if DEBUG
+            Task { await DebugRenderBench.runIfRequested(state: state) }
+            if let wanted = ProcessInfo.processInfo.environment["PICODE_OPEN_SESSION"] {
+                // The index fills in asynchronously; wait for the session to show up.
+                // Let the restored session settle first so it does not replace this one.
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                for _ in 0..<80 {
+                    if let session = state.projects.lazy.flatMap(\.sessions)
+                        .first(where: { $0.filePath?.hasSuffix(wanted) == true }) {
+                        await state.open(session: session)
+                        break
+                    }
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+            }
+            if ProcessInfo.processInfo.environment["PICODE_SNAPSHOT_ACTION"] == "newChat" {
+                if let project = state.projects.first?.path {
+                    await state.startNewSession(projectPath: project)
+                }
+            }
+            #endif
         }
         .onDisappear {
             state.isInspectorVisible = false
@@ -66,8 +122,8 @@ struct RootView: View {
                 DeleteSessionSheet(state: state, session: session) { self.sheet = nil }
             case .projectSettings(let project):
                 ProjectSettingsSheet(state: state, project: project) { self.sheet = nil }
-            case .settings:
-                ProviderSettingsModal(state: state) { self.sheet = nil }
+            case .newProject(let path):
+                NewProjectSheet(state: state, path: path) { self.sheet = nil }
             }
         }
         .onChange(of: state.pendingProjectSettings) { _, project in
@@ -80,85 +136,248 @@ struct RootView: View {
             state.pendingSessionRename = nil
             sheet = .renameChat(session)
         }
+        .onChange(of: state.pendingNewProjectPath) { _, path in
+            guard let path else { return }
+            sheet = .newProject(path)
+        }
         .overlay(alignment: .bottom) { toast }
-        .overlay(alignment: .top) { errorBanner }
+        .overlay(alignment: .top) { errorBanner.padding(.top, WindowChromeMetrics.titlebarHeight) }
         .overlay { ExtensionDialogHost(state: state) }
     }
 
-    // MARK: - Detail column
+    private func openPalette() {
+        state.openPalette()
+        sheet = .palette
+    }
+
+    // MARK: - Card
+
+    /// The sidebar and the detail pane, set into the window chrome as one
+    /// rounded card. The sidebar is a pane of the card rather than a split-view
+    /// column, so it folds away without the card moving.
+    private var contentCard: some View {
+        HStack(spacing: 0) {
+            if isSidebarVisible {
+                SidebarView(
+                    state: state,
+                    onOpenPalette: openPalette,
+                    onOpenSettings: { state.openSettings(tab: state.settingsTab) }
+                )
+                .frame(width: sidebarWidth)
+                .layoutPriority(1)
+                .transition(.move(edge: .leading).combined(with: .opacity))
+
+                paneDivider { translation in
+                    if sidebarWidthAtDragStart == nil { sidebarWidthAtDragStart = sidebarWidth }
+                    let start = sidebarWidthAtDragStart ?? sidebarWidth
+                    sidebarWidth = min(380, max(220, start + translation))
+                } onEnded: {
+                    sidebarWidthAtDragStart = nil
+                }
+            }
+            detailPane
+                .frame(minWidth: 0, maxWidth: .infinity)
+                // Opaque, unlike the chrome and the sidebar around it: the
+                // transcript keeps full contrast over the window's vibrancy.
+                .background(AppTheme.background)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: WindowChromeMetrics.cardCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: WindowChromeMetrics.cardCornerRadius, style: .continuous)
+                .stroke(AppTheme.cardStroke, lineWidth: 1)
+        )
+        .animation(.easeInOut(duration: 0.2), value: isSidebarVisible)
+    }
+
+    /// Settings take the card's place, so they replace the window's content
+    /// rather than float over it. The rail stays, as the way back.
+    private var settingsCard: some View {
+        SettingsView(state: state)
+            .clipShape(RoundedRectangle(cornerRadius: WindowChromeMetrics.cardCornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: WindowChromeMetrics.cardCornerRadius, style: .continuous)
+                    .stroke(AppTheme.cardStroke, lineWidth: 1)
+            )
+    }
+
+    /// A one-point rule between two panes that can be dragged to resize them.
+    private func paneDivider(
+        onChanged: @escaping (CGFloat) -> Void,
+        onEnded: @escaping () -> Void
+    ) -> some View {
+        Rectangle()
+            .fill(AppTheme.cardStroke)
+            .frame(width: 1)
+            .contentShape(Rectangle().inset(by: -3))
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture()
+                    .onChanged { onChanged($0.translation.width) }
+                    .onEnded { _ in onEnded() }
+            )
+    }
+
+    // MARK: - Titlebar
+
+    /// Back / forward and the sidebar toggle, just past the traffic lights, then
+    /// the chat's title after a rule that lines up with the sidebar's edge.
+    @ViewBuilder
+    private var titlebarLeadingControls: some View {
+        if !state.isSettingsPresented {
+            let buttonTop = WindowChromeMetrics.titlebarRowCenter - TitlebarIconButton.size / 2
+            ZStack(alignment: .topLeading) {
+                HStack(spacing: 2) {
+                    TitlebarIconButton(systemImage: "sidebar.left", help: "Toggle sidebar (⌃⌘S)") {
+                        toggleSidebar()
+                    }
+                    TitlebarIconButton(systemImage: "arrow.left", help: "Back", isEnabled: state.canGoBack) {
+                        Task { await state.goBack() }
+                    }
+                    TitlebarIconButton(systemImage: "arrow.right", help: "Forward", isEnabled: state.canGoForward) {
+                        Task { await state.goForward() }
+                    }
+                }
+                .padding(.leading, WindowChromeMetrics.sidebarToggleLeading)
+                .padding(.top, buttonTop)
+
+                if state.phase == .ready, !state.isPackagesVisible, let controller = state.activeController {
+                    titlebarTitle(controller)
+                        .padding(.leading, titleLeading)
+                        .padding(.trailing, titleTrailingReserve)
+                        .frame(height: WindowChromeMetrics.titlebarHeight)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    /// Where the title starts: past the sidebar's trailing edge when the sidebar
+    /// is open (so the rule sits on the column boundary), else past the buttons.
+    private var titleLeading: CGFloat {
+        if isSidebarVisible {
+            return AppRailMetrics.width + sidebarWidth + 1 + 14
+        }
+        return WindowChromeMetrics.sidebarToggleLeading + 3 * TitlebarIconButton.size + 12
+    }
+
+    /// Room kept free for the trailing controls.
+    private var titleTrailingReserve: CGFloat { 150 }
+
+    /// The conversation's own title when it has one — its name, else the opening
+    /// message the sidebar shows — and the project's name only before either exists.
+    private func headerTitle(for controller: PiSessionController) -> String {
+        if let name = controller.sessionName, !name.trimmingCharacters(in: .whitespaces).isEmpty {
+            return name
+        }
+        if let session = fallbackDeletionCandidate, session.isNamed || session.firstUserMessage?.isEmpty == false {
+            return session.displayName
+        }
+        return controller.projectName
+    }
+
+    private func titlebarTitle(_ controller: PiSessionController) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "folder")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+            Text(headerTitle(for: controller))
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .frame(maxHeight: .infinity)
+        .overlay(alignment: .leading) {
+            if isSidebarVisible {
+                Rectangle()
+                    .fill(AppTheme.cardStroke)
+                    .frame(width: 1, height: 20)
+                    .offset(x: -14 - 1)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// The project's workspace actions and the right panel's toggle, on the
+    /// card's trailing edge.
+    @ViewBuilder
+    private var titlebarTrailingControls: some View {
+        if state.phase == .ready, let controller = state.activeController, !state.isPackagesVisible, !state.isSettingsPresented {
+            HStack(spacing: 6) {
+                SessionHeaderMenu(
+                    isPinned: fallbackDeletionCandidate?.isPinned ?? false,
+                    onCommand: perform,
+                    onTogglePin: {
+                        if let session = fallbackDeletionCandidate { state.togglePin(session: session) }
+                    }
+                )
+
+                WorkspaceMenuButton(
+                    onOpenInTerminal: { state.openTerminal(at: controller.projectPath) },
+                    onOpenInFinder: { WorkspaceLauncher.reveal(controller.projectPath) },
+                    onOpenInVSCode: { openProjectInVSCode(controller.projectPath) }
+                )
+                .frame(width: 17, height: 17)
+                .frame(width: TitlebarIconButton.size, height: TitlebarIconButton.size)
+
+                TitlebarIconButton(
+                    systemImage: "sidebar.right",
+                    help: state.isInspectorVisible ? "Hide the inspector (⌥⌘I)" : "Show the inspector (⌥⌘I)",
+                    isActive: state.isInspectorVisible && !state.isNotificationsVisible
+                ) {
+                    state.toggleInspector()
+                }
+            }
+            .padding(.trailing, WindowChromeMetrics.cardInset + 8)
+            .padding(.top, WindowChromeMetrics.titlebarRowCenter - TitlebarIconButton.size / 2)
+        }
+    }
+
+    // MARK: - Detail pane
 
     /// The conversation and, when it is open, the inspector beside it. The two
-    /// share the detail column's height, so opening the panel never resizes or
-    /// shifts the sidebar or the transcript.
+    /// share the card's height, so opening the panel never resizes or shifts the
+    /// sidebar or the transcript.
     private var detailPane: some View {
         Group {
-            // The package browser owns the whole detail column: the inspector is
+            // The package browser owns the whole detail pane: the inspector is
             // about a session's facts, and there is no session on screen.
             if state.phase == .ready && state.isPackagesVisible {
-                PackagesView(state: state, isSidebarVisible: columnVisibility != .detailOnly)
+                PackagesView(state: state)
             } else {
                 HStack(spacing: 0) {
-                    mainContentColumn
-                        .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                    detail
+                        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+                        .layoutPriority(0)
 
                     if state.isInspectorVisible {
                         HStack(spacing: 0) {
-                            Rectangle()
-                                .fill(Color(nsColor: .separatorColor))
-                                .frame(width: 1)
-                                .contentShape(Rectangle().inset(by: -3))
-                                .gesture(
-                                    DragGesture()
-                                        .onChanged { value in
-                                            if inspectorWidthAtDragStart == nil {
-                                                inspectorWidthAtDragStart = inspectorWidth
-                                            }
-                                            let startingWidth = inspectorWidthAtDragStart ?? inspectorWidth
-                                            inspectorWidth = min(560, max(280, startingWidth - value.translation.width))
-                                        }
-                                        .onEnded { _ in inspectorWidthAtDragStart = nil }
-                                )
+                            paneDivider { translation in
+                                if inspectorWidthAtDragStart == nil {
+                                    inspectorWidthAtDragStart = inspectorWidth
+                                }
+                                let startingWidth = inspectorWidthAtDragStart ?? inspectorWidth
+                                inspectorWidth = min(560, max(280, startingWidth - translation))
+                            } onEnded: {
+                                inspectorWidthAtDragStart = nil
+                            }
 
                             InspectorView(state: state)
                                 .frame(width: inspectorWidth)
                                 .frame(maxHeight: .infinity)
                         }
+                        .layoutPriority(1)
                         .transition(.move(edge: .trailing))
                     }
                 }
-                .offset(y: -ContentHeaderMetrics.contentLift)
                 .clipped()
                 .background(AppTheme.background)
                 .animation(.easeInOut(duration: 0.22), value: state.isInspectorVisible)
-                // The header is deliberately attached after pane clipping. Its
-                // titlebar portion must remain outside the detail safe area.
-                .overlay(alignment: .top) {
-                    if state.phase == .ready, let controller = state.activeController {
-                        ContentHeader(
-                            projectName: state.selectedProject?.name ?? controller.projectName,
-                            isSidebarVisible: columnVisibility != .detailOnly,
-                            unreadNotificationCount: state.unreadNotificationCount,
-                            isShowingNotifications: state.isShowingNotifications,
-                            onToggleNotifications: { state.toggleNotifications() },
-                            isInspectorVisible: state.isInspectorVisible && !state.isNotificationsVisible,
-                            onToggleInspector: { state.toggleInspector() },
-                            onOpenInTerminal: { state.openTerminal(at: controller.projectPath) },
-                            onOpenInFinder: { WorkspaceLauncher.reveal(controller.projectPath) },
-                            onOpenInVSCode: { openProjectInVSCode(controller.projectPath) }
-                        )
-                        .ignoresSafeArea(.container, edges: .top)
-                    }
-                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// The visible header is attached to the complete detail split above. The
-    /// column itself stays content-only to avoid a second titlebar row.
-    @ViewBuilder
-    private var mainContentColumn: some View {
-        detail
     }
 
     @ViewBuilder
@@ -185,7 +404,7 @@ struct RootView: View {
     /// The menu command (⌃⌘S) and the command palette share one toggle, so the
     /// two cannot disagree about which way the sidebar is going.
     private func toggleSidebar() {
-        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+        isSidebarVisible.toggle()
     }
 
     // MARK: - Overlays
@@ -259,7 +478,7 @@ struct RootView: View {
             if state.preferences.confirmBeforeDeletingSessions {
                 sheet = .delete(session)
             } else {
-                Task { try? await state.delete(session: session) }
+                state.delete(session: session)
             }
 
         case .focusComposer:
@@ -316,11 +535,10 @@ struct RootView: View {
             WorkspaceLauncher.reveal(PiPaths.agentDirectory.path)
 
         case .openSettings:
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            state.openSettings(tab: state.settingsTab)
 
         case .providersSettings:
             state.openSettings(tab: .providers)
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
 
         case .packages:
             state.showPackages()
@@ -367,24 +585,58 @@ struct RootView: View {
 /// Sheets that need a value or an action from the current session.
 enum RootSheet: Identifiable {
     case palette
-    case settings
     case rename(String)
     case renameChat(SessionRef)
     case compact
     case fork
     case delete(SessionRef)
     case projectSettings(ProjectGroup)
+    case newProject(String)
 
     var id: String {
         switch self {
         case .palette: return "palette"
-        case .settings: return "settings"
         case .rename: return "rename"
         case .renameChat(let session): return "rename-\(session.id)"
         case .compact: return "compact"
         case .fork: return "fork"
         case .delete(let session): return "delete-\(session.id)"
         case .projectSettings(let project): return "project-settings-\(project.id)"
+        case .newProject(let path): return "new-project-\(path)"
         }
+    }
+}
+
+/// A plain glyph button for the titlebar band: dimmed until hovered, full ink
+/// while its panel is open.
+struct TitlebarIconButton: View {
+    static let size: CGFloat = 26
+
+    var systemImage: String
+    var help: String
+    var isActive: Bool = false
+    var isEnabled: Bool = true
+    var action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .regular))
+                .frame(width: Self.size, height: Self.size)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isHovering ? AppTheme.railSelection.opacity(0.6) : .clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.35)
+        .foregroundStyle(isActive || isHovering ? Color.primary : Color.secondary)
+        .onHover { isHovering = $0 && isEnabled }
+        .help(help)
+        .accessibilityLabel(help)
     }
 }

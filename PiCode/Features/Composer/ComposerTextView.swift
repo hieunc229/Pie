@@ -22,12 +22,24 @@ struct ComposerTextView: NSViewRepresentable {
     /// you are answering are set at the same scale.
     static let fontSize: CGFloat = Typography.baseSize
 
-    /// The composer box is dark in every appearance (#212121 in the dark one,
-    /// #2a2b2b in the light one), so the text and caret need fixed light colors
-    /// too — the dynamic defaults would render black-on-black in light mode.
-    static let textColor = NSColor(red: 0.92, green: 0.92, blue: 0.93, alpha: 1)
-    static let caretColor = NSColor(red: 0.92, green: 0.92, blue: 0.93, alpha: 1)
-    static let placeholderColor = NSColor(red: 0.92, green: 0.92, blue: 0.93, alpha: 0.45)
+    /// The composer box follows the appearance (`AppTheme.composerFill`): a dark
+    /// grey box in the dark one, a white box in the light one. The text, caret
+    /// and placeholder resolve per appearance to match it.
+    static let textColor = adaptive(
+        dark: NSColor(red: 0.92, green: 0.92, blue: 0.93, alpha: 1),
+        light: NSColor(white: 0.1, alpha: 1)
+    )
+    static let caretColor = textColor
+    static let placeholderColor = adaptive(
+        dark: NSColor(red: 0.92, green: 0.92, blue: 0.93, alpha: 0.45),
+        light: NSColor(white: 0, alpha: 0.35)
+    )
+
+    private static func adaptive(dark: NSColor, light: NSColor) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+        }
+    }
 
     /// How many lines the box always shows, and how many it shows before it
     /// scrolls instead of growing any further. The composer floats over the

@@ -67,8 +67,9 @@ struct ToolCallContent: View {
                             } label: {
                                 Image(systemName: "arrow.up.forward.app")
                                     .imageScale(.small)
+                                    .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.borderless)
+                            .buttonStyle(.light)
                             .help("Reveal in Finder")
                         }
                         .font(Typography.body)
@@ -96,7 +97,8 @@ struct ToolCallContent: View {
                         .font(Typography.body)
                         .foregroundStyle(.secondary)
                     Button("Reveal") { WorkspaceLauncher.reveal(path) }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.light)
+                        .foregroundStyle(Color.accentColor)
                         .font(Typography.body)
                 }
             }

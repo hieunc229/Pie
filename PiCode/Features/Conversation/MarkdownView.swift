@@ -15,14 +15,23 @@ import SwiftUI
 
 /// Called when the user clicks a `picode://file?path=…` link. Implementations
 /// open the file in the Files inspector at the referenced line.
-struct PiCodeOpenFileAction {
+struct PiCodeOpenFileAction: Equatable {
+    /// What the handler acts for. Two actions with the same identity are the same
+    /// action: the transcript rebuilds its environment on every update, and a
+    /// closure never compares equal, so without this every row would redraw
+    /// whenever the transcript did.
+    var identity: AnyHashable = UUID()
     var handler: (String, Int?) -> Void
+
+    static func == (lhs: PiCodeOpenFileAction, rhs: PiCodeOpenFileAction) -> Bool {
+        lhs.identity == rhs.identity
+    }
 
     func callAsFunction(_ path: String, _ line: Int?) {
         handler(path, line)
     }
 
-    static let disabled = PiCodeOpenFileAction { _, _ in }
+    static let disabled = PiCodeOpenFileAction(identity: "disabled") { _, _ in }
 }
 
 private struct PiCodeOpenFileKey: EnvironmentKey {
@@ -31,14 +40,23 @@ private struct PiCodeOpenFileKey: EnvironmentKey {
 
 /// Called when the user selects a file the agent changed (a tool card's change
 /// chip). Implementations open the Changes inspector on that file's diff.
-struct PiCodeOpenChangeAction {
+struct PiCodeOpenChangeAction: Equatable {
+    /// What the handler acts for. Two actions with the same identity are the same
+    /// action: the transcript rebuilds its environment on every update, and a
+    /// closure never compares equal, so without this every row would redraw
+    /// whenever the transcript did.
+    var identity: AnyHashable = UUID()
     var handler: (String) -> Void
+
+    static func == (lhs: PiCodeOpenChangeAction, rhs: PiCodeOpenChangeAction) -> Bool {
+        lhs.identity == rhs.identity
+    }
 
     func callAsFunction(_ path: String) {
         handler(path)
     }
 
-    static let disabled = PiCodeOpenChangeAction { _ in }
+    static let disabled = PiCodeOpenChangeAction(identity: "disabled") { _ in }
 }
 
 private struct PiCodeOpenChangeKey: EnvironmentKey {
@@ -48,14 +66,23 @@ private struct PiCodeOpenChangeKey: EnvironmentKey {
 /// Called when the user selects a tool action in the transcript (a command, a
 /// read, an edit, or any other call). Implementations open that call's content in
 /// the right panel, identified by the transcript item's id.
-struct PiCodeOpenToolAction {
+struct PiCodeOpenToolAction: Equatable {
+    /// What the handler acts for. Two actions with the same identity are the same
+    /// action: the transcript rebuilds its environment on every update, and a
+    /// closure never compares equal, so without this every row would redraw
+    /// whenever the transcript did.
+    var identity: AnyHashable = UUID()
     var handler: (String) -> Void
+
+    static func == (lhs: PiCodeOpenToolAction, rhs: PiCodeOpenToolAction) -> Bool {
+        lhs.identity == rhs.identity
+    }
 
     func callAsFunction(_ id: String) {
         handler(id)
     }
 
-    static let disabled = PiCodeOpenToolAction { _ in }
+    static let disabled = PiCodeOpenToolAction(identity: "disabled") { _ in }
 }
 
 private struct PiCodeOpenToolKey: EnvironmentKey {
@@ -183,7 +210,8 @@ struct CodeBlockView: View {
                       systemImage: isExpanded ? "chevron.up" : "chevron.down")
                     .font(Typography.body)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.light)
+            .foregroundStyle(.secondary)
             .help(isExpanded ? "Hide this code block" : "Show this code block")
             .accessibilityLabel(isExpanded ? "Hide code" : "Show code")
 

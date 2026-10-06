@@ -1,11 +1,22 @@
 import SwiftUI
 
-/// A concrete child per row keeps lazy layout and hover invalidation local.
-struct ConversationMessageRow: View {
+/// A concrete child per row keeps layout and hover invalidation local.
+///
+/// Equatable on its inputs: every streaming flush hands the transcript a new
+/// `rows` array, and the transcript lays out every loaded row, not only the
+/// visible ones. Comparing first means a flush re-renders the one row that grew
+/// rather than the whole history. (State the row observes — hover, busy — still
+/// invalidates it directly.)
+struct ConversationMessageRow: View, Equatable {
     var row: TranscriptRow
     var response: TranscriptResponseMetadata?
     var controller: PiSessionController
     var hover: TranscriptHoverState
+
+    static func == (lhs: ConversationMessageRow, rhs: ConversationMessageRow) -> Bool {
+        lhs.controller === rhs.controller && lhs.hover === rhs.hover
+            && lhs.row == rhs.row && lhs.response == rhs.response
+    }
 
     var body: some View {
         let responseText = response?.text ?? ""
@@ -30,7 +41,11 @@ struct ConversationMessageRow: View {
             if response?.endsTurn == true,
                !responseText.isEmpty,
                (response?.isLastTurn == false || !controller.runtime.isBusy) {
+                // Built only while the turn is hovered, on a line of fixed height,
+                // so a quiet transcript carries no hidden buttons.
+                let isShowingActions = responseHoverID != nil && hover.responseID == responseHoverID
                 HStack(spacing: 10) {
+                    if isShowingActions {
                     HStack(spacing: 12) {
                         Button {
                             WorkspaceLauncher.copyToPasteboard(responseText)
@@ -67,9 +82,10 @@ struct ConversationMessageRow: View {
                             .font(.body)
                             .foregroundStyle(.secondary)
                     }
+                    }
                 }
-                .opacity(responseHoverID != nil && hover.responseID == responseHoverID ? 1 : 0)
-                .allowsHitTesting(responseHoverID != nil && hover.responseID == responseHoverID)
+                .frame(height: TranscriptStyle.actionRowHeight)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 12)
                 .contextMenu {
                     Button("Copy Response") {

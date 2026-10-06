@@ -87,8 +87,9 @@ struct ToolCallCard: View {
                 } label: {
                     Image(systemName: isInputExpanded ? "chevron.up" : "chevron.down")
                         .imageScale(.small)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.light)
                 .help(isInputExpanded ? "Hide arguments" : "Show arguments")
             }
 
@@ -98,8 +99,9 @@ struct ToolCallCard: View {
                 } label: {
                     Image(systemName: "curlybraces")
                         .imageScale(.small)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.light)
                 .help(isDetailsExpanded ? "Hide structured result" : "Show structured result")
             }
 

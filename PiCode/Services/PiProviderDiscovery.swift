@@ -103,10 +103,16 @@ enum PiProviderDiscovery {
             ?? object["input_modalities"]?.arrayValue?.compactMap(\.stringValue)
             ?? []
         let capabilities = object["capabilities"]?.objectValue ?? [:]
-        let reasoning = object["reasoning"]?.boolValue
+        let declaredReasoning = object["reasoning"]?.boolValue
             ?? object["supports_reasoning"]?.boolValue
             ?? capabilities["reasoning"]?.boolValue
             ?? false
+        let supportedParameters = object["supported_parameters"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        let reasoning = ProviderModelCapabilities.supportsReasoning(
+            modelID: id,
+            declared: declaredReasoning,
+            supportedParameters: supportedParameters
+        )
         let acceptsImages = input.contains(where: { $0.lowercased().contains("image") })
             || object["supports_vision"]?.boolValue == true
             || capabilities["vision"]?.boolValue == true

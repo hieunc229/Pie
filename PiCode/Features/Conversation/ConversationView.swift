@@ -6,6 +6,7 @@
 //  messages plus the events PiCode received while they streamed.
 //
 
+import QuartzCore
 import SwiftUI
 
 /// The transcript viewport's height, measured behind the scroll view so the
@@ -66,7 +67,15 @@ struct ConversationView: View {
                 // The rows' column, shared with the floating composer
                 // (`ConversationColumn`), so the box lines up with the text.
                 ConversationColumn {
-                    LazyVStack(alignment: .leading, spacing: 20) {
+                    // Eager, not lazy. A `LazyVStack` guesses the height of rows it
+                    // has not built and corrects the guess as they scroll in, so
+                    // the content height jumped by hundreds of points mid-scroll
+                    // and every newly visible reply was built in the scroll frame.
+                    // Only a window of history is loaded (it grows a turn at a time,
+                    // ahead of the reader — `startIdleHistoryFill`), each row is
+                    // built once, and rows are equatable, so a streaming flush
+                    // re-renders the one row that grew.
+                    VStack(alignment: .leading, spacing: 20) {
                         if controller.isLoadingTranscriptHistory {
                             HStack(spacing: 8) {
                                 ProgressView().controlSize(.small)
@@ -150,6 +159,7 @@ struct ConversationView: View {
                 followLatestWhileOpening(proxy)
             }
             .onPreferenceChange(TranscriptTopGapKey.self) { topGap in
+                if topGap != scrollState.topGap { scrollState.lastScrollActivity = CACurrentMediaTime() }
                 scrollState.topGap = topGap
                 prefetchEarlierTranscript(topGap: topGap)
             }
@@ -157,13 +167,13 @@ struct ConversationView: View {
             // relative to the project — and change chips name them the way Pi
             // reported them, so both are resolved and handed to the inspector
             // here rather than in every row.
-            .environment(\.piCodeOpenFile, PiCodeOpenFileAction { path, line in
+            .environment(\.piCodeOpenFile, PiCodeOpenFileAction(identity: ObjectIdentifier(controller)) { path, line in
                 state.openInInspector(path: resolve(path), line: line)
             })
-            .environment(\.piCodeOpenChange, PiCodeOpenChangeAction { path in
+            .environment(\.piCodeOpenChange, PiCodeOpenChangeAction(identity: ObjectIdentifier(controller)) { path in
                 state.openInChanges(path: resolve(path))
             })
-            .environment(\.piCodeOpenTool, PiCodeOpenToolAction { id in
+            .environment(\.piCodeOpenTool, PiCodeOpenToolAction(identity: ObjectIdentifier(controller)) { id in
                 state.openInInspector(toolId: id)
             })
             .onAppear { beginOpeningSession(proxy) }
@@ -177,6 +187,7 @@ struct ConversationView: View {
                 scrollState.generation = UUID()
                 scrollState.openingTask?.cancel()
                 scrollState.pageTask?.cancel()
+                scrollState.idleFillTask?.cancel()
             }
             .onChange(of: ObjectIdentifier(controller)) { _, _ in
                 beginOpeningSession(proxy)
@@ -219,7 +230,13 @@ struct ConversationView: View {
                         .background(AppTheme.background)
                 }
             }
-            .overlay(alignment: .bottomTrailing) {
+            // Centred, just above the composer. `bottomInset` is the room the
+            // transcript leaves for the floating box (its height plus its own
+            // chrome), so resting the pill's bottom edge on that line clears the
+            // box by the box's top padding at every prompt size — while a
+            // corner-anchored pill ended up *behind* the box on a narrow pane,
+            // and always sat away from the text it returns to.
+            .overlay(alignment: .bottom) {
                 if !isOpeningSession, !isPinnedToBottom {
                     Button {
                         isPinnedToBottom = true
@@ -231,11 +248,13 @@ struct ConversationView: View {
                             .font(.callout)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
-                            .background(.regularMaterial, in: Capsule())
-                            .overlay(Capsule().stroke(.separator))
+                            // A solid fill, not a material: a live blur re-renders
+                            // whatever scrolls under it on every frame.
+                            .background(AppTheme.composerFill, in: Capsule())
+                            .overlay(Capsule().stroke(AppTheme.cardStroke))
                     }
                     .buttonStyle(.plain)
-                    .padding(16)
+                    .padding(.bottom, bottomInset)
                     .transition(.opacity)
                 }
             }
@@ -280,12 +299,14 @@ struct ConversationView: View {
         }
     }
 
+    /// A new chat's landing: the question, centred in the room the composer
+    /// leaves above it.
     private var emptyState: some View {
-        EmptyStateView(
-            systemImage: "text.bubble",
-            title: "Nothing here yet",
-            message: "Ask Pi to do something below. PiCode streams Pi's real messages, tool calls, and diffs as they happen."
-        )
+        BuildPromptHero(projectName: controller.projectName)
+            .frame(maxWidth: .infinity)
+            .containerRelativeFrame(.vertical) { height, _ in
+                max(0, height - bottomInset - 60)
+            }
     }
 
     // MARK: - Rows

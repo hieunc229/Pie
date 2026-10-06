@@ -58,12 +58,8 @@ check_source "$SIDEBAR" 'state.newChatInCurrentProject' \
     "the New chat row starts in the project the user is already in"
 check_source "$SIDEBAR" 'onOpenPalette' \
     "the search icon raises the command palette"
-check_source "$SIDEBAR" '.overlay(alignment: .topTrailing) { searchButton }' \
-    "search is an overlay on the sidebar's trailing edge"
-check_source "$SIDEBAR" '.padding(.top, SidebarStyle.topBarTopInset)' \
-    "the search icon is drawn on the titlebar row"
-check_source "$SIDEBAR" '.ignoresSafeArea(.container, edges: .top)' \
-    "the search icon leaves the sidebar's safe area for the titlebar row"
+check_source "$SIDEBAR" 'SidebarHeader(state: state, onOpenPalette: onOpenPalette)' \
+    "search sits in the sidebar's own header line"
 check_source "$SIDEBAR" 'state.toggleCollapsed(project: project)' \
     "clicking a project folds its chats (no chevron to click)"
 check_source "$SIDEBAR" 'state.showsChats(of: project)' \

@@ -73,18 +73,18 @@ enum SidebarStyle {
     /// rather than `accentColor` means the highlight does not change colour when the
     /// window loses focus. Add `SidebarStyle.rowHighlightFill` to `.clear`, never a
     /// new literal.
-    static let rowHighlightFill = Color.primary.opacity(0.08)
+    static let rowHighlightFill = AppTheme.sidebarRowHighlight
     /// The highlight pill's corners. Shared by both row types through
     /// `sidebarRow(fill:)`, so a project's pill and a chat's cannot be two shapes.
-    static let rowHighlightRadius: CGFloat = 6
+    static let rowHighlightRadius: CGFloat = 9
     /// The floor under a row's content, so both row types are one height.
     ///
     /// The list holds a row to `defaultMinListRowHeight` — 20pt here, measured —
-    /// so a pill is `max(20, content) + 8` whatever the row holds. Set explicitly
+    /// so a pill is `max(23, content) + 8` — a 31pt pitch — whatever the row holds. Set explicitly
     /// rather than leaning on the list, because "a project's highlight is a chat's
     /// highlight" is an invariant of this design and not a coincidence of the
     /// platform: if that minimum ever changes, it changes for both.
-    static let rowMinHeight: CGFloat = 20
+    static let rowMinHeight: CGFloat = 23
     /// Air above a group heading ("Pinned", "Projects"). A heading has to read as
     /// the start of a group, and air is the only thing that can say that without a
     /// rule or a weight; 24pt is enough to break the list's pitch and leave the
@@ -94,6 +94,13 @@ enum SidebarStyle {
     /// a row like any other on its bottom side, so the first project under it keeps
     /// the list's own pitch rather than inheriting a second margin from its heading.
     static let sectionLabelBottomPadding: CGFloat = 4
+    /// How many rows a group draws before the rest go behind a "Show more…": a
+    /// project's chats, and the projects under one heading. Ten rows is a screenful
+    /// at the sidebar's own pitch — enough to see the shape of a project without
+    /// the column turning into a directory listing, and the rest is one click away
+    /// rather than gone. Both lists are already sorted newest-first
+    /// (`AppState.sort`), so the ten a group draws are its ten most recent.
+    static let visibleRowLimit = 10
     /// Secondary and empty-state text. Regular weight, like everything else in this
     /// menu: there is no bold, medium or semibold type anywhere in it, and the
     /// semantic styles are avoided here because they drag a weight along with their
@@ -125,6 +132,17 @@ enum SidebarStyle {
     /// The square a top-bar icon button draws in. Fixed so the row's geometry is
     /// known and the icon cannot change the row it shares with the traffic lights.
     static let topBarButtonSize: CGFloat = 22
+    /// The ink of a row's trailing controls while the pointer is on the row but
+    /// not yet on the control: primary at just over half, so the glyph reads as
+    /// something to aim at on the sidebar's dark surface instead of as state.
+    /// Hovering the control itself lifts it to full.
+    ///
+    /// An `opacity` on the control rather than a colour inside its label, for two
+    /// measured reasons (§10): a `borderlessButton` menu snapshots its label as a
+    /// template image, so a colour set on the image is discarded, and a literal
+    /// `NSColor` there resolves against whichever appearance the body is
+    /// evaluated in — which is how these glyphs came out black on a dark sidebar.
+    static let actionIdleOpacity = 0.55
     /// The rendered symbol inside both titlebar controls. Their hit areas stay at
     /// `topBarButtonSize`; only the glyph is reduced.
     static let topBarIconSize: CGFloat = 13
@@ -163,11 +181,11 @@ struct SidebarRowChrome: ViewModifier {
                 RoundedRectangle(cornerRadius: SidebarStyle.rowHighlightRadius, style: .continuous)
                     .fill(fill)
                     .padding(.horizontal, SidebarStyle.rowHighlightInset)
-                    // Half a point at each end of the pill. The rows themselves are
+                    // A point at each end of the pill. The rows themselves are
                     // still one cell tall and so still one pitch; the fill simply
-                    // stops a hair short, which leaves a one-point gap between two
+                    // stops short, which leaves a two-point gap between two
                     // touching highlights and lets the sidebar show through.
-                    .padding(.vertical, 0.5)
+                    .padding(.vertical, 1)
             )
     }
 }
@@ -180,8 +198,31 @@ extension View {
     }
 }
 
+/// Which sidebar row the pointer is on — one value for the whole list.
+///
+/// Each row used to keep its own `@State` hover flag, set by `onHover`. A list
+/// recycles and re-lays-out its rows while it scrolls, and a menu opening takes the
+/// pointer without sending the row an exit, so a row could miss its "left" event
+/// and stay lit. With one shared id, entering any row replaces a stale one, and the
+/// list leaving or scrolling clears it.
+@Observable
+final class SidebarHover {
+    var rowID: String?
+
+    func set(_ id: String, hovering: Bool) {
+        if hovering {
+            if rowID != id { rowID = id }
+        } else if rowID == id {
+            rowID = nil
+        }
+    }
+
+    func clear() { if rowID != nil { rowID = nil } }
+}
+
 struct SidebarView: View {
     @Bindable var state: AppState
+    @State private var hover = SidebarHover()
     /// Raises the command palette, whose search covers both sessions and
     /// commands. The sheet lives on `RootView`, so the closure is passed down
     /// rather than reached for.
@@ -190,10 +231,19 @@ struct SidebarView: View {
     var onOpenSettings: () -> Void
 
     @State private var isNewChatHovering = false
-    @State private var isPackagesHovering = false
+    /// The projects whose chat lists are past `SidebarStyle.visibleRowLimit`: a
+    /// project's list is capped until its own "Show more…" is clicked, and folding
+    /// the project drops it from here again, so reopening one shows the first ten
+    /// chats the way it did before. See the `onChange` on `list`.
+    @State private var expandedChatLists: Set<String> = []
+    /// The two project headings, capped the same way. They have no fold to be
+    /// reset by, so once a heading is opened it stays open for the session.
+    @State private var showsAllProjects = false
+    @State private var showsAllPinnedProjects = false
 
     var body: some View {
         VStack(spacing: 0) {
+            SidebarHeader(state: state, onOpenPalette: onOpenPalette)
             if state.phase.isReady {
                 list
             } else {
@@ -205,16 +255,11 @@ struct SidebarView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            settingsFooter
         }
         .frame(maxHeight: .infinity)
         // The column's own fill: the system material in the light appearance, the
         // palette's elevated surface in the dark one. See `SidebarColumnBackground`.
         .modifier(SidebarColumnBackground())
-        // Search is not part of the list; it is an icon in the window's titlebar
-        // row on the sidebar's trailing edge, level with the traffic lights and
-        // the sidebar toggle. See `searchButton`.
-        .overlay(alignment: .topTrailing) { searchButton }
         .dropDestination(for: URL.self) { urls, _ in
             guard let folder = urls.first(where: { url in
                 var isDirectory = ObjCBool(false)
@@ -262,123 +307,59 @@ struct SidebarView: View {
         .help("Start a chat in the current project (⌘N)")
     }
 
-    // MARK: - Packages
-
-    /// *Packages* sits directly under *New chat* and is drawn with the same glyph
-    /// size, spacing and highlight, so the two read as the list's two doors: one
-    /// into a conversation, one into the package browser. It stays lit while the
-    /// browser is showing, which is the only selection state the sidebar has.
-    private var packagesRow: some View {
-        Button {
-            state.showPackages()
-        } label: {
-            HStack(spacing: SidebarStyle.iconTextSpacing) {
-                Image(systemName: "shippingbox")
-                    .font(.system(size: SidebarStyle.projectIconSize + 2, weight: .regular))
-                    .frame(width: SidebarStyle.projectIconSize,
-                           height: SidebarStyle.projectIconSize,
-                           alignment: .leading)
-                    .offset(x: -SidebarStyle.projectIconOffset)
-                Text("Packages")
-                    .font(SidebarStyle.rowFont)
-                    .foregroundStyle(.primary)
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .sidebarRow(fill: highlightFill(for: state.isPackagesVisible, hovering: isPackagesHovering))
-        .onHover { isPackagesHovering = $0 }
-        .help("Browse and install pi packages")
-    }
-
-    /// Hover and selection are the same neutral grey here as everywhere in the
-    /// sidebar: the pointer and the open page say the same thing.
-    private func highlightFill(for isActive: Bool, hovering: Bool) -> Color {
-        (isActive || hovering) ? SidebarStyle.rowHighlightFill : .clear
-    }
-
-    /// Search, drawn in the window's titlebar row on the sidebar's trailing edge.
-    ///
-    /// It is the only control in the sidebar that leaves the safe area: the row it
-    /// belongs to is the toolbar's, above the sidebar's content, so it is pulled
-    /// up with `.ignoresSafeArea` and centred on `titlebarRowCenter` — the same
-    /// 26pt the traffic lights and the sidebar toggle sit on. It is a plain icon
-    /// in the toolbar's own weightless style, not a filled control, because it is
-    /// a window control first and a menu control second.
-    private var searchButton: some View {
-        Button(action: onOpenPalette) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: SidebarStyle.topBarIconSize, weight: .regular))
-                .frame(width: SidebarStyle.topBarButtonSize, height: SidebarStyle.topBarButtonSize)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(.secondary)
-        .help("Search sessions and commands (⇧⌘P)")
-        .accessibilityLabel("Search")
-        .padding(.top, SidebarStyle.topBarTopInset)
-        .padding(.trailing, SidebarStyle.topBarTrailingInset)
-        .ignoresSafeArea(.container, edges: .top)
-    }
-
-    /// Settings is a window-level destination, so it stays fixed at the bottom
-    /// instead of scrolling with projects and chats.
-    private var settingsFooter: some View {
-        Button(action: onOpenSettings) {
-            HStack(spacing: SidebarStyle.iconTextSpacing) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
-                    .frame(
-                        width: SidebarStyle.projectIconSize,
-                        height: SidebarStyle.projectIconSize,
-                        alignment: .leading
-                    )
-                Text("Settings")
-                    .font(SidebarStyle.rowFont)
-                    .foregroundStyle(.primary)
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.leading, SidebarStyle.sidebarMargin + SidebarStyle.projectIconRightShift)
-        .padding(.trailing, SidebarStyle.sidebarMargin)
-        .padding(.vertical, 13)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(height: 1)
-                .allowsHitTesting(false)
-        }
-        .help("Open provider settings")
-    }
-
     // MARK: - List
 
     private var list: some View {
         List {
             newChatRow
-            packagesRow
             // Pinned projects get their own group above the rest, and only when
             // there is one: an empty "Pinned" heading would be a section that says
-            // nothing. Projects keep one heading of their own either way.
+            // nothing. Projects keep one heading of their own either way. Each
+            // heading draws `SidebarStyle.visibleRowLimit` projects — the list is
+            // sorted newest-first, so those are the ten most recently worked in —
+            // and puts the rest behind one "Show more…" row.
             if !state.projects.isEmpty {
                 if !pinnedProjects.isEmpty {
+                    let pinned = capped(pinnedProjects, showingAll: showsAllPinnedProjects)
                     sectionLabel("Pinned")
-                    ForEach(pinnedProjects) { project in
+                    ForEach(pinned.rows) { project in
                         ProjectRow(state: state, project: project, showsPin: false)
                         chats(of: project)
                     }
+                    if pinned.hidden > 0 {
+                        ShowMoreRow(hiddenCount: pinned.hidden, noun: "projects") {
+                            showsAllPinnedProjects = true
+                        }
+                    }
                 }
+                let rest = capped(unpinnedProjects, showingAll: showsAllProjects)
                 projectsSectionLabel
-                ForEach(unpinnedProjects) { project in
+                ForEach(rest.rows) { project in
                     ProjectRow(state: state, project: project)
                     chats(of: project)
+                }
+                if rest.hidden > 0 {
+                    ShowMoreRow(hiddenCount: rest.hidden, noun: "projects") {
+                        showsAllProjects = true
+                    }
                 }
             }
         }
         .listStyle(.sidebar)
+        // A fold forgets the expansion, so clicking a project away and back shows
+        // its first ten chats again — the fold is what says "not now" to the whole
+        // group, including the part that was opened. Read from the expanded set
+        // rather than from the click, so every way of folding a project resets it
+        // the same way.
+        .onChange(of: state.expandedProjects) { _, expanded in
+            expandedChatLists.formIntersection(expanded)
+        }
+        .environment(hover)
+        // Leaving the list, or the list changing under a still pointer (scroll,
+        // fold, a deleted row), drops the highlight instead of trusting every row
+        // to have seen its own exit.
+        .onHover { if !$0 { hover.clear() } }
+        .modifier(ClearHoverOnScroll(hover: hover))
         .overlay {
             if state.projects.isEmpty {
                 VStack(spacing: 8) {
@@ -402,13 +383,25 @@ struct SidebarView: View {
     /// projects first, but the two groups are drawn as separate sections now, so
     /// they are split here instead of leaning on that order.
     private var pinnedProjects: [ProjectGroup] {
-        state.projects.filter(\.isPinned)
+        harnessProjects.filter(\.isPinned)
+    }
+
+    /// The sidebar speaks for one harness at a time — the one in its title. Every
+    /// project stays (a folder is not owned by a harness, and a new chat can start
+    /// in any of them); only the chats under it are narrowed to that harness.
+    private var harnessProjects: [ProjectGroup] {
+        let harnessID = state.preferences.defaultHarnessID
+        return state.projects.map { project in
+            var project = project
+            project.sessions = project.sessions.filter { $0.harnessID == harnessID }
+            return project
+        }
     }
 
     /// …and everything else, under the "Projects" heading. When nothing is pinned
     /// this is simply every project, so the plain list is unchanged.
     private var unpinnedProjects: [ProjectGroup] {
-        state.projects.filter { !$0.isPinned }
+        harnessProjects.filter { !$0.isPinned }
     }
 
     /// A group heading, drawn as a row rather than a `Section` header: the sidebar
@@ -490,16 +483,25 @@ struct SidebarView: View {
                     isEphemeral: true
                 )
             }
-            ForEach(project.sessions) { session in
+            let tree = SessionBranchTree(sessions: project.sessions)
+            let shown = capped(tree.roots, showingAll: expandedChatLists.contains(project.path))
+            ForEach(shown.rows.flatMap { tree.rows(from: $0) }) { entry in
                 SessionRow(
                     state: state,
-                    session: session,
-                    isSelected: state.selectedSessionKey == session.filePath.map(AppState.key(forSessionPath:))
+                    session: entry.session,
+                    isSelected: state.selectedSessionKey == entry.session.controllerKey,
+                    depth: entry.depth,
+                    guides: entry.guides
                 )
+            }
+            if shown.hidden > 0 {
+                ShowMoreRow(hiddenCount: shown.hidden, noun: "chats") {
+                    expandedChatLists.insert(project.path)
+                }
             }
             if project.sessions.isEmpty && ephemeral == nil {
                 Text("No sessions yet")
-                    .font(SidebarStyle.captionFont)
+                    .font(SidebarStyle.rowFont)
                     .foregroundStyle(.tertiary)
                     .padding(.leading, SidebarStyle.titleIndent)
                     .padding(.bottom, 4)
@@ -509,9 +511,21 @@ struct SidebarView: View {
 
     // MARK: - Helpers
 
+    /// The rows a group draws, and how many are still behind its "Show more…": the
+    /// first `SidebarStyle.visibleRowLimit` of a list that is already sorted
+    /// newest-first, or all of it once the group has been opened. One rule for a
+    /// project's chats and for the projects under a heading, so the two cannot
+    /// disagree about what "ten" means or about when the row appears.
+    private func capped<T>(_ items: [T], showingAll: Bool) -> (rows: [T], hidden: Int) {
+        guard !showingAll, items.count > SidebarStyle.visibleRowLimit else { return (items, 0) }
+        let limit = SidebarStyle.visibleRowLimit
+        return (Array(items.prefix(limit)), items.count - limit)
+    }
+
     /// A session that exists only in memory because Pi has not written it yet.
     private func ephemeralSession(for project: ProjectGroup) -> SessionRef? {
         guard let controller = state.activeController,
+              controller.harness.id == state.preferences.defaultHarnessID,
               controller.sessionFile == nil,
               controller.projectPath == project.path,
               state.selectedSessionKey?.hasPrefix("new:") == true else { return nil }
@@ -527,7 +541,8 @@ struct SidebarView: View {
             firstUserMessage: controller.items.first(where: { $0.kind == .user })?.text,
             parentSession: nil,
             isPinned: false,
-            isEphemeral: true
+            isEphemeral: true,
+            harnessID: controller.harness.id
         )
     }
 }
@@ -550,7 +565,9 @@ struct ProjectRow: View {
     /// makes a pinned project recognisable at a glance.
     var showsPin: Bool = true
 
-    @State private var isHovering = false
+    @Environment(SidebarHover.self) private var hover
+    @State private var rowToken = UUID().uuidString
+    private var isHovering: Bool { hover.rowID == rowToken }
     @State private var isNewChatHovering = false
     @State private var isMenuHovering = false
 
@@ -574,7 +591,6 @@ struct ProjectRow: View {
                     .lineLimit(1)
                     .opacity(SidebarStyle.rowTextOpacity)
                     .accessibilityAddTraits(.isHeader)
-                    .kerning(Typography.kerning)
                 if showsPin && project.isPinned {
                     Image(systemName: "pin.fill")
                         .imageScale(.small)
@@ -582,7 +598,11 @@ struct ProjectRow: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.trailing, SidebarStyle.topBarButtonSize * 2)
+            // The two trailing controls are drawn only while the pointer is on
+            // the row, so the room they need is reserved only then: a quiet
+            // project's name (and its pin) run to the row's own trailing edge
+            // instead of stopping a two-button gap short of it. See `SessionRow`.
+            .padding(.trailing, isHovering ? SidebarStyle.topBarButtonSize * 2 : 0)
             .foregroundStyle(.primary)
             .contentShape(Rectangle())
         }
@@ -592,7 +612,13 @@ struct ProjectRow: View {
                 Menu {
                     ProjectRowMenu(state: state, project: project)
                 } label: {
-                    Image(systemName: "ellipsis")
+                    // `Text(Image(…))`, not a bare `Image`: a sidebar `List`
+                    // draws a `borderlessButton` menu by snapshotting its label,
+                    // and an image-only label comes out of that snapshot empty —
+                    // a text-wrapped one draws. Measured in a render lab: the
+                    // same menu beside the same sidebar list shows nothing with
+                    // an `Image` label and a visible glyph with this one.
+                    Text(Image(systemName: "ellipsis"))
                         .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
                         .frame(
                             width: SidebarStyle.topBarButtonSize,
@@ -603,9 +629,8 @@ struct ProjectRow: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .foregroundStyle(
-                    isMenuHovering ? Color.white : Color(nsColor: .tertiaryLabelColor)
-                )
+                .foregroundStyle(.primary)
+                .opacity(isMenuHovering ? 1 : SidebarStyle.actionIdleOpacity)
                 .onHover { isMenuHovering = $0 }
                 .help("Project actions")
                 .accessibilityLabel("Project actions for \(project.name)")
@@ -622,9 +647,8 @@ struct ProjectRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
-                .foregroundStyle(
-                    isNewChatHovering ? Color.white : Color(nsColor: .tertiaryLabelColor)
-                )
+                .foregroundStyle(.primary)
+                .opacity(isNewChatHovering ? 1 : SidebarStyle.actionIdleOpacity)
                 .onHover { isNewChatHovering = $0 }
                 .help("New chat in \(project.name)")
                 .accessibilityLabel("New chat in \(project.name)")
@@ -635,7 +659,10 @@ struct ProjectRow: View {
         // A project is highlighted exactly like a chat: one fill, one shape, one
         // height. See `SidebarRowChrome`.
         .sidebarRow(fill: isHovering ? SidebarStyle.rowHighlightFill : .clear)
-        .onHover { isHovering = $0 }
+        .onHover { hover.set(rowToken, hovering: $0) }
+        .onChange(of: isHovering) { _, now in
+            if !now { isMenuHovering = false; isNewChatHovering = false }
+        }
         .accessibilityValue(state.isCollapsed(project: project) ? "chats hidden" : "chats shown")
         .contextMenu { ProjectRowMenu(state: state, project: project) }
         .help(helpText)
@@ -655,9 +682,18 @@ struct SessionRow: View {
     var session: SessionRef
     var isSelected: Bool
     var isEphemeral: Bool = false
+    /// How many branches deep this chat is. A branch is drawn under the chat it
+    /// was forked from, indented, with a curved guide on its left.
+    var depth: Int = 0
+    /// One flag per ancestor level plus this row's own as the last entry: whether
+    /// a later sibling at that level still follows (so its line carries on).
+    var guides: [Bool] = []
 
-    @State private var isHovering = false
+    @Environment(SidebarHover.self) private var hover
+    @State private var rowToken = UUID().uuidString
+    private var isHovering: Bool { hover.rowID == rowToken }
     @State private var isMenuHovering = false
+    @State private var isTrashHovering = false
 
     var body: some View {
         Button {
@@ -692,14 +728,18 @@ struct SessionRow: View {
                        alignment: .leading)
                 .offset(x: -SidebarStyle.projectIconOffset)
 
+                // A name too long for the row ends in an ellipsis rather than
+                // running to the row's edge and stopping mid-letter: one line is
+                // all the row has, so the ellipsis is what says the rest is in
+                // the chat itself. It takes the slack before the pin so the pin
+                // and the actions stay on the row's trailing edge.
                 Text(session.displayName)
                     .font(SidebarStyle.rowFont)
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .foregroundStyle(.primary)
                     .opacity(SidebarStyle.rowTextOpacity)
-                    .kerning(Typography.kerning)
-
-                Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 if session.isPinned {
                     Image(systemName: "pin.fill")
@@ -711,40 +751,91 @@ struct SessionRow: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            .padding(.trailing, SidebarStyle.topBarButtonSize)
+            // The actions' room is reserved only while the actions are drawn, so
+            // a quiet chat's title — and the pin beside it — reach the row's own
+            // trailing edge. See `ProjectRow`.
+            .padding(.trailing, isHovering ? actionWidth : 0)
+            .padding(.leading, CGFloat(depth) * BranchGuides.step)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .overlay(alignment: .trailing) {
-            Menu {
-                SessionRowMenu(state: state, session: session, isEphemeral: isEphemeral)
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
-                    .frame(
-                        width: SidebarStyle.topBarButtonSize,
-                        height: SidebarStyle.rowMinHeight
-                    )
-                    .contentShape(Rectangle())
+            HStack(spacing: 0) {
+                Menu {
+                    SessionRowMenu(state: state, session: session, isEphemeral: isEphemeral)
+                } label: {
+                    // `Text(Image(…))`, not a bare `Image`: a sidebar `List`
+                    // draws a `borderlessButton` menu by snapshotting its label,
+                    // and an image-only label comes out of that snapshot empty —
+                    // a text-wrapped one draws. Measured in a render lab: the
+                    // same menu beside the same sidebar list shows nothing with
+                    // an `Image` label and a visible glyph with this one.
+                    Text(Image(systemName: "ellipsis"))
+                        .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                        .frame(
+                            width: SidebarStyle.topBarButtonSize,
+                            height: SidebarStyle.rowMinHeight
+                        )
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .foregroundStyle(.primary)
+                .opacity(isMenuHovering ? 1 : SidebarStyle.actionIdleOpacity)
+                .onHover { isMenuHovering = $0 }
+                .help("Chat actions")
+                .accessibilityLabel("Chat actions for \(session.displayName)")
+
+                // The row's own action sits at the trailing edge, in the order a
+                // project row already uses — menu, then the action — so the two row
+                // types put their controls in the same two places. A chat with
+                // nothing on disk has nothing to delete, so the button is absent
+                // rather than disabled: the same condition the menu item uses.
+                if session.filePath != nil {
+                    Button {
+                        state.sessionPendingDeletion = session
+                        state.run(.deleteSession)
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
+                            .frame(
+                                width: SidebarStyle.topBarButtonSize,
+                                height: SidebarStyle.rowMinHeight
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.primary)
+                    .opacity(isTrashHovering ? 1 : SidebarStyle.actionIdleOpacity)
+                    .onHover { isTrashHovering = $0 }
+                    .help("Delete this chat")
+                    .accessibilityLabel("Delete \(session.displayName)")
+                }
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .foregroundStyle(
-                isMenuHovering ? Color.white : Color(nsColor: .tertiaryLabelColor)
-            )
-            .onHover { isMenuHovering = $0 }
             .opacity(isHovering ? 1 : 0)
             .allowsHitTesting(isHovering)
-            .help("Chat actions")
-            .accessibilityLabel("Chat actions for \(session.displayName)")
         }
         .sidebarRow(fill: (isSelected || isHovering) ? SidebarStyle.rowHighlightFill : .clear)
-        .onHover { isHovering = $0 }
+        .background(alignment: .leading) {
+            if depth > 0 { BranchGuides(guides: guides).allowsHitTesting(false) }
+        }
+        .onHover { hover.set(rowToken, hovering: $0) }
+        .onChange(of: isHovering) { _, now in
+            if !now { isMenuHovering = false; isTrashHovering = false }
+        }
         .contextMenu {
             SessionRowMenu(state: state, session: session, isEphemeral: isEphemeral)
         }
         .help(helpText)
+    }
+
+    /// The room the trailing controls take on the row while they are drawn: the
+    /// menu, plus the trash button when this chat has a file to delete. One number
+    /// the row and its controls both read, so the title cannot be pushed by a
+    /// control the row did not reserve for.
+    private var actionWidth: CGFloat {
+        session.filePath == nil ? SidebarStyle.topBarButtonSize : SidebarStyle.topBarButtonSize * 2
     }
 
     private var helpText: String {
@@ -754,4 +845,159 @@ struct SessionRow: View {
         return "\(location) — \(messages), updated \(Format.relativeTime(session.updatedAt))"
     }
 
+}
+
+// MARK: - Show more
+
+/// The row that uncovers the rest of a long list: a project's chats, or the
+/// projects under a heading.
+///
+/// It is a row, not a footer. The sidebar has one pitch and one column, and the
+/// control that says "there is more of this list" belongs in the list, on the
+/// names' own column, reading as the continuation of what is above it — a footer
+/// would sit at the bottom of the whole sidebar, which is a different statement
+/// about a different thing. It is dimmed because it is not a name, and it lights
+/// the same pill every other row lights on hover, which is what says it can be
+/// clicked.
+struct ShowMoreRow: View {
+    /// How many rows are still hidden — what the tooltip counts out.
+    var hiddenCount: Int
+    /// What is hidden: "chats" or "projects". Always plural: a group only offers
+    /// this row once it is past `SidebarStyle.visibleRowLimit`.
+    var noun: String
+    var action: () -> Void
+
+    @Environment(SidebarHover.self) private var hover
+    @State private var rowToken = UUID().uuidString
+    private var isHovering: Bool { hover.rowID == rowToken }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 0) {
+                Text("Show more…")
+                    .font(SidebarStyle.rowFont)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            // The names' column, not the rows': this row continues the list above
+            // it, so it has to start where those titles start.
+            .padding(.leading, SidebarStyle.titleIndent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .sidebarRow(fill: isHovering ? SidebarStyle.rowHighlightFill : .clear)
+        .onHover { hover.set(rowToken, hovering: $0) }
+        .help("Show all \(hiddenCount) more \(noun)")
+    }
+}
+
+
+// MARK: - Branches
+
+/// A project's chats as a forest: a chat whose session header names a
+/// `parentSession` that is also in the project hangs under that parent. Pi writes
+/// that header when a chat is forked or cloned, so the sidebar needs nothing of
+/// its own to know where a branch came from. A parent that is missing (deleted,
+/// or in another folder) leaves its child at the top level.
+struct SessionBranchTree {
+    struct Entry: Identifiable {
+        var session: SessionRef
+        var depth: Int
+        var guides: [Bool]
+        var id: String { session.id }
+    }
+
+    let roots: [SessionRef]
+    private let children: [String: [SessionRef]]
+
+    init(sessions: [SessionRef]) {
+        let byPath = Dictionary(sessions.compactMap { s in s.filePath.map { ($0, s.id) } },
+                                uniquingKeysWith: { first, _ in first })
+        var children: [String: [SessionRef]] = [:]
+        var roots: [SessionRef] = []
+        for session in sessions {
+            if let parent = session.parentSession, parent != session.filePath, byPath[parent] != nil {
+                children[parent, default: []].append(session)
+            } else {
+                roots.append(session)
+            }
+        }
+        // Branches read in the order they were made, under their parent.
+        self.children = children.mapValues { $0.sorted { $0.createdAt < $1.createdAt } }
+        self.roots = roots
+    }
+
+    /// `root` followed by all of its branches, depth first.
+    func rows(from root: SessionRef) -> [Entry] {
+        var out: [Entry] = []
+        var seen: Set<String> = []
+        func visit(_ session: SessionRef, depth: Int, guides: [Bool]) {
+            guard seen.insert(session.id).inserted else { return }
+            out.append(Entry(session: session, depth: depth, guides: guides))
+            let kids = session.filePath.flatMap { children[$0] } ?? []
+            for (index, kid) in kids.enumerated() {
+                visit(kid, depth: depth + 1, guides: guides + [index < kids.count - 1])
+            }
+        }
+        visit(root, depth: 0, guides: [])
+        return out
+    }
+}
+
+/// The curved connector to the left of a branch: a line down from the parent, a
+/// rounded elbow into the row, and — while later siblings follow — the line
+/// carrying on below.
+struct BranchGuides: View {
+    /// Horizontal room one level of nesting takes.
+    static let step: CGFloat = 16
+    var guides: [Bool]
+
+    var body: some View {
+        Canvas { context, size in
+            let ink = GraphicsContext.Shading.color(.primary.opacity(0.28))
+            let style = StrokeStyle(lineWidth: 1, lineCap: .round)
+            let mid = size.height / 2
+            let radius: CGFloat = 6
+            for (level, continues) in guides.enumerated() {
+                // Entry `level` is the line one step right of the ancestor's title.
+                let x = SidebarStyle.titleIndent + 4 + CGFloat(level) * Self.step
+                if level == guides.count - 1 {
+                    var path = Path()
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: mid - radius))
+                    path.addQuadCurve(to: CGPoint(x: x + radius, y: mid),
+                                      control: CGPoint(x: x, y: mid))
+                    path.addLine(to: CGPoint(x: x + Self.step - 4, y: mid))
+                    context.stroke(path, with: ink, style: style)
+                    if continues {
+                        var rest = Path()
+                        rest.move(to: CGPoint(x: x, y: mid - radius))
+                        rest.addLine(to: CGPoint(x: x, y: size.height))
+                        context.stroke(rest, with: ink, style: style)
+                    }
+                } else if continues {
+                    var line = Path()
+                    line.move(to: CGPoint(x: x, y: 0))
+                    line.addLine(to: CGPoint(x: x, y: size.height))
+                    context.stroke(line, with: ink, style: style)
+                }
+            }
+        }
+    }
+}
+
+/// Clears the sidebar highlight while the list scrolls (macOS 15+; earlier systems
+/// rely on the list-level exit and on the next row's entry replacing it).
+private struct ClearHoverOnScroll: ViewModifier {
+    var hover: SidebarHover
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.onScrollPhaseChange { _, phase in
+                if phase != .idle { hover.clear() }
+            }
+        } else {
+            content
+        }
+    }
 }

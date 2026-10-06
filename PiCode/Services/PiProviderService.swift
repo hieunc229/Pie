@@ -330,40 +330,8 @@ enum PiProviderService {
 
     // MARK: - Custom (third-party) providers in Pi's models.json
 
-    struct CustomModel: Identifiable, Equatable {
-        var id: String
-        var name: String?
-        var reasoning: Bool
-        var acceptsImages: Bool
-        var contextWindow: Int?
-        var maxTokens: Int?
-
-        var identifier: String { id }
-        var displayName: String { name ?? id }
-    }
-
-    struct CustomProvider: Identifiable, Equatable {
-        var id: String
-        var baseURL: String?
-        var api: String?
-        var apiKey: String?
-        var models: [CustomModel]
-        /// Everything else Pi supports for this provider (`headers`, `oauth`,
-        /// `compat`, `modelOverrides`, …), kept so editing here never drops it.
-        var extra: [String: JSONValue] = [:]
-
-        var isLocalServer: Bool {
-            guard let baseURL, let host = URL(string: baseURL)?.host() else { return false }
-            return host == "localhost" || host == "127.0.0.1" || host == "::1"
-        }
-
-        /// A literal key lives in plain text in Pi's file; a `$VAR`/`!command`
-        /// reference does not. The UI says which one is in use.
-        var keyIsReference: Bool {
-            guard let apiKey else { return false }
-            return apiKey.hasPrefix("$") || apiKey.hasPrefix("!")
-        }
-    }
+    typealias CustomModel = ProviderModelConfiguration
+    typealias CustomProvider = ProviderConfiguration
 
     static let supportedAPIs = [
         "openai-completions",
@@ -375,73 +343,13 @@ enum PiProviderService {
     ]
 
     static func customProviders(at url: URL = PiPaths.modelsFile) -> [CustomProvider] {
-        guard let root = try? readObject(at: url),
-              let providers = root["providers"]?.objectValue
-        else { return [] }
-        return providers.keys.sorted().compactMap { id -> CustomProvider? in
-            guard let entry = providers[id]?.objectValue else { return nil }
-            var extra = entry
-            for key in ["baseUrl", "api", "apiKey", "models"] { extra.removeValue(forKey: key) }
-            let models = (entry["models"]?.arrayValue ?? []).compactMap { model -> CustomModel? in
-                guard let object = model.objectValue, let modelId = object["id"]?.stringValue else { return nil }
-                return CustomModel(
-                    id: modelId,
-                    name: object["name"]?.stringValue,
-                    reasoning: object["reasoning"]?.boolValue ?? false,
-                    acceptsImages: (object["input"]?.arrayValue ?? []).contains(.string("image")),
-                    contextWindow: object["contextWindow"]?.doubleValue.map { Int($0) },
-                    maxTokens: object["maxTokens"]?.doubleValue.map { Int($0) }
-                )
-            }
-            return CustomProvider(
-                id: id,
-                baseURL: entry["baseUrl"]?.stringValue,
-                api: entry["api"]?.stringValue,
-                apiKey: entry["apiKey"]?.stringValue,
-                models: models,
-                extra: extra
-            )
-        }
+        ProviderConfigurationStore.load(from: url)
     }
 
     /// Replaces the `providers` map while preserving the rest of the file,
     /// including per-model fields this UI does not edit.
     static func saveCustomProviders(_ providers: [CustomProvider], at url: URL = PiPaths.modelsFile) throws {
-        var root: [String: JSONValue] = (try? readObject(at: url)) ?? [:]
-        let previous = root["providers"]?.objectValue ?? [:]
-        var encoded: [String: JSONValue] = [:]
-        for provider in providers {
-            var entry = provider.extra
-            if let baseURL = provider.baseURL, !baseURL.isEmpty { entry["baseUrl"] = .string(baseURL) }
-            else { entry.removeValue(forKey: "baseUrl") }
-            if let api = provider.api, !api.isEmpty { entry["api"] = .string(api) }
-            else { entry.removeValue(forKey: "api") }
-            if let key = provider.apiKey, !key.isEmpty { entry["apiKey"] = .string(key) }
-            else { entry.removeValue(forKey: "apiKey") }
-            // Keep each model's unedited fields by merging onto its old object.
-            let oldModels = (previous[provider.id]?.objectValue?["models"]?.arrayValue ?? [])
-                .compactMap { $0.objectValue }
-                .reduce(into: [String: [String: JSONValue]]()) { result, object in
-                    if let id = object["id"]?.stringValue { result[id] = object }
-                }
-            entry["models"] = .array(provider.models.map { model in
-                var object = oldModels[model.id] ?? [:]
-                object["id"] = .string(model.id)
-                if let name = model.name, !name.isEmpty, name != model.id { object["name"] = .string(name) }
-                else { object.removeValue(forKey: "name") }
-                object["reasoning"] = .bool(model.reasoning)
-                object["input"] = .array(model.acceptsImages ? [.string("text"), .string("image")] : [.string("text")])
-                if let window = model.contextWindow { object["contextWindow"] = .number(Double(window)) }
-                else { object.removeValue(forKey: "contextWindow") }
-                if let maxTokens = model.maxTokens { object["maxTokens"] = .number(Double(maxTokens)) }
-                else { object.removeValue(forKey: "maxTokens") }
-                return .object(object)
-            })
-            encoded[provider.id] = .object(entry)
-        }
-        if encoded.isEmpty { root.removeValue(forKey: "providers") }
-        else { root["providers"] = .object(encoded) }
-        try write(.object(root), to: url)
+        try ProviderConfigurationStore.save(providers, to: url)
     }
 
     /// Problems Pi will complain about when it loads models.json. Pi reports

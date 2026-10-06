@@ -1,6 +1,6 @@
 import Foundation
 
-struct TranscriptResponseMetadata {
+struct TranscriptResponseMetadata: Equatable {
     var text: String
     var entryID: String?
     var hoverID: String?

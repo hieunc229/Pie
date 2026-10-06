@@ -15,10 +15,18 @@ import SwiftUI
 struct PiCodeApp: App {
     @State private var state = AppState()
 
+    init() {
+        #if DEBUG
+        DebugSnapshot.scheduleIfRequested()
+        DebugScrollBench.scheduleIfRequested()
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView(state: state)
                 .frame(minWidth: 900, minHeight: 560)
+                .preferredColorScheme(state.preferences.appearance.colorScheme)
         }
         // The content column draws its own header, so the window draws no title
         // bar or toolbar above it: the content runs to the top of the window and
@@ -26,12 +34,8 @@ struct PiCodeApp: App {
         .windowStyle(.hiddenTitleBar)
         // The unified row places the traffic lights and the system sidebar
         // toggle on the project title's vertical centre.
-        .windowToolbarStyle(.unified)
+        .windowToolbarStyle(.unifiedCompact)
         .commands { PiCodeCommands(state: state) }
-
-        Settings {
-            SettingsView(state: state)
-        }
     }
 }
 
@@ -50,6 +54,11 @@ struct PiCodeCommands: Commands {
             Button(PaletteCommand.openInTerminal.title) { state.run(.openInTerminal) }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(state.activeController == nil)
+        }
+
+        CommandGroup(replacing: .appSettings) {
+            Button(PaletteCommand.openSettings.title) { state.run(.openSettings) }
+                .keyboardShortcut(",", modifiers: .command)
         }
 
         CommandMenu("Session") {
