@@ -42,7 +42,7 @@ struct ExtensionDialogView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
-                Image(systemName: icon)
+                IconsaxIcon(name: icon)
                     .foregroundStyle(.tint)
                 Text(dialog.title)
                     .font(.headline)
@@ -118,7 +118,7 @@ struct ExtensionDialogView: View {
                     selection = option
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: selection == option ? "largecircle.fill.circle" : "circle")
+                        IconsaxIcon(name: selection == option ? "record-circle" : "record")
                             .foregroundStyle(selection == option ? Color.accentColor : Color.secondary)
                         Text(option)
                             .multilineTextAlignment(.leading)
@@ -141,11 +141,11 @@ struct ExtensionDialogView: View {
 
     private var icon: String {
         switch dialog.request.method {
-        case .select: return "list.bullet.circle"
-        case .confirm: return "questionmark.circle"
-        case .input: return "text.cursor"
-        case .editor: return "square.and.pencil"
-        default: return "puzzlepiece.extension"
+        case .select: return "task"
+        case .confirm: return "message-question"
+        case .input: return "edit-2"
+        case .editor: return "edit-2"
+        default: return "category-2"
         }
     }
 

@@ -73,13 +73,13 @@ struct ComposerModelPicker: View {
             VStack(alignment: .leading, spacing: 0) {
                 pickerRow(title: "Harness",
                           value: controller.harness.displayName,
-                          systemImage: "shippingbox") {
+                          systemImage: "box") {
                     navigate(to: .harness)
                 }
 
                 pickerRow(title: "Provider",
                           value: currentProvider?.pickerCapitalized ?? "Any",
-                          systemImage: "building.2") {
+                          systemImage: "building") {
                     providerFilter = nil
                     navigate(to: .provider)
                 }
@@ -153,13 +153,13 @@ struct ComposerModelPicker: View {
     private var modelList: some View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
+                IconsaxIcon(name: "search-normal")
                     .foregroundStyle(.tertiary)
                 TextField("Search models", text: $query)
                     .textFieldStyle(.plain)
                 if !query.isEmpty {
                     Button { query = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                        IconsaxIcon(name: "close-circle").foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -174,7 +174,7 @@ struct ComposerModelPicker: View {
                     if filteredModels.isEmpty {
                         ContentUnavailableView(
                             query.isEmpty ? "No models available" : "No matching models",
-                            systemImage: "magnifyingglass",
+                            systemImage: "search-normal",
                             description: Text(emptyDescription)
                         )
                         .frame(maxWidth: .infinity)
@@ -214,7 +214,7 @@ struct ComposerModelPicker: View {
     private func backRow(title: String) -> some View {
         Button { goBack() } label: {
             HStack(spacing: 9) {
-                Image(systemName: "chevron.left")
+                IconsaxIcon(name: "arrow-left-2")
                     .font(.system(size: 11, weight: .semibold))
                     .frame(width: 16)
                 Text("Back")
@@ -237,7 +237,7 @@ struct ComposerModelPicker: View {
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 9) {
-                Image(systemName: systemImage)
+                IconsaxIcon(name: systemImage)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .frame(width: 16)
@@ -246,7 +246,7 @@ struct ComposerModelPicker: View {
                 Text(value)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Image(systemName: "chevron.right")
+                IconsaxIcon(name: "arrow-right-2")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
@@ -264,7 +264,7 @@ struct ComposerModelPicker: View {
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: "checkmark")
+                IconsaxIcon(name: "tick-circle")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .opacity(isSelected ? 1 : 0)
@@ -293,10 +293,10 @@ struct ComposerModelPicker: View {
         AnyView(
             HStack(spacing: 6) {
                 if model.reasoning {
-                    Image(systemName: "brain").foregroundStyle(.tertiary)
+                    IconsaxIcon(name: "lamp-on").foregroundStyle(.tertiary)
                 }
                 if model.supportsImages {
-                    Image(systemName: "photo").foregroundStyle(.tertiary)
+                    IconsaxIcon(name: "gallery").foregroundStyle(.tertiary)
                 }
             }
         )

@@ -55,8 +55,8 @@ enum SummaryKind: String, Equatable {
 
     var systemImage: String {
         switch self {
-        case .compaction: return "arrow.down.right.and.arrow.up.left"
-        case .branch: return "arrow.triangle.branch"
+        case .compaction: return "convert"
+        case .branch: return "hierarchy-2"
         }
     }
 }
@@ -80,9 +80,9 @@ struct FileChange: Identifiable, Equatable, Hashable {
 
         var systemImage: String {
             switch self {
-            case .created: return "plus.circle"
-            case .modified: return "pencil.circle"
-            case .deleted: return "minus.circle"
+            case .created: return "add-circle"
+            case .modified: return "edit"
+            case .deleted: return "minus-cirlce"
             case .read: return "eye"
             }
         }

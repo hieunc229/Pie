@@ -105,7 +105,7 @@ struct PackagesView: View {
     private var header: some View {
         HStack(spacing: 12) {
             HStack(spacing: 6) {
-                Image(systemName: "shippingbox")
+                IconsaxIcon(name: "box")
                     .font(.system(size: Typography.baseSize))
                     .foregroundStyle(.tertiary)
                 Text("Packages")
@@ -117,7 +117,7 @@ struct PackagesView: View {
                 model.reloadInstalled(projectPath: state.selectedProjectPath)
                 Task { await model.performSearch() }
             } label: {
-                Image(systemName: "arrow.clockwise")
+                IconsaxIcon(name: "refresh")
                     .imageScale(.medium)
                     .contentShape(Rectangle())
             }
@@ -142,7 +142,7 @@ struct PackagesView: View {
     private var searchRow: some View {
         HStack(spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
+                IconsaxIcon(name: "search-normal")
                     .foregroundStyle(.secondary)
                 TextField("Search pi packages", text: $model.query)
                     .textFieldStyle(.plain)
@@ -153,7 +153,7 @@ struct PackagesView: View {
                     Button {
                         model.query = ""
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        IconsaxIcon(name: "close-circle")
                             .foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.borderless)
@@ -176,7 +176,7 @@ struct PackagesView: View {
     /// the page that installs them is the only place that has to say so.
     private var securityNote: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.shield.fill")
+            IconsaxIcon(name: "shield-cross")
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
@@ -277,13 +277,13 @@ struct PackagesView: View {
     @ViewBuilder
     private var statusArea: some View {
         if let status = model.statusMessage {
-            Label(status, systemImage: "checkmark.circle")
+            Label(status, iconsax: "tick-circle")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         if let error = model.lastError {
-            Label(error, systemImage: "exclamationmark.triangle")
+            Label(error, iconsax: "warning-2")
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .textSelection(.enabled)
@@ -322,7 +322,7 @@ private struct InstalledPackageRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: icon)
+            IconsaxIcon(name: icon)
                 .foregroundStyle(.tertiary)
                 .frame(width: 18)
                 .accessibilityHidden(true)
@@ -352,9 +352,9 @@ private struct InstalledPackageRow: View {
 
     private var icon: String {
         switch package.kindLabel {
-        case "npm": return "shippingbox"
-        case "git": return "arrow.triangle.branch"
-        default: return "folder"
+        case "npm": return "box"
+        case "git": return "hierarchy-2"
+        default: return "folder-2"
         }
     }
 }
@@ -393,24 +393,24 @@ private struct GalleryPackageCard: View {
 
             HStack(spacing: 12) {
                 if let publisher = package.publisher {
-                    Label(publisher, systemImage: "person")
+                    Label(publisher, iconsax: "user")
                 }
                 if let downloads = package.monthlyDownloads {
-                    Label("\(Format.tokens(downloads))/mo", systemImage: "arrow.down.circle")
+                    Label("\(Format.tokens(downloads))/mo", iconsax: "arrow-circle-down")
                 }
                 if let repository = package.repository {
                     Link(destination: repository) {
-                        Label("repo", systemImage: "chevron.left.forwardslash.chevron.right")
+                        Label("repo", iconsax: "code")
                     }
                 }
                 if let homepage = package.homepage {
                     Link(destination: homepage) {
-                        Label("site", systemImage: "safari")
+                        Label("site", iconsax: "global")
                     }
                 }
                 if let npm = package.npmURL {
                     Link(destination: npm) {
-                        Label("npm", systemImage: "shippingbox")
+                        Label("npm", iconsax: "box")
                     }
                 }
                 Spacer(minLength: 0)
@@ -432,7 +432,7 @@ private struct GalleryPackageCard: View {
         if isBusy {
             ProgressView().controlSize(.small)
         } else if isInstalled {
-            StatusPill(text: "Installed", systemImage: "checkmark", tint: .green)
+            StatusPill(text: "Installed", systemImage: "tick-circle", tint: .green)
         } else {
             Button("Install") { onInstall() }
                 .controlSize(.small)
@@ -503,7 +503,7 @@ private struct InstallPackageSheet: View {
             securityNote
 
             if let error = model.lastError {
-                Label(error, systemImage: "exclamationmark.triangle")
+                Label(error, iconsax: "warning-2")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .textSelection(.enabled)
@@ -536,7 +536,7 @@ private struct InstallPackageSheet: View {
 
     private var securityNote: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            IconsaxIcon(name: "warning-2")
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
             Text("This package will run with full access to your account. Extensions execute arbitrary code and skills can instruct the model to run commands. Install only what you trust.")

@@ -50,7 +50,7 @@ struct ConversationMessageRow: View, Equatable {
                         Button {
                             WorkspaceLauncher.copyToPasteboard(responseText)
                         } label: {
-                            Image(systemName: "doc.on.doc")
+                            IconsaxIcon(name: "document-copy")
                                 .font(.system(size: 13))
                         }
                         .foregroundStyle(hover.actionID == copyActionID ? Color.white : Color.secondary)
@@ -65,7 +65,7 @@ struct ConversationMessageRow: View, Equatable {
                             Button {
                                 Task { await controller.branch(afterUserEntryId: entryId) }
                             } label: {
-                                Image(systemName: "arrow.triangle.branch")
+                                IconsaxIcon(name: "hierarchy-2")
                                     .font(.system(size: 13))
                             }
                             .foregroundStyle(hover.actionID == branchActionID ? Color.white : Color.secondary)

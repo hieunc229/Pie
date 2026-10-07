@@ -16,7 +16,6 @@ enum AppRailMetrics {
     static let width: CGFloat = 52
     static let buttonSize: CGFloat = 36
     static let iconSize: CGFloat = 17
-    static let avatarSize: CGFloat = 26
 }
 
 struct AppRail: View {
@@ -26,17 +25,13 @@ struct AppRail: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            RailButton(systemImage: "house", help: "Home", isSelected: !state.isPackagesVisible && !state.isSettingsPresented) {
+            RailButton(systemImage: "home", help: "Home", isSelected: !state.isPackagesVisible && !state.isSettingsPresented) {
                 state.hidePackages()
             }
             RailButton(systemImage: "clock", help: "Search history (⇧⌘P)", isSelected: false, action: onOpenPalette)
-            RailButton(systemImage: "shippingbox", help: "Packages", isSelected: state.isPackagesVisible && !state.isSettingsPresented) {
+            RailButton(systemImage: "box", help: "Packages", isSelected: state.isPackagesVisible && !state.isSettingsPresented) {
                 state.showPackages()
             }
-            RailButton(systemImage: "apple.terminal", help: "Toggle terminal", isSelected: state.isTerminalVisible) {
-                state.toggleTerminal()
-            }
-            .disabled(state.activeController == nil)
             moreMenu
 
             Rectangle()
@@ -45,7 +40,7 @@ struct AppRail: View {
                 .padding(.vertical, 6)
 
             RailButton(
-                systemImage: "arrow.triangle.branch",
+                systemImage: "hierarchy-2",
                 help: "Changes and context (⌥⌘I)",
                 isSelected: state.isInspectorVisible && !state.isNotificationsVisible
             ) {
@@ -55,8 +50,15 @@ struct AppRail: View {
 
             Spacer(minLength: 0)
 
-            UserBadge(action: onOpenSettings)
-                .padding(.bottom, 14)
+            UpdateButton(updater: state.updater)
+
+            RailButton(
+                systemImage: "setting-2",
+                help: "Settings",
+                isSelected: state.isSettingsPresented,
+                action: onOpenSettings
+            )
+            .padding(.bottom, 14)
         }
         .padding(.top, 2)
         .frame(width: AppRailMetrics.width)
@@ -76,7 +78,7 @@ struct AppRail: View {
         } label: {
             // A menu's label is snapshotted as a template image, so the glyph is
             // wrapped in `Text` to survive it (see `ProjectRow`).
-            Text(Image(systemName: "ellipsis"))
+            Text(iconsaxImage("more"))
                 .font(.system(size: AppRailMetrics.iconSize, weight: .regular))
                 .frame(width: AppRailMetrics.buttonSize, height: AppRailMetrics.buttonSize)
                 .contentShape(Rectangle())
@@ -86,6 +88,51 @@ struct AppRail: View {
         .fixedSize()
         .foregroundStyle(.secondary)
         .help("More")
+    }
+}
+
+/// Shown above Settings when a newer release exists: a white download glyph on a
+/// blue square. Click downloads, installs and relaunches.
+struct UpdateButton: View {
+    var updater: AppUpdater
+
+    var body: some View {
+        if let release = updater.release {
+            Button(action: updater.install) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.blue)
+                    switch updater.state {
+                    case .downloading(_, let progress):
+                        Circle()
+                            .trim(from: 0, to: max(progress, 0.03))
+                            .stroke(Color.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .frame(width: 18, height: 18)
+                    case .installing:
+                        ProgressView().controlSize(.small).colorScheme(.dark)
+                    default:
+                        IconsaxIcon(name: "arrow-down", size: AppRailMetrics.iconSize)
+                            .foregroundStyle(.white)
+                    }
+                }
+                .frame(width: AppRailMetrics.buttonSize, height: AppRailMetrics.buttonSize)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(updater.isBusy)
+            .padding(.bottom, 8)
+            .help(helpText(release))
+            .accessibilityLabel("Update to \(release.version)")
+        }
+    }
+
+    private func helpText(_ release: AppUpdater.Release) -> String {
+        switch updater.state {
+        case .downloading(_, let p): "Downloading \(release.version)… \(Int(p * 100))%"
+        case .installing: "Installing \(release.version)…"
+        case .failed(_, let message): "Update failed: \(message). Click to retry."
+        default: "Update to \(release.version) — click to install and restart"
+        }
     }
 }
 
@@ -102,8 +149,7 @@ struct RailButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: AppRailMetrics.iconSize, weight: .regular))
+            IconsaxIcon(name: systemImage, size: AppRailMetrics.iconSize)
                 .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                 .frame(width: AppRailMetrics.buttonSize, height: AppRailMetrics.buttonSize)
                 .background(
@@ -119,30 +165,4 @@ struct RailButton: View {
         .help(help)
         .accessibilityLabel(help)
     }
-}
-
-/// The user's initials in a filled circle — the macOS account's full name, so
-/// it is the person at the keyboard and not an account PiCode invented.
-struct UserBadge: View {
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(Self.initials)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: AppRailMetrics.avatarSize, height: AppRailMetrics.avatarSize)
-                .background(Circle().fill(Color(nsColor: NSColor(rgb: 0xD15602))))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .help("Settings")
-        .accessibilityLabel("Settings")
-    }
-
-    static let initials: String = {
-        let words = NSFullUserName().split(separator: " ").filter { $0.first?.isLetter == true }
-        let letters = words.prefix(2).compactMap(\.first).map { String($0).uppercased() }
-        return letters.isEmpty ? "?" : letters.joined()
-    }()
 }

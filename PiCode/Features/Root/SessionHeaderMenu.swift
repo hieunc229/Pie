@@ -14,42 +14,40 @@ struct SessionHeaderMenu: View {
 
     var body: some View {
         Menu {
-            Button { onCommand(.renameSession) } label: { Label("Rename", systemImage: "pencil") }
+            Button { onCommand(.renameSession) } label: { Label("Rename", iconsax: "edit-2") }
             Button(action: onTogglePin) {
-                Label(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin")
+                Label(isPinned ? "Unpin" : "Pin", iconsax: isPinned ? "bookmark" : "bookmark")
             }
 
             Divider()
 
-            Button { onCommand(.newSession) } label: { Label("New chat", systemImage: "plus.bubble") }
+            Button { onCommand(.newSession) } label: { Label("New chat", iconsax: "message-add") }
             Menu {
                 Button("Fork from last message…") { onCommand(.forkLatest) }
                 Button("Clone this chat") { onCommand(.cloneSession) }
-            } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
+            } label: { Label("Fork", iconsax: "hierarchy-2") }
 
             Divider()
 
-            Button { onCommand(.exportSession) } label: { Label("Export as HTML…", systemImage: "square.and.arrow.up") }
+            Button { onCommand(.exportSession) } label: { Label("Export as HTML…", iconsax: "export") }
             Menu {
                 Button("Copy transcript") { onCommand(.copyTranscript) }
                 Button("Copy last response") { onCommand(.copyLastResponse) }
-            } label: { Label("Copy", systemImage: "square.on.square") }
+            } label: { Label("Copy", iconsax: "copy") }
 
             Divider()
 
-            Menu {
-                Button("Terminal") { onCommand(.openInTerminal) }
-                Button("Finder") { onCommand(.revealInFinder) }
-                Button("VS Code") { onCommand(.openInVSCode) }
-            } label: { Label("Open in", systemImage: "arrow.up.right") }
+            Button { onCommand(.openInTerminal) } label: { Label("Open in Terminal", iconsax: "command-square") }
+            Button { onCommand(.revealInFinder) } label: { Label("Open in Finder", iconsax: "folder-2") }
+            Button { onCommand(.openInVSCode) } label: { Label("Open in VS Code", iconsax: "code") }
 
             Divider()
 
             Button(role: .destructive) { onCommand(.deleteSession) } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Delete", iconsax: "trash")
             }
         } label: {
-            Image(systemName: "ellipsis")
+            IconsaxIcon(name: "more")
                 .font(.system(size: 15, weight: .regular))
                 .frame(width: TitlebarIconButton.size, height: TitlebarIconButton.size)
                 .contentShape(Rectangle())

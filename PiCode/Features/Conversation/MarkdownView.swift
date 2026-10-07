@@ -194,7 +194,7 @@ struct CodeBlockView: View {
                 .font(Typography.body)
                 .foregroundStyle(.secondary)
             if !isComplete {
-                StatusPill(text: "streaming", systemImage: "ellipsis", tint: .secondary)
+                StatusPill(text: "streaming", systemImage: "more", tint: .secondary)
             }
             if !isExpanded {
                 Text(lineCount == 1 ? "1 line" : "\(lineCount) lines")
@@ -207,7 +207,7 @@ struct CodeBlockView: View {
                 withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
             } label: {
                 Label("",
-                      systemImage: isExpanded ? "chevron.up" : "chevron.down")
+                      iconsax: isExpanded ? "arrow-up-2" : "arrow-down-2")
                     .font(Typography.body)
             }
             .buttonStyle(.light)

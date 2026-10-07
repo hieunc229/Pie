@@ -229,13 +229,13 @@ struct RootView: View {
             let buttonTop = WindowChromeMetrics.titlebarRowCenter - TitlebarIconButton.size / 2
             ZStack(alignment: .topLeading) {
                 HStack(spacing: 2) {
-                    TitlebarIconButton(systemImage: "sidebar.left", help: "Toggle sidebar (⌃⌘S)") {
+                    TitlebarIconButton(systemImage: "sidebar-left", help: "Toggle sidebar (⌃⌘S)") {
                         toggleSidebar()
                     }
-                    TitlebarIconButton(systemImage: "arrow.left", help: "Back", isEnabled: state.canGoBack) {
+                    TitlebarIconButton(systemImage: "arrow-left", help: "Back", isEnabled: state.canGoBack) {
                         Task { await state.goBack() }
                     }
-                    TitlebarIconButton(systemImage: "arrow.right", help: "Forward", isEnabled: state.canGoForward) {
+                    TitlebarIconButton(systemImage: "arrow-right", help: "Forward", isEnabled: state.canGoForward) {
                         Task { await state.goForward() }
                     }
                 }
@@ -279,7 +279,7 @@ struct RootView: View {
 
     private func titlebarTitle(_ controller: PiSessionController) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "folder")
+            IconsaxIcon(name: "folder-2")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
             Text(headerTitle(for: controller))
@@ -304,7 +304,7 @@ struct RootView: View {
     /// card's trailing edge.
     @ViewBuilder
     private var titlebarTrailingControls: some View {
-        if state.phase == .ready, let controller = state.activeController, !state.isPackagesVisible, !state.isSettingsPresented {
+        if state.phase == .ready, state.activeController != nil, !state.isPackagesVisible, !state.isSettingsPresented {
             HStack(spacing: 6) {
                 SessionHeaderMenu(
                     isPinned: fallbackDeletionCandidate?.isPinned ?? false,
@@ -314,16 +314,10 @@ struct RootView: View {
                     }
                 )
 
-                WorkspaceMenuButton(
-                    onOpenInTerminal: { state.openTerminal(at: controller.projectPath) },
-                    onOpenInFinder: { WorkspaceLauncher.reveal(controller.projectPath) },
-                    onOpenInVSCode: { openProjectInVSCode(controller.projectPath) }
-                )
-                .frame(width: 17, height: 17)
-                .frame(width: TitlebarIconButton.size, height: TitlebarIconButton.size)
+                TitlebarNotificationsButton(state: state)
 
                 TitlebarIconButton(
-                    systemImage: "sidebar.right",
+                    systemImage: "sidebar-right",
                     help: state.isInspectorVisible ? "Hide the inspector (⌥⌘I)" : "Show the inspector (⌥⌘I)",
                     isActive: state.isInspectorVisible && !state.isNotificationsVisible
                 ) {
@@ -622,7 +616,7 @@ struct TitlebarIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
+            IconsaxIcon(name: systemImage)
                 .font(.system(size: 15, weight: .regular))
                 .frame(width: Self.size, height: Self.size)
                 .background(
@@ -638,5 +632,42 @@ struct TitlebarIconButton: View {
         .onHover { isHovering = $0 && isEnabled }
         .help(help)
         .accessibilityLabel(help)
+    }
+}
+
+/// The titlebar's notification toggle: the same chrome as `TitlebarIconButton`,
+/// with an unread dot while notifications are waiting.
+struct TitlebarNotificationsButton: View {
+    @Bindable var state: AppState
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            state.toggleNotifications()
+        } label: {
+            IconsaxIcon(name: "notification")
+                .frame(width: TitlebarIconButton.size, height: TitlebarIconButton.size)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isHovering ? AppTheme.railSelection.opacity(0.6) : .clear)
+                )
+                .overlay(alignment: .topTrailing) {
+                    if state.unreadNotificationCount > 0 {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 6, height: 6)
+                            .offset(x: -3, y: 3)
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(state.isShowingNotifications ? Color.primary : Color.secondary)
+        .onHover { isHovering = $0 }
+        .help(state.isShowingNotifications ? "Hide notifications" : "Show notifications")
+        .accessibilityLabel(state.unreadNotificationCount > 0
+            ? "Notifications, \(state.unreadNotificationCount) unread"
+            : "Notifications")
     }
 }

@@ -23,7 +23,7 @@ struct LocalHarnessAccountSettingsView: View {
                 Spacer(minLength: 0)
                 if isLoading { ProgressView().controlSize(.mini) }
                 if let status {
-                    Label(status.title, systemImage: statusIcon(status.kind))
+                    Label(status.title, iconsax: statusIcon(status.kind))
                         .font(.caption.weight(.medium))
                         .foregroundStyle(statusColor(status.kind))
                 }
@@ -80,11 +80,11 @@ struct LocalHarnessAccountSettingsView: View {
 
     private func statusIcon(_ kind: LocalHarnessAccountStatus.Kind) -> String {
         switch kind {
-        case .subscription: return "checkmark.seal.fill"
-        case .localCredentials: return "key.fill"
+        case .subscription: return "verify"
+        case .localCredentials: return "key"
         case .apiKey: return "key"
-        case .signedOut: return "person.crop.circle.badge.exclamationmark"
-        case .unavailable: return "questionmark.circle"
+        case .signedOut: return "profile-circle"
+        case .unavailable: return "message-question"
         }
     }
 

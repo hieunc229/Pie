@@ -52,8 +52,7 @@ struct BuildPromptHero: View {
     var body: some View {
         VStack(spacing: 26) {
             ZStack {
-                Image(systemName: "seal")
-                    .font(.system(size: 58, weight: .ultraLight))
+                IconsaxIcon(name: "award", size: 58)
                 Text(">_")
                     .font(.system(size: 17, weight: .medium, design: .monospaced))
             }
@@ -86,7 +85,7 @@ struct PiSetupView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("Pi was not found", systemImage: "exclamationmark.triangle.fill")
+                    Label("Pi was not found", iconsax: "warning-2")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.orange)
                     Text("PiCode is a client for Pi Coding Agent. It does not bundle Pi, and it never installs or updates it for you.")
@@ -106,7 +105,7 @@ struct PiSetupView: View {
                 InspectorSection(
                     title: "Install Pi",
                     subtitle: "Any of these put `pi` on your PATH.",
-                    systemImage: "arrow.down.circle"
+                    systemImage: "arrow-circle-down"
                 ) {
                     VStack(alignment: .leading, spacing: 8) {
                         CommandLineRow(command: "npm install -g --ignore-scripts @earendil-works/pi-coding-agent")
@@ -117,7 +116,7 @@ struct PiSetupView: View {
                 InspectorSection(
                     title: "How PiCode looks for Pi",
                     subtitle: "It asks your login shell first, then falls back to common install locations.",
-                    systemImage: "magnifyingglass"
+                    systemImage: "search-normal"
                 ) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Login shell: `command -v pi` in your shell, with your shell's PATH.")

@@ -143,7 +143,7 @@ struct SessionView: View {
     private var queuedPrompts: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                Image(systemName: "text.append")
+                IconsaxIcon(name: "additem")
                     .imageScale(.small)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
@@ -211,11 +211,11 @@ struct SessionView: View {
     private func queueActions(for message: QueuedPrompt) -> some View {
         HStack(spacing: 2) {
             if message.kind == .followUp {
-                queueButton("arrow.up.forward", help: "Steer into the current turn") {
+                queueButton("export", help: "Steer into the current turn") {
                     Task { await controller.act(on: .steer, message: message.text) }
                 }
             }
-            queueButton("pencil", help: "Edit in the composer") {
+            queueButton("edit-2", help: "Edit in the composer") {
                 Task { await controller.act(on: .edit, message: message.text) }
             }
             queueButton("trash", help: "Remove from the queue") {
@@ -230,7 +230,7 @@ struct SessionView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemImage)
+            IconsaxIcon(name: systemImage)
                 .imageScale(.small)
         }
         .buttonStyle(.borderless)

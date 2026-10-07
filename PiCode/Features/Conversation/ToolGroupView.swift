@@ -96,7 +96,7 @@ struct ToolGroupView: View {
             }
         } label: {
             HStack(spacing: 7) {
-                Image(systemName: row.groupSystemImage)
+                IconsaxIcon(name: row.groupSystemImage)
                     .imageScale(.small)
                     .foregroundStyle(.secondary)
                     .frame(width: 16, alignment: .center)
@@ -119,7 +119,7 @@ struct ToolGroupView: View {
                 // step, and clicking it opens the task's content in the right
                 // panel. Only a run of several keeps the chevron.
                 if singleStep == nil {
-                    Image(systemName: "chevron.right")
+                    IconsaxIcon(name: "arrow-right-2")
                         .imageScale(.small)
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
@@ -182,9 +182,9 @@ struct ToolGroupView: View {
             // timer.
             ProgressView().controlSize(.small)
         } else if row.isLiveTurn, items.contains(where: { $0.toolStatus == .failure }) {
-            StatusPill(text: "Failed", systemImage: "xmark", tint: .red, isProminent: true)
+            StatusPill(text: "Failed", systemImage: "close-circle", tint: .red, isProminent: true)
         } else if items.contains(where: { $0.toolStatus == .cancelled }) {
-            StatusPill(text: "Cancelled", systemImage: "slash.circle", tint: .orange)
+            StatusPill(text: "Cancelled", systemImage: "forbidden-2", tint: .orange)
         } else if row.isLiveTurn {
             // Between two steps: Pi is thinking or about to write. The separate
             // “Pi is working” row is gone, so the live line carries the spinner.
@@ -209,7 +209,7 @@ struct ToolActionRow: View {
             openTool(item.id)
         } label: {
             HStack(spacing: 7) {
-                Image(systemName: familyIcon)
+                IconsaxIcon(name: familyIcon)
                     .imageScale(.small)
                     .foregroundStyle(statusTint)
                     // Every row's glyph is given the same column, so the labels line
@@ -234,11 +234,11 @@ struct ToolActionRow: View {
                 diffStats
 
                 if item.toolStatus == .failure {
-                    Image(systemName: "xmark.circle.fill")
+                    IconsaxIcon(name: "close-circle")
                         .imageScale(.small)
                         .foregroundStyle(.red)
                 } else if item.toolStatus == .cancelled {
-                    Image(systemName: "slash.circle")
+                    IconsaxIcon(name: "forbidden-2")
                         .imageScale(.small)
                         .foregroundStyle(.orange)
                 } else if item.toolStatus == .running || item.isStreaming {
@@ -275,7 +275,7 @@ struct ToolActionRow: View {
     }
 
     private var familyIcon: String {
-        family?.systemImage ?? "wrench.and.screwdriver"
+        family?.systemImage ?? "setting-4"
     }
 
     /// Only the calls that changed something have numbers to show; a read's chip

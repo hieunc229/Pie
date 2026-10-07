@@ -55,10 +55,10 @@ struct BannerView: View {
 
         var systemImage: String {
             switch self {
-            case .info: return "info.circle.fill"
-            case .warning: return "exclamationmark.triangle.fill"
-            case .error: return "xmark.octagon.fill"
-            case .success: return "checkmark.circle.fill"
+            case .info: return "info-circle"
+            case .warning: return "warning-2"
+            case .error: return "danger"
+            case .success: return "tick-circle"
             }
         }
 
@@ -83,7 +83,7 @@ struct BannerView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: level.systemImage)
+            IconsaxIcon(name: level.systemImage)
                 .foregroundStyle(level.tint)
                 .accessibilityHidden(true)
 
@@ -111,7 +111,7 @@ struct BannerView: View {
                 Button {
                     onDismiss()
                 } label: {
-                    Image(systemName: "xmark")
+                    IconsaxIcon(name: "close-circle")
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.borderless)
@@ -143,7 +143,7 @@ struct StatusPill: View {
     var body: some View {
         HStack(spacing: 4) {
             if let systemImage {
-                Image(systemName: systemImage)
+                IconsaxIcon(name: systemImage)
                     .imageScale(.small)
             }
             Text(text)
@@ -167,7 +167,7 @@ struct ActivityRowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
-            Image(systemName: entry.kind.systemImage)
+            IconsaxIcon(name: entry.kind.systemImage)
                 .imageScale(.small)
                 .foregroundStyle(entry.isError ? Color.red : Color.secondary)
                 .padding(.top, 1)
@@ -204,7 +204,7 @@ struct InspectorSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 if let systemImage {
-                    Image(systemName: systemImage)
+                    IconsaxIcon(name: systemImage)
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
                 }
@@ -233,8 +233,7 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.system(size: 34, weight: .light))
+            IconsaxIcon(name: systemImage, size: 34)
                 .foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
             Text(title)
@@ -347,7 +346,7 @@ struct CopyButton: View {
                 didCopy = false
             }
         } label: {
-            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+            IconsaxIcon(name: didCopy ? "tick-circle" : "document-copy")
                 .imageScale(.small)
                 .foregroundStyle(.secondary)
         }
@@ -392,7 +391,7 @@ struct CollapsibleText: View {
                 } label: {
                     Label(
                         isExpanded ? "Show less" : "Show \(lines.count - lineLimit) more lines",
-                        systemImage: isExpanded ? "chevron.up" : "chevron.down"
+                        iconsax: isExpanded ? "arrow-up-2" : "arrow-down-2"
                     )
                     .font(Typography.body)
                     .foregroundStyle(Color.accentColor)

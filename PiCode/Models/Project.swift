@@ -138,8 +138,8 @@ struct Attachment: Identifiable, Equatable {
 
     var systemImage: String {
         switch kind {
-        case .image: return "photo"
-        case .text: return "doc.text"
+        case .image: return "gallery"
+        case .text: return "document-text"
         case .other: return "paperclip"
         }
     }

@@ -17,7 +17,7 @@ struct ProjectRowMenu: View {
             Button {
                 Task { await state.startNewSession(projectPath: project.path) }
             } label: {
-                Label("New chat", systemImage: "square.and.pencil")
+                Label("New chat", iconsax: "edit-2")
             }
 
             Divider()
@@ -25,24 +25,24 @@ struct ProjectRowMenu: View {
             Button {
                 state.openTerminal(at: project.path)
             } label: {
-                Label("Open in Terminal", systemImage: "terminal")
+                Label("Open in Terminal", iconsax: "command-square")
             }
             Button {
                 WorkspaceLauncher.reveal(project.path)
             } label: {
-                Label("Reveal in Finder", systemImage: "folder")
+                Label("Reveal in Finder", iconsax: "folder-2")
             }
             Button {
                 state.copyToPasteboard(project.path)
             } label: {
-                Label("Copy Path", systemImage: "doc.on.doc")
+                Label("Copy Path", iconsax: "document-copy")
             }
             Button {
                 state.togglePin(project: project)
             } label: {
                 Label(
                     project.isPinned ? "Unpin Project" : "Pin Project",
-                    systemImage: project.isPinned ? "pin.slash" : "pin"
+                    iconsax: project.isPinned ? "bookmark" : "bookmark"
                 )
             }
 
@@ -51,7 +51,7 @@ struct ProjectRowMenu: View {
             Button {
                 state.presentProjectSettings(project)
             } label: {
-                Label("Settings…", systemImage: "gearshape")
+                Label("Settings…", iconsax: "setting-2")
             }
         }
     }
@@ -68,27 +68,27 @@ struct SessionRowMenu: View {
                 Button {
                     Task { await state.open(session: session) }
                 } label: {
-                    Label("Keep Working", systemImage: "arrow.right.circle")
+                    Label("Keep Working", iconsax: "arrow-circle-right")
                 }
             } else {
                 Button {
                     Task { await state.open(session: session) }
                 } label: {
-                    Label("Open", systemImage: "arrow.right.circle")
+                    Label("Open", iconsax: "arrow-circle-right")
                 }
             }
 
             Button {
                 state.presentRename(session: session)
             } label: {
-                Label("Rename…", systemImage: "pencil")
+                Label("Rename…", iconsax: "edit-2")
             }
             Button {
                 state.togglePin(session: session)
             } label: {
                 Label(
                     session.isPinned ? "Unpin" : "Pin",
-                    systemImage: session.isPinned ? "pin.slash" : "pin"
+                    iconsax: session.isPinned ? "bookmark" : "bookmark"
                 )
             }
 
@@ -97,19 +97,19 @@ struct SessionRowMenu: View {
             Button {
                 if let path = session.filePath { state.copyToPasteboard(path) }
             } label: {
-                Label("Copy Session Path", systemImage: "doc.on.doc")
+                Label("Copy Session Path", iconsax: "document-copy")
             }
             .disabled(session.filePath == nil)
             Button {
                 if let path = session.filePath { WorkspaceLauncher.reveal(path) }
             } label: {
-                Label("Reveal Session File", systemImage: "doc")
+                Label("Reveal Session File", iconsax: "document")
             }
             .disabled(session.filePath == nil)
             Button {
                 Task { await state.hide(session: session) }
             } label: {
-                Label("Hide from Sidebar", systemImage: "eye.slash")
+                Label("Hide from Sidebar", iconsax: "eye-slash")
             }
 
             Divider()
@@ -118,7 +118,7 @@ struct SessionRowMenu: View {
                 state.sessionPendingDeletion = session
                 state.run(.deleteSession)
             } label: {
-                Label("Delete Session…", systemImage: "trash")
+                Label("Delete Session…", iconsax: "trash")
             }
             .disabled(session.filePath == nil)
         }

@@ -45,7 +45,7 @@ struct ContextPickerPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                IconsaxIcon(name: "search-normal").foregroundStyle(.secondary)
                 TextField(searchPrompt, text: $query)
                     .textFieldStyle(.plain)
                     .focused($searchFocused)
@@ -113,7 +113,7 @@ struct ContextPickerPopover: View {
 
     private func rowLabel(image: String, title: String, subtitle: String?, selected: Bool) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: image)
+            IconsaxIcon(name: image)
                 .font(.system(size: 13))
                 .frame(width: 18)
                 .foregroundStyle(.secondary)
@@ -124,7 +124,7 @@ struct ContextPickerPopover: View {
                 }
             }
             Spacer(minLength: 8)
-            if selected { Image(systemName: "checkmark").font(.system(size: 12)) }
+            if selected { IconsaxIcon(name: "tick-circle").font(.system(size: 12)) }
         }
         .font(.system(size: 13.5))
         .contentShape(Rectangle())

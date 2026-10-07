@@ -607,19 +607,19 @@ struct PiSessionEntry: Identifiable, Equatable {
         switch type {
         case "message":
             switch message?.role {
-            case "user": return "person"
-            case "assistant": return "sparkles"
-            case "toolResult": return "wrench.and.screwdriver"
-            case "bashExecution": return "terminal"
-            default: return "text.bubble"
+            case "user": return "user"
+            case "assistant": return "magic-star"
+            case "toolResult": return "setting-4"
+            case "bashExecution": return "command-square"
+            default: return "message-text"
             }
         case "model_change": return "cpu"
-        case "thinking_level_change": return "brain"
-        case "compaction": return "arrow.down.right.and.arrow.up.left"
-        case "branch_summary": return "arrow.triangle.branch"
+        case "thinking_level_change": return "lamp-on"
+        case "compaction": return "convert"
+        case "branch_summary": return "hierarchy-2"
         case "label": return "bookmark"
         case "session_info": return "tag"
-        default: return "circle"
+        default: return "record"
         }
     }
 }

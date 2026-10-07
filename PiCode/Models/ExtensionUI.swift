@@ -49,9 +49,9 @@ struct ExtensionNotification: Identifiable, Equatable {
 
         var systemImage: String {
             switch self {
-            case .info: return "info.circle"
-            case .warning: return "exclamationmark.triangle"
-            case .error: return "xmark.octagon"
+            case .info: return "info-circle"
+            case .warning: return "warning-2"
+            case .error: return "danger"
             }
         }
     }
@@ -91,21 +91,21 @@ struct ActivityEntry: Identifiable, Equatable {
 
         var systemImage: String {
             switch self {
-            case .connection: return "bolt.horizontal"
-            case .agentStart: return "play.circle"
-            case .agentEnd: return "stop.circle"
-            case .settled: return "checkmark.circle"
-            case .turn: return "arrow.triangle.2.circlepath"
-            case .tool: return "wrench.and.screwdriver"
-            case .compaction: return "arrow.down.right.and.arrow.up.left"
-            case .retry: return "arrow.clockwise"
-            case .summarizationRetry: return "text.badge.clock"
-            case .queue: return "list.bullet.rectangle"
-            case .error: return "exclamationmark.triangle"
-            case .extensionError: return "puzzlepiece.extension"
-            case .extensionRequest: return "questionmark.bubble"
-            case .notify: return "bell"
-            case .sessionChange: return "arrow.left.arrow.right"
+            case .connection: return "flash"
+            case .agentStart: return "play-circle"
+            case .agentEnd: return "stop-circle"
+            case .settled: return "tick-circle"
+            case .turn: return "refresh"
+            case .tool: return "setting-4"
+            case .compaction: return "convert"
+            case .retry: return "refresh"
+            case .summarizationRetry: return "clock"
+            case .queue: return "task-square"
+            case .error: return "warning-2"
+            case .extensionError: return "category-2"
+            case .extensionRequest: return "message-question"
+            case .notify: return "notification"
+            case .sessionChange: return "arrow-swap-horizontal"
             }
         }
     }

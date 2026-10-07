@@ -119,7 +119,7 @@ private struct PiHarnessAPISettingsView: View {
                 }
             }
             if !model.problems.isEmpty {
-                Label("Pi cannot read \(model.problems.count) credential entr\(model.problems.count == 1 ? "y" : "ies").", systemImage: "exclamationmark.triangle")
+                Label("Pi cannot read \(model.problems.count) credential entr\(model.problems.count == 1 ? "y" : "ies").", iconsax: "warning-2")
                     .font(.caption)
                     .foregroundStyle(.orange)
                 HStack {

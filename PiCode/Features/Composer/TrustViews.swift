@@ -14,7 +14,7 @@ struct ProjectTrustPrompt: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("This project can change how Pi behaves", systemImage: "lock.shield")
+            Label("This project can change how Pi behaves", iconsax: "shield-tick")
                 .font(Typography.noticeSemibold)
 
             Text("\(controller.projectPath.abbreviatingHomeDirectory) contains project resources Pi can load: settings, extensions, skills, prompts, themes, or system prompts. Pi will not load them unless you trust this project.")
@@ -55,7 +55,7 @@ struct UntrustedProjectNotice: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "lock")
+            IconsaxIcon(name: "lock")
                 .foregroundStyle(.secondary)
             Text("Project resources are not trusted, so Pi is running without them.")
                 .font(Typography.notice)
@@ -78,11 +78,11 @@ struct TrustBadge: View {
     var body: some View {
         switch state {
         case .trusted:
-            StatusPill(text: "Trusted", systemImage: "lock.open", tint: .green)
+            StatusPill(text: "Trusted", systemImage: "unlock", tint: .green)
         case .notRequired:
             StatusPill(text: "No project resources", systemImage: "lock", tint: .secondary)
         case .asked:
-            StatusPill(text: "Trust needed", systemImage: "lock.trianglebadge.exclamationmark", tint: .orange, isProminent: true)
+            StatusPill(text: "Trust needed", systemImage: "lock-slash", tint: .orange, isProminent: true)
         case .untrusted:
             StatusPill(text: "Not trusted", systemImage: "lock", tint: .orange)
         case .unknown:
@@ -104,7 +104,7 @@ struct ComposerAccessControl: View {
             isShowingPopover = true
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: "exclamationmark.circle")
+                IconsaxIcon(name: "warning-2")
                     .font(.system(size: 13))
                 Text(accessLabel)
                     .font(.system(size: 13.5))
@@ -120,7 +120,7 @@ struct ComposerAccessControl: View {
 
     private var popover: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: symbol)
+            Label(title, iconsax: symbol)
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(tint)
 
@@ -192,9 +192,9 @@ struct ComposerAccessControl: View {
 
     private var symbol: String {
         switch controller.trustState {
-        case .trusted: return "lock.open"
+        case .trusted: return "unlock"
         case .notRequired: return "lock"
-        case .asked: return "lock.trianglebadge.exclamationmark"
+        case .asked: return "lock-slash"
         case .untrusted: return "lock"
         case .unknown: return "lock"
         }

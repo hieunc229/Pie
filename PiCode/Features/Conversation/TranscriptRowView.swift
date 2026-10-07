@@ -148,7 +148,7 @@ struct TranscriptRowView: View {
                         Button {
                             WorkspaceLauncher.copyToPasteboard(item.text)
                         } label: {
-                            Image(systemName: "doc.on.doc")
+                            IconsaxIcon(name: "document-copy")
                                 .font(.system(size: 13))
                         }
                         .foregroundStyle(hoveredAction == "copy" ? Color.white : Color.secondary)
@@ -160,7 +160,7 @@ struct TranscriptRowView: View {
                             Button {
                                 isEditing = true
                             } label: {
-                                Image(systemName: "pencil")
+                                IconsaxIcon(name: "edit-2")
                                     .font(.system(size: 13))
                             }
                             .foregroundStyle(hoveredAction == "edit" ? Color.white : Color.secondary)
@@ -208,7 +208,7 @@ struct TranscriptRowView: View {
     private var toolResultRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "wrench.and.screwdriver")
+                IconsaxIcon(name: "setting-4")
                     .font(Typography.notice)
                     .foregroundStyle(.secondary)
                 Text("Tool result\(item.toolName.map { ": \($0)" } ?? "")")
@@ -226,7 +226,7 @@ struct TranscriptRowView: View {
 
     private var systemRow: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "info.circle")
+            IconsaxIcon(name: "info-circle")
                 .font(Typography.notice)
                 .foregroundStyle(.secondary)
                 .padding(.top, 1)
@@ -249,7 +249,7 @@ struct TranscriptRowView: View {
 
     private var errorRow: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "exclamationmark.circle")
+            IconsaxIcon(name: "warning-2")
                 .font(Typography.notice)
                 .foregroundStyle(AppTheme.errorCardIcon)
                 .padding(.top, 1)
@@ -281,7 +281,7 @@ struct TranscriptRowView: View {
     private var compactionRow: some View {
         let kind = item.summaryKind ?? .compaction
         return HStack(spacing: 8) {
-            Image(systemName: kind.systemImage)
+            IconsaxIcon(name: kind.systemImage)
                 .imageScale(.small)
                 .foregroundStyle(.secondary)
             Text(kind.label)
@@ -296,7 +296,7 @@ struct TranscriptRowView: View {
 
     private var retryRow: some View {
         HStack(spacing: 8) {
-            Image(systemName: "arrow.clockwise")
+            IconsaxIcon(name: "refresh")
                 .imageScale(.small)
                 .foregroundStyle(.orange)
             Text(item.text)

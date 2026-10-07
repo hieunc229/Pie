@@ -288,7 +288,7 @@ struct SidebarView: View {
             Task { await state.newChatInCurrentProject() }
         } label: {
             HStack(spacing: SidebarStyle.iconTextSpacing) {
-                Image(systemName: "square.and.pencil")
+                IconsaxIcon(name: "edit-2")
                     .font(.system(size: SidebarStyle.projectIconSize + 2, weight: .regular))
                     .frame(width: SidebarStyle.projectIconSize,
                            height: SidebarStyle.projectIconSize,
@@ -363,8 +363,7 @@ struct SidebarView: View {
         .overlay {
             if state.projects.isEmpty {
                 VStack(spacing: 8) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 26, weight: .regular))
+                    IconsaxIcon(name: "folder-2", size: 26)
                         .foregroundStyle(.tertiary)
                     Text("No projects yet")
                         .font(SidebarStyle.messageFont)
@@ -452,7 +451,7 @@ struct SidebarView: View {
             Button {
                 Task { await state.refreshIndex() }
             } label: {
-                Image(systemName: "arrow.clockwise")
+                IconsaxIcon(name: "refresh")
                     .foregroundStyle(.white)
             }
             .buttonStyle(.borderless)
@@ -576,7 +575,7 @@ struct ProjectRow: View {
             state.toggleCollapsed(project: project)
         } label: {
             HStack(spacing: SidebarStyle.iconTextSpacing) {
-                Image(systemName: "folder")
+                IconsaxIcon(name: state.isCollapsed(project: project) ? "folder-2" : "folder-open")
                     .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
                     // Fixed height as well as width: a taller glyph would make the
                     // row taller than a chat row and change the rhythm below it.
@@ -592,7 +591,7 @@ struct ProjectRow: View {
                     .opacity(SidebarStyle.rowTextOpacity)
                     .accessibilityAddTraits(.isHeader)
                 if showsPin && project.isPinned {
-                    Image(systemName: "pin.fill")
+                    IconsaxIcon(name: "bookmark-2")
                         .imageScale(.small)
                         .foregroundStyle(.tertiary)
                 }
@@ -618,7 +617,7 @@ struct ProjectRow: View {
                     // a text-wrapped one draws. Measured in a render lab: the
                     // same menu beside the same sidebar list shows nothing with
                     // an `Image` label and a visible glyph with this one.
-                    Text(Image(systemName: "ellipsis"))
+                    Text(iconsaxImage("more"))
                         .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
                         .frame(
                             width: SidebarStyle.topBarButtonSize,
@@ -638,7 +637,7 @@ struct ProjectRow: View {
                 Button {
                     Task { await state.startNewSession(projectPath: project.path) }
                 } label: {
-                    Image(systemName: "square.and.pencil")
+                    IconsaxIcon(name: "edit-2")
                         .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
                         .frame(
                             width: SidebarStyle.topBarButtonSize,
@@ -742,7 +741,7 @@ struct SessionRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 if session.isPinned {
-                    Image(systemName: "pin.fill")
+                    IconsaxIcon(name: "bookmark-2")
                         .imageScale(.small)
                         .foregroundStyle(.tertiary)
                 } else if isEphemeral {
@@ -770,7 +769,7 @@ struct SessionRow: View {
                     // a text-wrapped one draws. Measured in a render lab: the
                     // same menu beside the same sidebar list shows nothing with
                     // an `Image` label and a visible glyph with this one.
-                    Text(Image(systemName: "ellipsis"))
+                    Text(iconsaxImage("more"))
                         .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
                         .frame(
                             width: SidebarStyle.topBarButtonSize,
@@ -797,7 +796,7 @@ struct SessionRow: View {
                         state.sessionPendingDeletion = session
                         state.run(.deleteSession)
                     } label: {
-                        Image(systemName: "trash")
+                        IconsaxIcon(name: "trash")
                             .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
                             .frame(
                                 width: SidebarStyle.topBarButtonSize,

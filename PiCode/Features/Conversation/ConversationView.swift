@@ -244,7 +244,7 @@ struct ConversationView: View {
                             proxy.scrollTo(bottomAnchor, anchor: .bottom)
                         }
                     } label: {
-                        Label("Jump to latest", systemImage: "arrow.down")
+                        Label("Jump to latest", iconsax: "arrow-down")
                             .font(.callout)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
@@ -275,13 +275,13 @@ struct ConversationView: View {
     private var statusFooter: some View {
         VStack(alignment: .leading, spacing: 8) {
             if controller.isCompacting {
-                statusRow(icon: "arrow.down.right.and.arrow.up.left", text: "Compacting conversation context…", showsSpinner: true)
+                statusRow(icon: "convert", text: "Compacting conversation context…", showsSpinner: true)
             }
             if let retry = controller.retryDescription {
-                statusRow(icon: "arrow.clockwise", text: "Retrying: \(retry)", showsSpinner: true)
+                statusRow(icon: "refresh", text: "Retrying: \(retry)", showsSpinner: true)
             }
             if let note = controller.summarizationNote {
-                statusRow(icon: "text.badge.clock", text: note, showsSpinner: true)
+                statusRow(icon: "clock", text: note, showsSpinner: true)
             }
         }
     }
@@ -291,7 +291,7 @@ struct ConversationView: View {
             if showsSpinner {
                 ProgressView().controlSize(.small)
             } else {
-                Image(systemName: icon).foregroundStyle(.secondary)
+                IconsaxIcon(name: icon).foregroundStyle(.secondary)
             }
             Text(text)
                 .font(.callout)

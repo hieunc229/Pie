@@ -64,7 +64,7 @@ struct ToolCallCard: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: toolIcon)
+            IconsaxIcon(name: toolIcon)
                 .imageScale(.medium)
                 .foregroundStyle(statusTint)
 
@@ -85,7 +85,7 @@ struct ToolCallCard: View {
                 Button {
                     isInputExpanded.toggle()
                 } label: {
-                    Image(systemName: isInputExpanded ? "chevron.up" : "chevron.down")
+                    IconsaxIcon(name: isInputExpanded ? "arrow-up-2" : "arrow-down-2")
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
                 }
@@ -97,7 +97,7 @@ struct ToolCallCard: View {
                 Button {
                     isDetailsExpanded.toggle()
                 } label: {
-                    Image(systemName: "curlybraces")
+                    IconsaxIcon(name: "code")
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
                 }
@@ -115,13 +115,13 @@ struct ToolCallCard: View {
         case .pending:
             StatusPill(text: "Queued", systemImage: "clock", tint: .secondary)
         case .running:
-            StatusPill(text: "Running", systemImage: "arrow.triangle.2.circlepath", tint: .accentColor, isProminent: true)
+            StatusPill(text: "Running", systemImage: "refresh", tint: .accentColor, isProminent: true)
         case .success:
-            StatusPill(text: "Done", systemImage: "checkmark", tint: .green)
+            StatusPill(text: "Done", systemImage: "tick-circle", tint: .green)
         case .failure:
-            StatusPill(text: "Failed", systemImage: "xmark", tint: .red, isProminent: true)
+            StatusPill(text: "Failed", systemImage: "close-circle", tint: .red, isProminent: true)
         case .cancelled:
-            StatusPill(text: "Cancelled", systemImage: "slash.circle", tint: .orange)
+            StatusPill(text: "Cancelled", systemImage: "forbidden-2", tint: .orange)
         }
     }
 
@@ -156,11 +156,11 @@ struct ToolCallCard: View {
 
     private var toolIcon: String {
         switch (item.toolName ?? "").lowercased() {
-        case "grep", "glob", "search", "find": return "magnifyingglass"
-        case "webfetch", "websearch", "fetch": return "globe"
-        case "task", "agent", "subagent": return "person.2"
-        case "todo", "todoread", "todowrite": return "checklist"
-        default: return "wrench.and.screwdriver"
+        case "grep", "glob", "search", "find": return "search-normal"
+        case "webfetch", "websearch", "fetch": return "global"
+        case "task", "agent", "subagent": return "profile-2user"
+        case "todo", "todoread", "todowrite": return "task-square"
+        default: return "setting-4"
         }
     }
 

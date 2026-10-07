@@ -35,6 +35,8 @@ final class AppState {
     let installs = HarnessInstallService()
     /// Newest published versions of the installed harnesses.
     let harnessUpdates = HarnessUpdateChecker()
+    /// Checks GitHub Releases for a newer PiCode and installs it in place.
+    let updater = AppUpdater()
     private let index = SessionIndex()
     /// Fast, rebuildable cache of the session list. The sidebar reads it at
     /// launch so chats appear before the disk scan finishes.
@@ -367,6 +369,7 @@ final class AppState {
 
     func launch() async {
         phase = .starting
+        updater.startChecking()
         await harnesses.refresh()
         synchronizeProviders()
 

@@ -71,10 +71,10 @@ enum QuietFamily: String, CaseIterable {
 
     var systemImage: String {
         switch self {
-        case .command: return "terminal"
-        case .edit: return "pencil"
-        case .read: return "doc.text"
-        case .thinking: return "brain"
+        case .command: return "command-square"
+        case .edit: return "edit-2"
+        case .read: return "document-text"
+        case .thinking: return "lamp-on"
         }
     }
 

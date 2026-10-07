@@ -212,13 +212,15 @@ struct HarnessDiscoveryService {
                 var stdout = Data()
                 var stderr = Data()
                 let group = DispatchGroup()
+                // Readers match the waiting thread's QoS; a lower class here
+                // would cause a priority inversion on `group.wait`.
                 group.enter()
-                DispatchQueue.global(qos: .utility).async {
+                DispatchQueue.global(qos: .userInitiated).async {
                     stdout = (try? outPipe.fileHandleForReading.readToEnd()) ?? Data()
                     group.leave()
                 }
                 group.enter()
-                DispatchQueue.global(qos: .utility).async {
+                DispatchQueue.global(qos: .userInitiated).async {
                     stderr = (try? errPipe.fileHandleForReading.readToEnd()) ?? Data()
                     group.leave()
                 }

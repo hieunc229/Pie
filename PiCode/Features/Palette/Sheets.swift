@@ -131,7 +131,7 @@ struct ForkSessionSheet: View {
                                     selectedId = point.entryId
                                 } label: {
                                     HStack(alignment: .top, spacing: 8) {
-                                        Image(systemName: selectedId == point.entryId ? "largecircle.fill.circle" : "circle")
+                                        IconsaxIcon(name: selectedId == point.entryId ? "record-circle" : "record")
                                             .foregroundStyle(selectedId == point.entryId ? Color.accentColor : Color.secondary)
                                             .padding(.top, 1)
                                         VStack(alignment: .leading, spacing: 1) {

@@ -47,7 +47,7 @@ struct FilesPane: View {
                 PathLabel(path: controller.projectPath, emphasizeLastComponent: true)
                 Spacer(minLength: 0)
                 Toggle(isOn: $showsHiddenFiles) {
-                    Image(systemName: "eye")
+                    IconsaxIcon(name: "eye")
                 }
                 .toggleStyle(.button)
                 .controlSize(.small)
@@ -55,7 +55,7 @@ struct FilesPane: View {
                 Button {
                     state.copyToPasteboard(controller.projectPath)
                 } label: {
-                    Image(systemName: "doc.on.doc")
+                    IconsaxIcon(name: "document-copy")
                 }
                 .buttonStyle(.borderless)
                 .help("Copy project path")
@@ -99,7 +99,7 @@ struct FilesPane: View {
             }
         } else {
             EmptyStateView(
-                systemImage: "doc.text",
+                systemImage: "document-text",
                 title: "No file selected",
                 message: "Pick a file to preview it. Pi can open the same file from a `path:line` link in its answer."
             )
@@ -121,21 +121,21 @@ struct FilesPane: View {
                 Button {
                     state.composerInsertion = "@" + ProjectFileTree.relativePath(of: path, from: controller.projectPath) + " "
                 } label: {
-                    Image(systemName: "text.badge.plus")
+                    IconsaxIcon(name: "additem")
                 }
                 .buttonStyle(.borderless)
                 .help("Reference this file in the composer as @path")
                 Button {
                     WorkspaceLauncher.open(path)
                 } label: {
-                    Image(systemName: "arrow.up.forward.app")
+                    IconsaxIcon(name: "export")
                 }
                 .buttonStyle(.borderless)
                 .help("Open with the default application")
                 Button {
                     WorkspaceLauncher.reveal(path)
                 } label: {
-                    Image(systemName: "folder")
+                    IconsaxIcon(name: "folder-2")
                 }
                 .buttonStyle(.borderless)
                 .help("Reveal in Finder")
@@ -188,7 +188,7 @@ struct FileTreeRow: View {
                 }
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: icon)
+                    IconsaxIcon(name: icon)
                         .imageScale(.small)
                         .foregroundStyle(node.isDirectory ? Color.accentColor : Color.secondary)
                         .frame(width: 14)
@@ -229,7 +229,7 @@ struct FileTreeRow: View {
 
     private var icon: String {
         if node.isDirectory {
-            return expanded.contains(node.path) ? "folder.fill" : "folder"
+            return expanded.contains(node.path) ? "folder-open" : "folder-2"
         }
         return node.path.hasSuffix(".swift") ? "swift" : "doc.text"
     }
@@ -327,7 +327,7 @@ struct TerminalPane: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Label("Direct bash", systemImage: "terminal")
+                Label("Direct bash", iconsax: "command-square")
                     .font(.callout.weight(.semibold))
                 if isRunning {
                     StatusPill(text: "running", tint: .accentColor, isProminent: true)
@@ -339,7 +339,7 @@ struct TerminalPane: View {
                 .controlSize(.small)
                 if let onClose {
                     Button(action: onClose) {
-                        Image(systemName: "xmark")
+                        IconsaxIcon(name: "close-circle")
                             .font(.caption.weight(.semibold))
                     }
                     .buttonStyle(.borderless)
@@ -360,7 +360,7 @@ struct TerminalPane: View {
         Group {
             if commands.isEmpty {
                 EmptyStateView(
-                    systemImage: "terminal",
+                    systemImage: "command-square",
                     title: "No commands yet",
                     message: "Run a command here, or let Pi run one — both show up in this list."
                 )
@@ -383,7 +383,7 @@ struct TerminalPane: View {
         let isExpanded = expandedIds.contains(id)
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Image(systemName: statusIcon(item.toolStatus))
+                IconsaxIcon(name: statusIcon(item.toolStatus))
                     .foregroundStyle(statusColor(item.toolStatus))
                     .imageScale(.small)
                 Text("$ " + item.text)
@@ -462,10 +462,10 @@ struct TerminalPane: View {
     private func statusIcon(_ status: ToolStatus) -> String {
         switch status {
         case .pending: return "clock"
-        case .running: return "circle.dotted"
-        case .success: return "checkmark.circle"
-        case .failure: return "xmark.circle"
-        case .cancelled: return "slash.circle"
+        case .running: return "status"
+        case .success: return "tick-circle"
+        case .failure: return "close-circle"
+        case .cancelled: return "forbidden-2"
         }
     }
 
@@ -505,7 +505,7 @@ struct TreePane: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if controller.tree.isEmpty {
                 EmptyStateView(
-                    systemImage: "arrow.triangle.branch",
+                    systemImage: "hierarchy-2",
                     title: "No tree yet",
                     message: "Pi builds the session tree as messages are exchanged."
                 )
@@ -531,7 +531,7 @@ struct TreePane: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Label("Session tree", systemImage: "arrow.triangle.branch")
+                Label("Session tree", iconsax: "hierarchy-2")
                     .font(.callout.weight(.semibold))
                 StatusPill(text: "\(count(controller.tree)) entries", tint: .secondary)
                 Spacer(minLength: 0)
@@ -543,7 +543,7 @@ struct TreePane: View {
                 Button {
                     Task { await controller.refreshEntries() }
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    IconsaxIcon(name: "refresh")
                 }
                 .buttonStyle(.borderless)
                 .help("Reload the tree from Pi")
@@ -591,7 +591,7 @@ struct TreeNodeRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 7) {
-            Image(systemName: node.entry.systemImage)
+            IconsaxIcon(name: node.entry.systemImage)
                 .imageScale(.small)
                 .foregroundStyle(isCurrentLeaf ? Color.accentColor : Color.secondary)
                 .padding(.top, 1)
@@ -657,7 +657,7 @@ struct ContextPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if !controller.compatibilityNotices.isEmpty {
-                    InspectorSection(title: "Compatibility", systemImage: "exclamationmark.triangle") {
+                    InspectorSection(title: "Compatibility", systemImage: "warning-2") {
                         ForEach(controller.compatibilityNotices) { notice in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(notice.surface)
@@ -696,7 +696,7 @@ struct ContextPane: View {
     // MARK: Sections
 
     private var sessionSection: some View {
-        InspectorSection(title: "Session", systemImage: "bubble.left.and.text.bubble.right") {
+        InspectorSection(title: "Session", systemImage: "messages-2") {
             KeyValueRow(key: "Name", value: controller.sessionName ?? "—")
             KeyValueRow(key: "Session id", value: controller.sessionId ?? "—", isMonospaced: true)
             KeyValueRow(key: "Project", value: controller.projectPath, isMonospaced: true)
@@ -719,7 +719,7 @@ struct ContextPane: View {
                     Button {
                         WorkspaceLauncher.reveal(file)
                     } label: {
-                        Image(systemName: "folder")
+                        IconsaxIcon(name: "folder-2")
                     }
                     .buttonStyle(.borderless)
                 }
@@ -750,7 +750,7 @@ struct ContextPane: View {
     }
 
     private var usageSection: some View {
-        InspectorSection(title: "Usage", systemImage: "chart.bar") {
+        InspectorSection(title: "Usage", systemImage: "chart-2") {
             if let stats = controller.stats {
                 if let usage = stats.contextUsage {
                     ContextUsageBar(usage: usage)
@@ -780,7 +780,7 @@ struct ContextPane: View {
     }
 
     private var messageSection: some View {
-        InspectorSection(title: "Activity", systemImage: "wrench.and.screwdriver") {
+        InspectorSection(title: "Activity", systemImage: "setting-4") {
             KeyValueRow(key: "Tool calls (session)", value: "\(controller.toolCallCount)")
             KeyValueRow(key: "Subagents", value: "\(controller.subagentCount)")
             if let stats = controller.stats {
@@ -794,7 +794,7 @@ struct ContextPane: View {
     }
 
     private var queueSection: some View {
-        InspectorSection(title: "Queue", systemImage: "list.bullet.rectangle") {
+        InspectorSection(title: "Queue", systemImage: "task-square") {
             if !controller.queue.steering.isEmpty {
                 Text("Steering")
                     .font(.caption.weight(.semibold))
@@ -821,7 +821,7 @@ struct ContextPane: View {
     }
 
     private var modeSection: some View {
-        InspectorSection(title: "Modes", systemImage: "switch.2") {
+        InspectorSection(title: "Modes", systemImage: "toggle-off") {
             Picker("Steering", selection: Binding(
                 get: { controller.state?.steeringMode ?? "one-at-a-time" },
                 set: { value in Task { await controller.setSteeringMode(value) } }
@@ -850,7 +850,7 @@ struct ContextPane: View {
     }
 
     private var extensionSection: some View {
-        InspectorSection(title: "Extensions", systemImage: "puzzlepiece.extension") {
+        InspectorSection(title: "Extensions", systemImage: "category-2") {
             if controller.extensionStatuses.isEmpty && controller.extensionWidgets.isEmpty {
                 Text("No extension UI is active.")
                     .font(.caption)
@@ -874,7 +874,7 @@ struct ContextPane: View {
     }
 
     private var activitySection: some View {
-        InspectorSection(title: "Timeline", systemImage: "list.bullet.indent") {
+        InspectorSection(title: "Timeline", systemImage: "task-square") {
             if controller.activity.isEmpty {
                 Text("Nothing has happened yet.")
                     .font(.caption)

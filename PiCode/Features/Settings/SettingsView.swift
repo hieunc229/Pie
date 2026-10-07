@@ -39,7 +39,7 @@ struct SettingsView: View {
                     state.isSettingsPresented = false
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "chevron.left")
+                        IconsaxIcon(name: "arrow-left-2")
                             .font(.system(size: 11, weight: .semibold))
                         Text("Back to app")
                             .font(Typography.body)
@@ -79,7 +79,7 @@ struct SettingsView: View {
 
     private var searchField: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
+            IconsaxIcon(name: "search-normal")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             TextField("Search", text: $query)
@@ -97,7 +97,7 @@ struct SettingsView: View {
             state.settingsTab = tab
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: tab.systemImage)
+                IconsaxIcon(name: tab.systemImage)
                     .font(.system(size: 13, weight: .regular))
                     .frame(width: 18)
                 Text(tab.title)
@@ -217,12 +217,12 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
-        case .general: return "gearshape"
-        case .harnesses: return "shippingbox"
+        case .general: return "setting-2"
+        case .harnesses: return "box"
         case .providers: return "key"
-        case .composer: return "text.cursor"
-        case .sessions: return "bubble.left.and.text.bubble.right"
-        case .pi: return "stethoscope"
+        case .composer: return "edit-2"
+        case .sessions: return "messages-2"
+        case .pi: return "health"
         }
     }
 }

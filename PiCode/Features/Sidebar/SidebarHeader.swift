@@ -3,7 +3,7 @@
 //  PiCode
 //
 //  The sidebar's title line: the harness new chats run on, as a menu, then
-//  notifications and search on the trailing edge.
+//  search on the trailing edge.
 //
 
 import SwiftUI
@@ -16,8 +16,7 @@ struct SidebarHeader: View {
         HStack(spacing: 4) {
             harnessMenu
             Spacer(minLength: 0)
-            notificationsButton
-            headerButton("magnifyingglass", help: "Search sessions and commands (⇧⌘P)", action: onOpenPalette)
+            headerButton("search-normal", help: "Search sessions and commands (⇧⌘P)", action: onOpenPalette)
         }
         .padding(.leading, SidebarStyle.trafficLightColumn - 2)
         .padding(.trailing, SidebarStyle.sidebarMargin)
@@ -35,7 +34,7 @@ struct SidebarHeader: View {
                     state.preferences.persist()
                 } label: {
                     if harness.id == currentHarness.id {
-                        Label(harness.displayName, systemImage: "checkmark")
+                        Label(harness.displayName, iconsax: "tick-circle")
                     } else {
                         Text(harness.displayName)
                     }
@@ -52,7 +51,7 @@ struct SidebarHeader: View {
             (Text(currentHarness.displayName)
                 .font(.system(size: 17, weight: .semibold))
                 + Text("  ")
-                + Text(Image(systemName: "chevron.down"))
+                + Text(iconsaxImage("arrow-down-2"))
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(.secondary))
             .lineLimit(1)
@@ -74,34 +73,9 @@ struct SidebarHeader: View {
             ?? state.activeHarness
     }
 
-    private var notificationsButton: some View {
-        Button {
-            state.toggleNotifications()
-        } label: {
-            Image(systemName: "bell")
-                .font(.system(size: 14, weight: .regular))
-                .frame(width: 28, height: 28)
-                .overlay(alignment: .topTrailing) {
-                    if state.unreadNotificationCount > 0 {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 7, height: 7)
-                            .offset(x: -6, y: 6)
-                    }
-                }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(state.isShowingNotifications ? Color.primary : Color.secondary)
-        .help(state.isShowingNotifications ? "Hide notifications" : "Show notifications")
-        .accessibilityLabel(state.unreadNotificationCount > 0
-            ? "Notifications, \(state.unreadNotificationCount) unread"
-            : "Notifications")
-    }
-
     private func headerButton(_ systemImage: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: systemImage)
+            IconsaxIcon(name: systemImage)
                 .font(.system(size: 14, weight: .regular))
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())

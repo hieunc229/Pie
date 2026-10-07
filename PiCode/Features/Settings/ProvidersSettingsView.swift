@@ -156,12 +156,12 @@ struct ProvidersSettingsView: View {
         if model.statusMessage != nil || model.lastError != nil {
           VStack(alignment: .leading, spacing: 6) {
             if let status = model.statusMessage {
-                Label(status, systemImage: "checkmark.circle")
+                Label(status, iconsax: "tick-circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             if let error = model.lastError {
-                Label(error, systemImage: "exclamationmark.triangle")
+                Label(error, iconsax: "warning-2")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
