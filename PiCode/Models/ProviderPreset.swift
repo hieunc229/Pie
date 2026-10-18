@@ -139,6 +139,17 @@ enum ProviderPresets {
             note: nil
         ),
         ProviderPreset(
+            id: "deepinfra",
+            name: "DeepInfra",
+            // Not "deepinfra": that id belongs to the pi-deepinfra extension.
+            providerID: "deepinfra-api",
+            baseURL: "https://api.deepinfra.com/v1/openai",
+            api: "openai-completions",
+            modelIDs: [],
+            keyPlaceholder: "$DEEPINFRA_API_KEY",
+            note: "If the pi-deepinfra extension is installed, it already provides DeepInfra."
+        ),
+        ProviderPreset(
             id: "ollama",
             name: "Ollama (local)",
             providerID: "ollama",
