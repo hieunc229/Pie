@@ -70,8 +70,8 @@ enum ProviderConfigurationStore {
             })
             encoded[provider.id] = .object(entry)
         }
-        if encoded.isEmpty { root.removeValue(forKey: "providers") }
-        else { root["providers"] = .object(encoded) }
+        // Pi rejects a models.json without `providers`, even when empty.
+        root["providers"] = .object(encoded)
         try write(.object(root), to: url)
     }
 

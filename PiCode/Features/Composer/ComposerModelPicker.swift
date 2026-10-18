@@ -26,6 +26,7 @@ struct ComposerModelPicker: View {
     /// The provider chosen on the provider level; scopes the model list.
     @State private var providerFilter: String?
     @State private var query = ""
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -45,6 +46,10 @@ struct ComposerModelPicker: View {
         .allowsHitTesting(outgoingLevel == nil)
         .animation(.easeInOut(duration: 0.2), value: fittedHeight)
         .task { await controller.refreshModels() }
+        .onChange(of: level) { _, newLevel in
+            // The field is inserted in this same update; focus on the next one.
+            Task { @MainActor in isSearchFocused = newLevel == .model }
+        }
     }
 
     // MARK: - Content
@@ -162,6 +167,7 @@ struct ComposerModelPicker: View {
                     .foregroundStyle(.tertiary)
                 TextField("Search models", text: $query)
                     .textFieldStyle(.plain)
+                    .focused($isSearchFocused)
                 if !query.isEmpty {
                     Button { query = "" } label: {
                         HugeIcon(name: "cancel-circle").foregroundStyle(.tertiary)
@@ -399,19 +405,18 @@ struct ComposerModelPicker: View {
         let scoped = providerFilter.map { provider in
             controller.availableModels.filter { $0.provider == provider }
         } ?? controller.availableModels
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = query.split(whereSeparator: \.isWhitespace)
         let sorted = scoped.sorted {
             if $0.provider != $1.provider {
                 return $0.provider.localizedCaseInsensitiveCompare($1.provider) == .orderedAscending
             }
             return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
-        guard !needle.isEmpty else { return sorted }
-        return sorted.filter {
-            $0.provider.localizedCaseInsensitiveContains(needle)
-                || $0.id.localizedCaseInsensitiveContains(needle)
-                || $0.displayName.localizedCaseInsensitiveContains(needle)
-                || $0.qualifiedID.localizedCaseInsensitiveContains(needle)
+        guard !words.isEmpty else { return sorted }
+        // Every word must appear somewhere, in any order: "deepseek flash".
+        return sorted.filter { model in
+            let haystack = "\(model.qualifiedID) \(model.displayName)"
+            return words.allSatisfy { haystack.localizedCaseInsensitiveContains($0) }
         }
     }
 
