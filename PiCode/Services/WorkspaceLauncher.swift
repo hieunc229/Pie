@@ -97,6 +97,7 @@ enum WorkspaceLauncher {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = prompt
         panel.message = "PiCode runs `pi` in the folder you choose."
