@@ -26,6 +26,7 @@ struct ComposerModelPicker: View {
     /// The provider chosen on the provider level; scopes the model list.
     @State private var providerFilter: String?
     @State private var query = ""
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -45,6 +46,10 @@ struct ComposerModelPicker: View {
         .allowsHitTesting(outgoingLevel == nil)
         .animation(.easeInOut(duration: 0.2), value: fittedHeight)
         .task { await controller.refreshModels() }
+        .onChange(of: level) { _, newLevel in
+            // The field is inserted in this same update; focus on the next one.
+            Task { @MainActor in isSearchFocused = newLevel == .model }
+        }
     }
 
     // MARK: - Content
@@ -162,6 +167,7 @@ struct ComposerModelPicker: View {
                     .foregroundStyle(.tertiary)
                 TextField("Search models", text: $query)
                     .textFieldStyle(.plain)
+                    .focused($isSearchFocused)
                 if !query.isEmpty {
                     Button { query = "" } label: {
                         HugeIcon(name: "cancel-circle").foregroundStyle(.tertiary)
