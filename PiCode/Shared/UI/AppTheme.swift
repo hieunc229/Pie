@@ -66,6 +66,9 @@ enum AppTheme {
     /// Translucent, so the window's vibrancy (`WindowVibrancy`) shows through
     /// the way it does through a Finder sidebar.
     static let chrome = translucent(dark: 0x333333, light: NSColor(white: 0.945, alpha: 1), alpha: 0.55)
+    /// `chrome` as it reads over the window's vibrancy, for where there is no
+    /// vibrancy to show through (fullscreen).
+    static let chromeOpaque = adaptive(dark: 0x2A2A2A, light: NSColor(white: 0.93, alpha: 1))
 
     /// The sessions sidebar and the settings menu column: the elevated surface's
     /// tint, translucent so the window's vibrancy shows through.

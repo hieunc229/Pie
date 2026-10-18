@@ -36,6 +36,7 @@ struct RootView: View {
     @State private var sheet: RootSheet?
     @State private var inspectorWidth: CGFloat = 360
     @State private var inspectorWidthAtDragStart: CGFloat?
+    @State private var isFullScreen = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -57,9 +58,15 @@ struct RootView: View {
         .padding(.top, WindowChromeMetrics.titlebarHeight)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            ZStack {
-                WindowVibrancy()
-                AppTheme.chrome
+            // Fullscreen has nothing behind the window for the vibrancy to
+            // sample, so its tint shifts; draw the chrome opaque there.
+            if isFullScreen {
+                AppTheme.chromeOpaque
+            } else {
+                ZStack {
+                    WindowVibrancy()
+                    AppTheme.chrome
+                }
             }
         }
         .overlay(alignment: .topLeading) { titlebarLeadingControls }
@@ -72,6 +79,15 @@ struct RootView: View {
             ToolbarItem(placement: .navigation) { Color.clear.frame(width: 1, height: 1) }
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
+        // In fullscreen the toolbar moves to a reveal strip that slides over
+        // this view's own titlebar controls and hides them.
+        .toolbar(isFullScreen ? .hidden : .automatic, for: .windowToolbar)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
+            isFullScreen = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            isFullScreen = false
+        }
         .task {
             if state.phase == .starting { await state.launch() }
             #if DEBUG
