@@ -399,19 +399,18 @@ struct ComposerModelPicker: View {
         let scoped = providerFilter.map { provider in
             controller.availableModels.filter { $0.provider == provider }
         } ?? controller.availableModels
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = query.split(whereSeparator: \.isWhitespace)
         let sorted = scoped.sorted {
             if $0.provider != $1.provider {
                 return $0.provider.localizedCaseInsensitiveCompare($1.provider) == .orderedAscending
             }
             return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
-        guard !needle.isEmpty else { return sorted }
-        return sorted.filter {
-            $0.provider.localizedCaseInsensitiveContains(needle)
-                || $0.id.localizedCaseInsensitiveContains(needle)
-                || $0.displayName.localizedCaseInsensitiveContains(needle)
-                || $0.qualifiedID.localizedCaseInsensitiveContains(needle)
+        guard !words.isEmpty else { return sorted }
+        // Every word must appear somewhere, in any order: "deepseek flash".
+        return sorted.filter { model in
+            let haystack = "\(model.qualifiedID) \(model.displayName)"
+            return words.allSatisfy { haystack.localizedCaseInsensitiveContains($0) }
         }
     }
 
