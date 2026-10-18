@@ -274,6 +274,7 @@ final class PiSessionController {
         runtime = .starting
         lastError = nil
         exitReason = nil
+        let isNewSession = sessionFile == nil
 
         let client = AgentRuntimeFactory.make(
             descriptor: harness,
@@ -333,7 +334,19 @@ final class PiSessionController {
         record(kind: .connection, title: "Connected to \(harness.displayName) \(piVersion)")
         beginLocalHistoryLoad()
         await refreshAll()
+        if isNewSession { await applyDefaultThinkingLevel() }
         await refreshGit(immediately: true)
+    }
+
+    /// `--model` restores the last model, but no launch flag carries the
+    /// effort, so a new chat would start at the harness default. Resumed chats
+    /// keep their own level.
+    private func applyDefaultThinkingLevel() async {
+        guard let level = preferences.defaultThinkingLevel,
+              level != thinkingLevel,
+              thinkingLevels.contains(level),
+              (try? await request(.setThinkingLevel(level: level))) != nil else { return }
+        await refreshState()
     }
 
     func stop() {
