@@ -36,7 +36,7 @@ struct CommandPaletteView: View {
 
     private var searchField: some View {
         HStack(spacing: 8) {
-            IconsaxIcon(name: "command")
+            HugeIcon(name: "command")
                 .foregroundStyle(.secondary)
             TextField("Run a command, or search projects and chats", text: $state.paletteQuery)
                 .textFieldStyle(.plain)
@@ -59,7 +59,7 @@ struct CommandPaletteView: View {
                 state.closePalette()
                 dismiss()
             } label: {
-                IconsaxIcon(name: "close-circle")
+                HugeIcon(name: "cancel-circle")
                     .imageScale(.medium)
                     .foregroundStyle(.secondary)
             }
@@ -101,7 +101,7 @@ struct CommandPaletteView: View {
                             let index = commands.count + offset
                             row(
                                 index: index,
-                                systemImage: "folder-2",
+                                systemImage: "folder-02",
                                 title: project.name,
                                 subtitle: project.displayPath,
                                 shortcut: nil,
@@ -121,7 +121,7 @@ struct CommandPaletteView: View {
                             let index = commands.count + state.paletteProjectResults.count + offset
                             row(
                                 index: index,
-                                systemImage: "message-text",
+                                systemImage: "message-01",
                                 title: result.session.displayName,
                                 subtitle: result.project.name + " · " + Format.relativeTime(result.session.updatedAt),
                                 shortcut: nil,
@@ -169,7 +169,7 @@ struct CommandPaletteView: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                IconsaxIcon(name: systemImage)
+                HugeIcon(name: systemImage)
                     .frame(width: 18)
                     .foregroundStyle(.secondary)
                 Text(title)

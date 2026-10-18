@@ -205,6 +205,19 @@ struct HarnessDescriptor: Identifiable, Sendable, Hashable {
             fallbackBinaries: ["/opt/homebrew/bin/opencode", "/usr/local/bin/opencode"],
             hasAdapter: true,
             supportNote: "Runs `opencode run --format json` and reuses providers connected with `opencode auth login`. Models come from the installed OpenCode catalog."
+        ),
+        HarnessDescriptor(
+            id: .museCode,
+            displayName: HarnessID.museCode.displayName,
+            tagline: "Meta's terminal coding agent, driven over `muse exec --json`.",
+            binaryName: "muse",
+            versionArguments: ["--version"],
+            installMethods: [],
+            capabilities: [.streamingText, .toolCalls, .abort, .sessions, .modelCatalog, .thinkingLevels, .completionSignal],
+            documentationURL: nil,
+            fallbackBinaries: ["/opt/homebrew/bin/muse", "/usr/local/bin/muse"],
+            hasAdapter: true,
+            supportNote: "Runs one `muse exec --json` process per turn and translates its event stream. Install Muse Code from Meta, then sign in with `muse login`."
         )
     ]
 

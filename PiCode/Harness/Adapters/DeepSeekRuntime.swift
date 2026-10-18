@@ -25,9 +25,18 @@ final class DeepSeekRuntime: BufferedAgentRuntime {
     private let pendingLock = NSLock()
     private var initialized = false
     private var isRunning = false
-    private let sessionId = "picode-" + UUID().uuidString.lowercased()
+    private var assistantOpen = false
+    private var streamedText = ""
+    private var toolNames: [String: String] = [:]
+    /// A resumed chat keeps the id `dsh` saved it under; a new one gets a fresh id.
+    private lazy var sessionId = sessionFile ?? "picode-" + UUID().uuidString.lowercased()
+    /// Set once a prompt created the session, so a restart (model change) resumes
+    /// it instead of failing with "already exists".
+    private var sessionCreated = false
+    private var needsResume: Bool { sessionFile != nil || sessionCreated }
 
     override func start() throws {
+        // A resumed chat's history was read by `prepare`, off the main actor.
         let providers = HarnessProviderCatalog.providers(for: .deepseekHarness)
         try DSHProviderService.saveCustomProviders(providers)
         var arguments = HarnessLaunch.sessionModeArguments(for: .deepseekHarness)
@@ -124,14 +133,24 @@ final class DeepSeekRuntime: BufferedAgentRuntime {
     private func ensureInitialized(timeout: TimeInterval) async throws {
         guard !initialized else { return }
         let (provider, model) = Self.route(modelOverride)
+        // `cwd` is the session's workspace root. Newer `dsh` builds resolve it
+        // unconditionally, so leaving it out fails the handshake with Node's
+        // `"paths[0]" argument must be of type string`.
         var params: [String: JSONValue] = [
             "provider": .string(provider),
-            "model": .string(model)
+            "model": .string(model),
+            "cwd": .string(projectPath)
         ]
         if let prompt = systemPrompt, !prompt.isEmpty {
             params["systemPrompt"] = .string(prompt)
         }
         _ = try await request(method: "initialize", params: .object(params), timeout: timeout)
+        if needsResume {
+            // Restores the saved agent state; history is rebuilt from the log.
+            _ = try await request(method: "session/resume",
+                                  params: .object(["sessionId": .string(sessionId)]),
+                                  timeout: timeout)
+        }
         initialized = true
     }
 
@@ -144,6 +163,7 @@ final class DeepSeekRuntime: BufferedAgentRuntime {
             ])
         ])
         let result = try await request(method: "session/prompt", params: params, timeout: timeout)
+        sessionCreated = true
         return result.string("messageId") ?? UUID().uuidString
     }
 
@@ -258,6 +278,7 @@ final class DeepSeekRuntime: BufferedAgentRuntime {
                 emit(.agentStart)
             }
         case "idle":
+            closeOpenAssistant()
             isRunning = false
             stateFields.isStreaming = false
             emit(.agentEnd(messages: messages, willRetry: false))
@@ -267,33 +288,97 @@ final class DeepSeekRuntime: BufferedAgentRuntime {
         }
     }
 
-    /// `session.event` payloads depend on the harness's session vocabulary. This
-    /// extracts committed assistant text defensively: a whole-agent status frame
-    /// is the source of truth for liveness, and any text found is appended.
+    // MARK: Session events
+    //
+    // `session.event` carries `{ event: { type, seq, data } }`. The frames that
+    // matter here: `assistant/live-chunk` (streamed text and reasoning),
+    // `assistant/message` (the finished message), `tool/call` + `tool/result`,
+    // and `turn/end` (whose `reason` is an error when the model call failed,
+    // e.g. a missing API key). Everything else is bookkeeping.
+
     private func handleSessionEvent(_ params: JSONValue) {
-        guard let text = Self.extractAssistantText(params), !text.isEmpty else { return }
-        if isRunning == false {
+        guard let event = params.object("event"), let type = event.string("type") else { return }
+        let data = event.object("data") ?? .null
+        let route = Self.route(modelOverride)
+        switch type {
+        case "assistant/live-chunk":
+            guard let chunk = data.object("chunk"), let kind = chunk.string("type") else { return }
+            let index = chunk.int("index") ?? 0
+            switch kind {
+            case "text-delta":
+                openAssistant(route)
+                streamedText += chunk.string("text") ?? ""
+                streamText(chunk.string("text") ?? "", index: index)
+            case "reasoning-delta":
+                openAssistant(route)
+                streamThinking(chunk.string("text") ?? "", index: index)
+            default:
+                break
+            }
+        case "assistant/message":
+            let content = data.object("message")?.array("content") ?? []
+            let text = content.filter { $0.string("type") == "text" }
+                .compactMap { $0.string("text") }.joined()
+            let thinking = content.filter { $0.string("type") == "reasoning" }
+                .compactMap { $0.string("text") }.joined()
+            if !assistantOpen {
+                // Nothing streamed (non-streaming model path): show the whole message.
+                if text.isEmpty && thinking.isEmpty { return }
+                openAssistant(route)
+                streamThinking(thinking)
+                streamText(text, index: thinking.isEmpty ? 0 : 1)
+            }
+            finishAssistant(text: text, route)
+        case "tool/call":
+            closeOpenAssistant()
+            let id = data.string("callId") ?? UUID().uuidString
+            let args = (data.string("arguments")?.data(using: .utf8)).flatMap { try? JSONCoding.decode($0) }
+            toolNames[id] = data.string("name") ?? "tool"
+            startTool(id: id, name: toolNames[id] ?? "tool", arguments: args)
+        case "tool/result":
+            let message = data.object("message")
+            let id = message?.object("source")?.string("callId") ?? ""
+            let output = (message?.array("content") ?? []).compactMap { $0.string("text") }.joined(separator: "\n")
+            endTool(id: id, name: toolNames[id] ?? "tool", output: output,
+                    isError: message?.bool("isError") == true)
+        case "turn/end":
+            if let reason = data.object("reason"), reason.string("kind") == "error" {
+                let detail = reason.object("error")?.string("message") ?? "The turn failed."
+                openAssistant(route)
+                streamText("DeepSeek Harness error: \(detail)")
+                finishAssistant(text: "DeepSeek Harness error: \(detail)", route)
+                onStderr?(detail)
+            }
+        default:
+            break
+        }
+    }
+
+    private func openAssistant(_ route: (provider: String, model: String)) {
+        guard !assistantOpen else { return }
+        if !isRunning {
             isRunning = true
             stateFields.isStreaming = true
             emit(.agentStart)
         }
-        let route = Self.route(modelOverride)
+        assistantOpen = true
         emit(.messageStart(AgentWire.assistantMessage(text: "", model: route.model, provider: route.provider)))
-        streamText(text)
+    }
+
+    private func finishAssistant(text: String, _ route: (provider: String, model: String)) {
         let message = AgentWire.assistantMessage(text: text, model: route.model, provider: route.provider)
         messages.append(message)
+        stateFields.messageCount = messages.count
+        assistantOpen = false
+        streamedText = ""
         emit(.messageEnd(message))
     }
 
-    private static func extractAssistantText(_ value: JSONValue) -> String? {
-        for key in ["text", "content", "message", "delta"] {
-            if let text = value.string(key), !text.isEmpty { return text }
-        }
-        if let content = value.object("content") {
-            if let text = content.string("text") { return text }
-        }
-        if let event = value.object("event"), let text = extractAssistantText(event) { return text }
-        return nil
+    /// A message left open when the turn moves on (tool call, idle) is ended with
+    /// whatever has been streamed so it never stays on "Thinking…".
+    private func closeOpenAssistant() {
+        guard assistantOpen else { return }
+        finishAssistant(text: streamedText, Self.route(modelOverride))
     }
 
     static func route(_ model: String?) -> (provider: String, model: String) {

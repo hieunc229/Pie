@@ -82,7 +82,7 @@ struct RootView: View {
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
                 for _ in 0..<80 {
                     if let session = state.projects.lazy.flatMap(\.sessions)
-                        .first(where: { $0.filePath?.hasSuffix(wanted) == true }) {
+                        .first(where: { $0.filePath?.hasSuffix(wanted) == true || $0.sessionId == wanted }) {
                         await state.open(session: session)
                         break
                     }
@@ -229,13 +229,13 @@ struct RootView: View {
             let buttonTop = WindowChromeMetrics.titlebarRowCenter - TitlebarIconButton.size / 2
             ZStack(alignment: .topLeading) {
                 HStack(spacing: 2) {
-                    TitlebarIconButton(systemImage: "sidebar-left", help: "Toggle sidebar (⌃⌘S)") {
+                    TitlebarIconButton(systemImage: "layout-align-left", help: "Toggle sidebar (⌃⌘S)") {
                         toggleSidebar()
                     }
-                    TitlebarIconButton(systemImage: "arrow-left", help: "Back", isEnabled: state.canGoBack) {
+                    TitlebarIconButton(systemImage: "arrow-left-01", help: "Back", isEnabled: state.canGoBack) {
                         Task { await state.goBack() }
                     }
-                    TitlebarIconButton(systemImage: "arrow-right", help: "Forward", isEnabled: state.canGoForward) {
+                    TitlebarIconButton(systemImage: "arrow-right-01", help: "Forward", isEnabled: state.canGoForward) {
                         Task { await state.goForward() }
                     }
                 }
@@ -279,7 +279,7 @@ struct RootView: View {
 
     private func titlebarTitle(_ controller: PiSessionController) -> some View {
         HStack(spacing: 8) {
-            IconsaxIcon(name: "folder-2")
+            HugeIcon(name: "folder-02")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
             Text(headerTitle(for: controller))
@@ -295,6 +295,7 @@ struct RootView: View {
                     .fill(AppTheme.cardStroke)
                     .frame(width: 1, height: 20)
                     .offset(x: -14 - 1)
+                    .transition(.opacity)
             }
         }
         .allowsHitTesting(false)
@@ -317,7 +318,7 @@ struct RootView: View {
                 TitlebarNotificationsButton(state: state)
 
                 TitlebarIconButton(
-                    systemImage: "sidebar-right",
+                    systemImage: "layout-align-right",
                     help: state.isInspectorVisible ? "Hide the inspector (⌥⌘I)" : "Show the inspector (⌥⌘I)",
                     isActive: state.isInspectorVisible && !state.isNotificationsVisible
                 ) {
@@ -397,8 +398,15 @@ struct RootView: View {
 
     /// The menu command (⌃⌘S) and the command palette share one toggle, so the
     /// two cannot disagree about which way the sidebar is going.
+    ///
+    /// Animated here rather than only on the card, so the titlebar — which is
+    /// drawn over the window chrome, outside the card — moves with the sidebar:
+    /// the title slides between its two leading positions and the column rule
+    /// fades with the pane it belongs to.
     private func toggleSidebar() {
-        isSidebarVisible.toggle()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isSidebarVisible.toggle()
+        }
     }
 
     // MARK: - Overlays
@@ -437,9 +445,7 @@ struct RootView: View {
         let controller = state.activeController
         switch command {
         case .newSession:
-            let project = state.selectedProject?.path ?? state.activeController?.projectPath
-            guard let project else { return }
-            Task { await state.startNewSession(projectPath: project) }
+            Task { await state.newChatInCurrentProject() }
 
         case .addProject:
             Task { await state.addProject() }
@@ -616,8 +622,9 @@ struct TitlebarIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            IconsaxIcon(name: systemImage)
-                .font(.system(size: 15, weight: .regular))
+            // The rail's glyph size, so the titlebar's icons match the
+            // outer left menu's.
+            HugeIcon(name: systemImage, size: AppRailMetrics.iconSize)
                 .frame(width: Self.size, height: Self.size)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -646,7 +653,7 @@ struct TitlebarNotificationsButton: View {
         Button {
             state.toggleNotifications()
         } label: {
-            IconsaxIcon(name: "notification")
+            HugeIcon(name: "notification-01", size: AppRailMetrics.iconSize)
                 .frame(width: TitlebarIconButton.size, height: TitlebarIconButton.size)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)

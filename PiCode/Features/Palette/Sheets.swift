@@ -131,7 +131,7 @@ struct ForkSessionSheet: View {
                                     selectedId = point.entryId
                                 } label: {
                                     HStack(alignment: .top, spacing: 8) {
-                                        IconsaxIcon(name: selectedId == point.entryId ? "record-circle" : "record")
+                                        HugeIcon(name: selectedId == point.entryId ? "radio-button" : "circle")
                                             .foregroundStyle(selectedId == point.entryId ? Color.accentColor : Color.secondary)
                                             .padding(.top, 1)
                                         VStack(alignment: .leading, spacing: 1) {
@@ -275,36 +275,33 @@ struct ProjectSettingsSheet: View {
                                 directory = chosen
                             }
                         }
+                        .buttonStyle(.settingsPill)
                     }
                 }
 
                 if !state.harnesses.usableHarnesses.isEmpty {
                     field("Harness", caption: "Agent runtime new chats in this project use.") {
-                        Picker("Harness", selection: $harnessID) {
-                            ForEach(state.harnesses.usableHarnesses) { descriptor in
-                                Text(descriptor.displayName).tag(descriptor.id)
-                            }
-                        }
-                        .labelsHidden()
+                        Dropdown(
+                            selection: $harnessID,
+                            options: state.harnesses.usableHarnesses.map { .init(label: $0.displayName, value: $0.id) }
+                        )
                     }
                 }
 
                 if harnessID == .pi {
                     field("Provider and model", caption: "Optional Pi configuration. Other harnesses own separate provider catalogs.") {
                         VStack(alignment: .leading, spacing: 6) {
-                            Picker("Provider", selection: $provider) {
-                                Text("Automatic").tag("")
-                                ForEach(providerOptions, id: \.self) { id in
-                                    Text(id).tag(id)
-                                }
-                            }
+                            Dropdown(
+                                selection: $provider,
+                                options: [.init(label: "Automatic", value: "")]
+                                    + providerOptions.map { .init(label: $0, value: $0) }
+                            )
                             if !modelOptions.isEmpty {
-                                Picker("Model", selection: $model) {
-                                    Text("Automatic").tag("")
-                                    ForEach(modelOptions, id: \.self) { id in
-                                        Text(id).tag(id)
-                                    }
-                                }
+                                Dropdown(
+                                    selection: $model,
+                                    options: [.init(label: "Automatic", value: "")]
+                                        + modelOptions.map { .init(label: $0, value: $0) }
+                                )
                             } else {
                                 TextField("Model", text: $model, prompt: Text("provider/model"))
                                     .textFieldStyle(.roundedBorder)
@@ -427,9 +424,10 @@ struct SheetScaffold<Content: View>: View {
             HStack {
                 Spacer(minLength: 0)
                 Button("Cancel", role: .cancel, action: onCancel)
+                    .buttonStyle(.settingsPill)
                     .keyboardShortcut(.cancelAction)
                 Button(primaryTitle, role: primaryRole, action: onPrimary)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.settingsPillProminent)
                     .disabled(isPrimaryDisabled)
                     .keyboardShortcut(.defaultAction)
             }

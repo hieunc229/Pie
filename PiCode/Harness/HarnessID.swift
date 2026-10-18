@@ -18,6 +18,7 @@ enum HarnessID: String, Codable, CaseIterable, Identifiable, Sendable {
     case claudeCode = "claude-code"
     case codex
     case opencode
+    case museCode = "muse-code"
 
     var id: String { rawValue }
 
@@ -29,6 +30,7 @@ enum HarnessID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .claudeCode: return "Claude Code"
         case .codex: return "Codex"
         case .opencode: return "OpenCode"
+        case .museCode: return "Muse Code"
         }
     }
 
@@ -41,6 +43,7 @@ enum HarnessID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .claudeCode: return "claude"
         case .codex: return "codex"
         case .opencode: return "opencode"
+        case .museCode: return "muse"
         }
     }
 
@@ -49,7 +52,7 @@ enum HarnessID: String, Codable, CaseIterable, Identifiable, Sendable {
     /// selected for a session yet.
     var hasAdapter: Bool {
         switch self {
-        case .pi, .ohMyPi, .deepseekHarness, .claudeCode, .codex, .opencode: return true
+        case .pi, .ohMyPi, .deepseekHarness, .claudeCode, .codex, .opencode, .museCode: return true
         }
     }
 }

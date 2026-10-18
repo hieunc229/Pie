@@ -16,3 +16,7 @@ xcuserdata/
 
 # Local scratch
 /tmp/
+
+.npm-cache
+.work
+/marketing

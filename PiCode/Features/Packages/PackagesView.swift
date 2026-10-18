@@ -105,7 +105,7 @@ struct PackagesView: View {
     private var header: some View {
         HStack(spacing: 12) {
             HStack(spacing: 6) {
-                IconsaxIcon(name: "box")
+                HugeIcon(name: "package")
                     .font(.system(size: Typography.baseSize))
                     .foregroundStyle(.tertiary)
                 Text("Packages")
@@ -117,7 +117,7 @@ struct PackagesView: View {
                 model.reloadInstalled(projectPath: state.selectedProjectPath)
                 Task { await model.performSearch() }
             } label: {
-                IconsaxIcon(name: "refresh")
+                HugeIcon(name: "refresh")
                     .imageScale(.medium)
                     .contentShape(Rectangle())
             }
@@ -142,7 +142,7 @@ struct PackagesView: View {
     private var searchRow: some View {
         HStack(spacing: 12) {
             HStack(spacing: 8) {
-                IconsaxIcon(name: "search-normal")
+                HugeIcon(name: "search-01")
                     .foregroundStyle(.secondary)
                 TextField("Search pi packages", text: $model.query)
                     .textFieldStyle(.plain)
@@ -153,7 +153,7 @@ struct PackagesView: View {
                     Button {
                         model.query = ""
                     } label: {
-                        IconsaxIcon(name: "close-circle")
+                        HugeIcon(name: "cancel-circle")
                             .foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.borderless)
@@ -165,6 +165,7 @@ struct PackagesView: View {
             .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
 
             Button("Install from Source…") { isInstallingCustom = true }
+                .buttonStyle(.settingsPill)
                 .help("Install an npm package, a git repository, or a local path through Pi")
         }
     }
@@ -176,7 +177,7 @@ struct PackagesView: View {
     /// the page that installs them is the only place that has to say so.
     private var securityNote: some View {
         HStack(alignment: .top, spacing: 10) {
-            IconsaxIcon(name: "shield-cross")
+            HugeIcon(name: "security")
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
@@ -277,13 +278,13 @@ struct PackagesView: View {
     @ViewBuilder
     private var statusArea: some View {
         if let status = model.statusMessage {
-            Label(status, iconsax: "tick-circle")
+            Label(status, huge: "checkmark-circle-01")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         if let error = model.lastError {
-            Label(error, iconsax: "warning-2")
+            Label(error, huge: "alert-01")
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .textSelection(.enabled)
@@ -322,7 +323,7 @@ private struct InstalledPackageRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            IconsaxIcon(name: icon)
+            HugeIcon(name: icon)
                 .foregroundStyle(.tertiary)
                 .frame(width: 18)
                 .accessibilityHidden(true)
@@ -343,7 +344,7 @@ private struct InstalledPackageRow: View {
                 ProgressView().controlSize(.small)
             } else {
                 Button("Remove") { onRemove() }
-                    .controlSize(.small)
+                    .buttonStyle(.settingsPill)
             }
         }
         .padding(.horizontal, 12)
@@ -352,9 +353,9 @@ private struct InstalledPackageRow: View {
 
     private var icon: String {
         switch package.kindLabel {
-        case "npm": return "box"
-        case "git": return "hierarchy-2"
-        default: return "folder-2"
+        case "npm": return "package"
+        case "git": return "git-branch"
+        default: return "folder-02"
         }
     }
 }
@@ -393,24 +394,24 @@ private struct GalleryPackageCard: View {
 
             HStack(spacing: 12) {
                 if let publisher = package.publisher {
-                    Label(publisher, iconsax: "user")
+                    Label(publisher, huge: "user")
                 }
                 if let downloads = package.monthlyDownloads {
-                    Label("\(Format.tokens(downloads))/mo", iconsax: "arrow-circle-down")
+                    Label("\(Format.tokens(downloads))/mo", huge: "arrow-down-01")
                 }
                 if let repository = package.repository {
                     Link(destination: repository) {
-                        Label("repo", iconsax: "code")
+                        Label("repo", huge: "code")
                     }
                 }
                 if let homepage = package.homepage {
                     Link(destination: homepage) {
-                        Label("site", iconsax: "global")
+                        Label("site", huge: "globe")
                     }
                 }
                 if let npm = package.npmURL {
                     Link(destination: npm) {
-                        Label("npm", iconsax: "box")
+                        Label("npm", huge: "package")
                     }
                 }
                 Spacer(minLength: 0)
@@ -432,10 +433,10 @@ private struct GalleryPackageCard: View {
         if isBusy {
             ProgressView().controlSize(.small)
         } else if isInstalled {
-            StatusPill(text: "Installed", systemImage: "tick-circle", tint: .green)
+            StatusPill(text: "Installed", systemImage: "checkmark-circle-01", tint: .green)
         } else {
             Button("Install") { onInstall() }
-                .controlSize(.small)
+                .buttonStyle(.settingsPillProminent)
         }
     }
 }
@@ -503,7 +504,7 @@ private struct InstallPackageSheet: View {
             securityNote
 
             if let error = model.lastError {
-                Label(error, iconsax: "warning-2")
+                Label(error, huge: "alert-01")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .textSelection(.enabled)
@@ -516,8 +517,10 @@ private struct InstallPackageSheet: View {
                 }
                 Spacer(minLength: 0)
                 Button("Cancel") { dismiss() }
+                    .buttonStyle(.settingsPill)
                     .disabled(isInstalling)
                 Button("Install") { install() }
+                    .buttonStyle(.settingsPillProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canInstall)
             }
@@ -536,7 +539,7 @@ private struct InstallPackageSheet: View {
 
     private var securityNote: some View {
         HStack(alignment: .top, spacing: 8) {
-            IconsaxIcon(name: "warning-2")
+            HugeIcon(name: "alert-01")
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
             Text("This package will run with full access to your account. Extensions execute arbitrary code and skills can instruct the model to run commands. Install only what you trust.")

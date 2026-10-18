@@ -200,7 +200,7 @@ enum SessionReplayTest {
                 switch row {
                 case .item:
                     continue
-                case .group(let group, _):
+                case .group(let group, _, _):
                     foldedItems += group.count
                     if group.count == 1 { foldedSingletons += 1 } else { foldedMultiway += 1 }
                     // Reasoning is folded but never drawn: `TranscriptRow.visibleSteps`
@@ -249,7 +249,7 @@ enum SessionReplayTest {
                     // run between them was folded too, so the boundary was
                     // invented rather than found.
                     if index > 0,
-                       case .group(_, let previousLive) = rows[index - 1],
+                       case .group(_, let previousLive, _) = rows[index - 1],
                        !previousLive,
                        !row.isLiveTurn {
                         adjacentGroups += 1
@@ -262,7 +262,7 @@ enum SessionReplayTest {
             // neighbours are not expected to share a row.
             var liveItemIDs = Set<String>()
             for row in rows {
-                guard case .group(let group, let isLiveTurn) = row, isLiveTurn else { continue }
+                guard case .group(let group, let isLiveTurn, _) = row, isLiveTurn else { continue }
                 for item in group { liveItemIDs.insert(item.id) }
             }
             for index in items.indices.dropFirst() {
@@ -274,7 +274,7 @@ enum SessionReplayTest {
                       !liveItemIDs.contains(current.id) else { continue }
                 // They are adjacent *and* foldable, so they must share a row.
                 let shared = rows.contains { row in
-                    guard case .group(let group, _) = row else { return false }
+                    guard case .group(let group, _, _) = row else { return false }
                     return group.contains { $0.id == previous.id } && group.contains { $0.id == current.id }
                 }
                 if !shared { splitRuns += 1 }

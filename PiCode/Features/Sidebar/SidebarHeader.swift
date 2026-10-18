@@ -16,7 +16,7 @@ struct SidebarHeader: View {
         HStack(spacing: 4) {
             harnessMenu
             Spacer(minLength: 0)
-            headerButton("search-normal", help: "Search sessions and commands (⇧⌘P)", action: onOpenPalette)
+            headerButton("search-01", help: "Search sessions and commands (⇧⌘P)", action: onOpenPalette)
         }
         .padding(.leading, SidebarStyle.trafficLightColumn - 2)
         .padding(.trailing, SidebarStyle.sidebarMargin)
@@ -34,7 +34,7 @@ struct SidebarHeader: View {
                     state.preferences.persist()
                 } label: {
                     if harness.id == currentHarness.id {
-                        Label(harness.displayName, iconsax: "tick-circle")
+                        Label(harness.displayName, huge: "checkmark-circle-01")
                     } else {
                         Text(harness.displayName)
                     }
@@ -51,7 +51,7 @@ struct SidebarHeader: View {
             (Text(currentHarness.displayName)
                 .font(.system(size: 17, weight: .semibold))
                 + Text("  ")
-                + Text(iconsaxImage("arrow-down-2"))
+                + Text(hugeIconImage("arrow-down-01"))
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(.secondary))
             .lineLimit(1)
@@ -75,7 +75,7 @@ struct SidebarHeader: View {
 
     private func headerButton(_ systemImage: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            IconsaxIcon(name: systemImage)
+            HugeIcon(name: systemImage)
                 .font(.system(size: 14, weight: .regular))
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())

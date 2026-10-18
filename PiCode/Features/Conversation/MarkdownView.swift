@@ -143,7 +143,7 @@ struct MarkdownView: View, Equatable {
     var isStreaming: Bool = false
 
     var body: some View {
-        let blocks = MarkdownParser.parse(text)
+        let blocks = isStreaming ? MarkdownParser.parseStreaming(text) : MarkdownParser.parse(text)
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 MarkdownBlockView(block: block)
@@ -194,7 +194,7 @@ struct CodeBlockView: View {
                 .font(Typography.body)
                 .foregroundStyle(.secondary)
             if !isComplete {
-                StatusPill(text: "streaming", systemImage: "more", tint: .secondary)
+                StatusPill(text: "streaming", systemImage: "more-horizontal", tint: .secondary)
             }
             if !isExpanded {
                 Text(lineCount == 1 ? "1 line" : "\(lineCount) lines")
@@ -207,7 +207,7 @@ struct CodeBlockView: View {
                 withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
             } label: {
                 Label("",
-                      iconsax: isExpanded ? "arrow-up-2" : "arrow-down-2")
+                      huge: isExpanded ? "arrow-up-01" : "arrow-down-01")
                     .font(Typography.body)
             }
             .buttonStyle(.light)
@@ -221,8 +221,10 @@ struct CodeBlockView: View {
         .padding(.vertical, 6)
     }
 
+    /// Counted over UTF-8 bytes rather than by splitting: a block that is still
+    /// streaming re-reads this on every flush, and a split copies every line.
     private var lineCount: Int {
-        code.isEmpty ? 0 : code.split(separator: "\n", omittingEmptySubsequences: false).count
+        code.isEmpty ? 0 : code.utf8.reduce(1) { $1 == UInt8(ascii: "\n") ? $0 + 1 : $0 }
     }
 }
 

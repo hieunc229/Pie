@@ -55,10 +55,10 @@ struct BannerView: View {
 
         var systemImage: String {
             switch self {
-            case .info: return "info-circle"
-            case .warning: return "warning-2"
-            case .error: return "danger"
-            case .success: return "tick-circle"
+            case .info: return "information-circle"
+            case .warning: return "alert-01"
+            case .error: return "alert-01"
+            case .success: return "checkmark-circle-01"
             }
         }
 
@@ -83,7 +83,7 @@ struct BannerView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            IconsaxIcon(name: level.systemImage)
+            HugeIcon(name: level.systemImage)
                 .foregroundStyle(level.tint)
                 .accessibilityHidden(true)
 
@@ -111,7 +111,7 @@ struct BannerView: View {
                 Button {
                     onDismiss()
                 } label: {
-                    IconsaxIcon(name: "close-circle")
+                    HugeIcon(name: "cancel-circle")
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.borderless)
@@ -143,7 +143,7 @@ struct StatusPill: View {
     var body: some View {
         HStack(spacing: 4) {
             if let systemImage {
-                IconsaxIcon(name: systemImage)
+                HugeIcon(name: systemImage)
                     .imageScale(.small)
             }
             Text(text)
@@ -167,7 +167,7 @@ struct ActivityRowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
-            IconsaxIcon(name: entry.kind.systemImage)
+            HugeIcon(name: entry.kind.systemImage)
                 .imageScale(.small)
                 .foregroundStyle(entry.isError ? Color.red : Color.secondary)
                 .padding(.top, 1)
@@ -204,7 +204,7 @@ struct InspectorSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 if let systemImage {
-                    IconsaxIcon(name: systemImage)
+                    HugeIcon(name: systemImage)
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
                 }
@@ -233,7 +233,7 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            IconsaxIcon(name: systemImage, size: 34)
+            HugeIcon(name: systemImage, size: 34)
                 .foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
             Text(title)
@@ -249,7 +249,7 @@ struct EmptyStateView: View {
             }
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.settingsPillProminent)
                     .padding(.top, 4)
             }
         }
@@ -346,7 +346,7 @@ struct CopyButton: View {
                 didCopy = false
             }
         } label: {
-            IconsaxIcon(name: didCopy ? "tick-circle" : "document-copy")
+            HugeIcon(name: didCopy ? "checkmark-circle-01" : "copy-01")
                 .imageScale(.small)
                 .foregroundStyle(.secondary)
         }
@@ -391,7 +391,7 @@ struct CollapsibleText: View {
                 } label: {
                     Label(
                         isExpanded ? "Show less" : "Show \(lines.count - lineLimit) more lines",
-                        iconsax: isExpanded ? "arrow-up-2" : "arrow-down-2"
+                        huge: isExpanded ? "arrow-up-01" : "arrow-down-01"
                     )
                     .font(Typography.body)
                     .foregroundStyle(Color.accentColor)

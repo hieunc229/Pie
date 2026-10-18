@@ -156,12 +156,12 @@ struct ProvidersSettingsView: View {
         if model.statusMessage != nil || model.lastError != nil {
           VStack(alignment: .leading, spacing: 6) {
             if let status = model.statusMessage {
-                Label(status, iconsax: "tick-circle")
+                Label(status, huge: "checkmark-circle-01")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             if let error = model.lastError {
-                Label(error, iconsax: "warning-2")
+                Label(error, huge: "alert-01")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -194,10 +194,11 @@ struct CustomProviderSheet: View {
                 .font(.headline)
             Form {
                 if provider == nil {
-                    Picker("Preset", selection: $presetID) {
-                        ForEach(ProviderPresets.all) { preset in
-                            Text(preset.name).tag(preset.id)
-                        }
+                    LabeledContent("Preset") {
+                        Dropdown(
+                            selection: $presetID,
+                            options: ProviderPresets.all.map { .init(label: $0.name, value: $0.id) }
+                        )
                     }
                     .onChange(of: presetID) { _, newValue in
                         applyPreset(ProviderPresets.preset(id: newValue))
@@ -211,8 +212,8 @@ struct CustomProviderSheet: View {
                 }
                 TextField("Provider id", text: $id, prompt: Text("deepseek"))
                 TextField("Base URL", text: $baseURL, prompt: Text("https://api.deepseek.com/v1"))
-                Picker("API", selection: $api) {
-                    ForEach(PiProviderService.supportedAPIs, id: \.self) { Text($0).tag($0) }
+                LabeledContent("API") {
+                    Dropdown(selection: $api, values: PiProviderService.supportedAPIs, label: { $0 })
                 }
                 TextField("API key", text: $apiKey, prompt: Text(keyPlaceholder))
                 HStack(spacing: 8) {
@@ -226,6 +227,7 @@ struct CustomProviderSheet: View {
                             Text("Load Models")
                         }
                     }
+                    .buttonStyle(.settingsPill)
                     .disabled(isLoadingModels || baseURL.trimmingCharacters(in: .whitespaces).isEmpty)
                     .help("Query the endpoint for its model list")
                 }
@@ -250,7 +252,9 @@ struct CustomProviderSheet: View {
             HStack {
                 Spacer(minLength: 0)
                 Button("Cancel") { dismiss() }
+                    .buttonStyle(.settingsPill)
                 Button("Save") { save() }
+                    .buttonStyle(.settingsPillProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(id.trimmingCharacters(in: .whitespaces).isEmpty || baseURL.isEmpty)
             }

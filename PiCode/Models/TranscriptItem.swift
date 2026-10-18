@@ -55,8 +55,8 @@ enum SummaryKind: String, Equatable {
 
     var systemImage: String {
         switch self {
-        case .compaction: return "convert"
-        case .branch: return "hierarchy-2"
+        case .compaction: return "shrink"
+        case .branch: return "git-branch"
         }
     }
 }
@@ -83,7 +83,7 @@ struct FileChange: Identifiable, Equatable, Hashable {
             case .created: return "add-circle"
             case .modified: return "edit"
             case .deleted: return "minus-cirlce"
-            case .read: return "eye"
+            case .read: return "view"
             }
         }
 
@@ -199,7 +199,7 @@ struct TranscriptItem: Identifiable, Equatable {
         case "write":
             guard let path else { return [] }
             let content = toolArguments.string("content") ?? ""
-            let lines = content.isEmpty ? nil : content.split(separator: "\n", omittingEmptySubsequences: false).count
+            let lines = content.isEmpty ? nil : Self.lineCount(content)
             return [FileChange(path: path, kind: .created, additions: lines, deletions: nil)]
         case "edit", "multiedit", "patch", "apply_patch":
             guard let path else { return [] }
@@ -208,18 +208,18 @@ struct TranscriptItem: Identifiable, Equatable {
             let blocks = toolArguments.array("edits") ?? []
             if blocks.isEmpty {
                 if let new = toolArguments.string("new_string") ?? toolArguments.string("newText") {
-                    additions += new.split(separator: "\n", omittingEmptySubsequences: false).count
+                    additions += Self.lineCount(new)
                 }
                 if let old = toolArguments.string("old_string") ?? toolArguments.string("oldText") {
-                    deletions += old.split(separator: "\n", omittingEmptySubsequences: false).count
+                    deletions += Self.lineCount(old)
                 }
             } else {
                 for block in blocks {
                     if let new = block.string("new_string") ?? block.string("newText") {
-                        additions += new.split(separator: "\n", omittingEmptySubsequences: false).count
+                        additions += Self.lineCount(new)
                     }
                     if let old = block.string("old_string") ?? block.string("oldText") {
-                        deletions += old.split(separator: "\n", omittingEmptySubsequences: false).count
+                        deletions += Self.lineCount(old)
                     }
                 }
             }
@@ -230,6 +230,14 @@ struct TranscriptItem: Identifiable, Equatable {
         default:
             return []
         }
+    }
+
+    /// Lines in `text`, counted the way `split(separator: "\n",
+    /// omittingEmptySubsequences: false).count` does, without building a
+    /// substring per line. `fileChanges` runs over every call in the session
+    /// on each message boundary, and a written file can be thousands of lines.
+    static func lineCount(_ text: String) -> Int {
+        text.utf8.reduce(1) { $1 == UInt8(ascii: "\n") ? $0 + 1 : $0 }
     }
 
     /// The path argument of a file tool, under any of the keys Pi sends. `edit`,

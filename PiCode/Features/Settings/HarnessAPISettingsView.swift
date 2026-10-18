@@ -61,19 +61,17 @@ struct HarnessAPISettingsView: View {
         case .pi:
             PiHarnessAPISettingsView()
         case .ohMyPi:
-            VStack(alignment: .leading, spacing: 7) {
-                Divider()
-                Text("API & accounts")
-                    .font(.caption.weight(.semibold))
-                Text("Oh My Pi owns account credentials in its agent database. Open OMP and use `/login`; shared third-party providers are synchronized separately.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 10) {
+                SettingsLabel(
+                    "API & accounts",
+                    detail: "Oh My Pi owns account credentials in its agent database. Open OMP and use `/login`; shared third-party providers are synchronized separately."
+                )
                 HStack(spacing: 8) {
                     Button("Open Terminal") {
                         _ = WorkspaceLauncher.openTerminal(at: NSHomeDirectory())
                         state.showToast("Run `omp`, then `/login` to configure Oh My Pi accounts.")
                     }
-                    .controlSize(.small)
+                    .buttonStyle(.settingsPill)
                     CopyButton(text: "omp", help: "Copy the Oh My Pi command")
                 }
             }
@@ -81,6 +79,21 @@ struct HarnessAPISettingsView: View {
             LocalHarnessAccountSettingsView(state: state, descriptor: descriptor)
         case .deepseekHarness:
             EmptyView()
+        case .museCode:
+            VStack(alignment: .leading, spacing: 10) {
+                SettingsLabel(
+                    "API & accounts",
+                    detail: "Muse Code owns its credentials. Run `muse login` to sign in with your Meta account, or `muse auth` to store a provider API key."
+                )
+                HStack(spacing: 8) {
+                    Button("Open Terminal") {
+                        _ = WorkspaceLauncher.openTerminal(at: NSHomeDirectory())
+                        state.showToast("Run `muse login` to sign in to Muse Code.")
+                    }
+                    .buttonStyle(.settingsPill)
+                    CopyButton(text: "muse login", help: "Copy the Muse Code login command")
+                }
+            }
         }
     }
 }
@@ -91,42 +104,40 @@ private struct PiHarnessAPISettingsView: View {
     @State private var pendingRemoval: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Divider()
-            HStack {
-                Text("API & accounts")
-                    .font(.caption.weight(.semibold))
-                Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 16) {
+                SettingsLabel(
+                    "API & accounts",
+                    detail: model.credentials.isEmpty ? "No Pi account credentials configured." : nil
+                )
+                Spacer(minLength: 12)
                 Button("Set API Key…") { isAddingCredential = true }
-                    .controlSize(.small)
+                    .buttonStyle(.settingsPill)
             }
-            if model.credentials.isEmpty {
-                Text("No Pi account credentials configured.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
+            if !model.credentials.isEmpty {
                 ForEach(model.credentials) { credential in
                     HStack(spacing: 8) {
                         Text(credential.provider)
-                            .font(.caption.weight(.medium))
+                            .font(.system(size: 13, weight: .medium))
                         Text(credential.kindLabel + (credential.fingerprint.map { " · \($0)" } ?? ""))
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 0)
                         Button("Remove") { pendingRemoval = credential.provider }
-                            .controlSize(.mini)
+                            .buttonStyle(.settingsPill)
                     }
                 }
             }
             if !model.problems.isEmpty {
-                Label("Pi cannot read \(model.problems.count) credential entr\(model.problems.count == 1 ? "y" : "ies").", iconsax: "warning-2")
+                Label("Pi cannot read \(model.problems.count) credential entr\(model.problems.count == 1 ? "y" : "ies").", huge: "alert-01")
                     .font(.caption)
                     .foregroundStyle(.orange)
                 HStack {
                     Button("Repair") { model.repair() }
+                        .buttonStyle(.settingsPillProminent)
                     Button("Reveal auth.json") { WorkspaceLauncher.reveal(PiPaths.authFile.path) }
+                        .buttonStyle(.settingsPill)
                 }
-                .controlSize(.small)
             }
             if let message = model.statusMessage {
                 Text(message).font(.caption).foregroundStyle(.secondary)
@@ -183,10 +194,12 @@ private struct HarnessCredentialSheet: View {
             HStack {
                 Spacer(minLength: 0)
                 Button("Cancel") { dismiss() }
+                    .buttonStyle(.settingsPill)
                 Button("Save") {
                     onSave(provider.trimmingCharacters(in: .whitespaces), key)
                     dismiss()
                 }
+                .buttonStyle(.settingsPillProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(provider.trimmingCharacters(in: .whitespaces).isEmpty || key.isEmpty)
             }

@@ -39,6 +39,7 @@ extension ConversationView {
             withTransaction(transaction) {
                 // Preserve the visible row; never interrupt wheel momentum with
                 // a scrollTo while prepending earlier messages.
+                scrollAnchor.holdReadingPosition()
                 controller.loadEarlierTranscript()
             }
             do { try await Task.sleep(nanoseconds: 200_000_000) }
@@ -76,6 +77,7 @@ extension ConversationView {
                 var transaction = Transaction(animation: nil)
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
+                    scrollAnchor.holdReadingPosition()
                     controller.loadEarlierTranscript()
                 }
                 do { try await Task.sleep(nanoseconds: 200_000_000) }
@@ -95,7 +97,7 @@ extension ConversationView {
         scrollState.pageTask?.cancel()
         scrollState.isPrepending = false
         scrollState.topGap = .infinity
-        visibleTranscriptRowID = nil
+        virtualizer.reset()
         scrollState.generation = UUID()
         scrollState.openingTask?.cancel()
         scrollState.openingTask = nil

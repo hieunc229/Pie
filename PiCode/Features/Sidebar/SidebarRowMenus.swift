@@ -17,7 +17,7 @@ struct ProjectRowMenu: View {
             Button {
                 Task { await state.startNewSession(projectPath: project.path) }
             } label: {
-                Label("New chat", iconsax: "edit-2")
+                Label("New chat", huge: "add-01")
             }
 
             Divider()
@@ -25,24 +25,24 @@ struct ProjectRowMenu: View {
             Button {
                 state.openTerminal(at: project.path)
             } label: {
-                Label("Open in Terminal", iconsax: "command-square")
+                Label("Open in Terminal", huge: "terminal")
             }
             Button {
                 WorkspaceLauncher.reveal(project.path)
             } label: {
-                Label("Reveal in Finder", iconsax: "folder-2")
+                Label("Reveal in Finder", huge: "folder-02")
             }
             Button {
                 state.copyToPasteboard(project.path)
             } label: {
-                Label("Copy Path", iconsax: "document-copy")
+                Label("Copy Path", huge: "copy-01")
             }
             Button {
                 state.togglePin(project: project)
             } label: {
                 Label(
                     project.isPinned ? "Unpin Project" : "Pin Project",
-                    iconsax: project.isPinned ? "bookmark" : "bookmark"
+                    huge: project.isPinned ? "bookmark-01" : "bookmark-01"
                 )
             }
 
@@ -51,7 +51,7 @@ struct ProjectRowMenu: View {
             Button {
                 state.presentProjectSettings(project)
             } label: {
-                Label("Settings…", iconsax: "setting-2")
+                Label("Settings…", huge: "settings-02")
             }
         }
     }
@@ -68,27 +68,27 @@ struct SessionRowMenu: View {
                 Button {
                     Task { await state.open(session: session) }
                 } label: {
-                    Label("Keep Working", iconsax: "arrow-circle-right")
+                    Label("Keep Working", huge: "arrow-right-01")
                 }
             } else {
                 Button {
                     Task { await state.open(session: session) }
                 } label: {
-                    Label("Open", iconsax: "arrow-circle-right")
+                    Label("Open", huge: "arrow-right-01")
                 }
             }
 
             Button {
                 state.presentRename(session: session)
             } label: {
-                Label("Rename…", iconsax: "edit-2")
+                Label("Rename…", huge: "edit-02")
             }
             Button {
                 state.togglePin(session: session)
             } label: {
                 Label(
                     session.isPinned ? "Unpin" : "Pin",
-                    iconsax: session.isPinned ? "bookmark" : "bookmark"
+                    huge: session.isPinned ? "bookmark-01" : "bookmark-01"
                 )
             }
 
@@ -97,19 +97,19 @@ struct SessionRowMenu: View {
             Button {
                 if let path = session.filePath { state.copyToPasteboard(path) }
             } label: {
-                Label("Copy Session Path", iconsax: "document-copy")
+                Label("Copy Session Path", huge: "copy-01")
             }
             .disabled(session.filePath == nil)
             Button {
                 if let path = session.filePath { WorkspaceLauncher.reveal(path) }
             } label: {
-                Label("Reveal Session File", iconsax: "document")
+                Label("Reveal Session File", huge: "file-01")
             }
             .disabled(session.filePath == nil)
             Button {
                 Task { await state.hide(session: session) }
             } label: {
-                Label("Hide from Sidebar", iconsax: "eye-slash")
+                Label("Hide from Sidebar", huge: "view-off")
             }
 
             Divider()
@@ -118,7 +118,7 @@ struct SessionRowMenu: View {
                 state.sessionPendingDeletion = session
                 state.run(.deleteSession)
             } label: {
-                Label("Delete Session…", iconsax: "trash")
+                Label("Delete Session…", huge: "delete-01")
             }
             .disabled(session.filePath == nil)
         }

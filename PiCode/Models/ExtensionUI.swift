@@ -49,9 +49,9 @@ struct ExtensionNotification: Identifiable, Equatable {
 
         var systemImage: String {
             switch self {
-            case .info: return "info-circle"
-            case .warning: return "warning-2"
-            case .error: return "danger"
+            case .info: return "information-circle"
+            case .warning: return "alert-01"
+            case .error: return "alert-01"
             }
         }
     }
@@ -94,17 +94,17 @@ struct ActivityEntry: Identifiable, Equatable {
             case .connection: return "flash"
             case .agentStart: return "play-circle"
             case .agentEnd: return "stop-circle"
-            case .settled: return "tick-circle"
+            case .settled: return "checkmark-circle-01"
             case .turn: return "refresh"
-            case .tool: return "setting-4"
-            case .compaction: return "convert"
+            case .tool: return "wrench-01"
+            case .compaction: return "shrink"
             case .retry: return "refresh"
-            case .summarizationRetry: return "clock"
-            case .queue: return "task-square"
-            case .error: return "warning-2"
-            case .extensionError: return "category-2"
+            case .summarizationRetry: return "clock-01"
+            case .queue: return "list-checks"
+            case .error: return "alert-01"
+            case .extensionError: return "puzzle"
             case .extensionRequest: return "message-question"
-            case .notify: return "notification"
+            case .notify: return "notification-01"
             case .sessionChange: return "arrow-swap-horizontal"
             }
         }

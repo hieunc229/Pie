@@ -240,6 +240,9 @@ struct SidebarView: View {
     /// reset by, so once a heading is opened it stays open for the session.
     @State private var showsAllProjects = false
     @State private var showsAllPinnedProjects = false
+    /// Whether each group is folded to just its heading. Remembered across launches.
+    @AppStorage("sidebar.pinnedCollapsed") private var isPinnedCollapsed = false
+    @AppStorage("sidebar.projectsCollapsed") private var isProjectsCollapsed = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -288,7 +291,7 @@ struct SidebarView: View {
             Task { await state.newChatInCurrentProject() }
         } label: {
             HStack(spacing: SidebarStyle.iconTextSpacing) {
-                IconsaxIcon(name: "edit-2")
+                HugeIcon(name: "add-01")
                     .font(.system(size: SidebarStyle.projectIconSize + 2, weight: .regular))
                     .frame(width: SidebarStyle.projectIconSize,
                            height: SidebarStyle.projectIconSize,
@@ -321,12 +324,14 @@ struct SidebarView: View {
             if !state.projects.isEmpty {
                 if !pinnedProjects.isEmpty {
                     let pinned = capped(pinnedProjects, showingAll: showsAllPinnedProjects)
-                    sectionLabel("Pinned")
-                    ForEach(pinned.rows) { project in
-                        ProjectRow(state: state, project: project, showsPin: false)
-                        chats(of: project)
+                    sectionLabel("Pinned", isCollapsed: $isPinnedCollapsed)
+                    if !isPinnedCollapsed {
+                        ForEach(pinned.rows) { project in
+                            ProjectRow(state: state, project: project, showsPin: false)
+                            chats(of: project)
+                        }
                     }
-                    if pinned.hidden > 0 {
+                    if pinned.hidden > 0 && !isPinnedCollapsed {
                         ShowMoreRow(hiddenCount: pinned.hidden, noun: "projects") {
                             showsAllPinnedProjects = true
                         }
@@ -334,11 +339,13 @@ struct SidebarView: View {
                 }
                 let rest = capped(unpinnedProjects, showingAll: showsAllProjects)
                 projectsSectionLabel
-                ForEach(rest.rows) { project in
-                    ProjectRow(state: state, project: project)
-                    chats(of: project)
+                if !isProjectsCollapsed {
+                    ForEach(rest.rows) { project in
+                        ProjectRow(state: state, project: project)
+                        chats(of: project)
+                    }
                 }
-                if rest.hidden > 0 {
+                if rest.hidden > 0 && !isProjectsCollapsed {
                     ShowMoreRow(hiddenCount: rest.hidden, noun: "projects") {
                         showsAllProjects = true
                     }
@@ -363,7 +370,7 @@ struct SidebarView: View {
         .overlay {
             if state.projects.isEmpty {
                 VStack(spacing: 8) {
-                    IconsaxIcon(name: "folder-2", size: 26)
+                    HugeIcon(name: "folder-02", size: 26)
                         .foregroundStyle(.tertiary)
                     Text("No projects yet")
                         .font(SidebarStyle.messageFont)
@@ -411,35 +418,42 @@ struct SidebarView: View {
     /// quiet label and not a heading; it takes air above and none below, so the
     /// first project under it keeps the list's own pitch, the same as between two
     /// chats.
-    private func sectionLabel(_ title: String) -> some View {
-        Text(title)
-        
+    private func sectionLabel(_ title: String, isCollapsed: Binding<Bool>) -> some View {
+        collapseToggle(title, isCollapsed: isCollapsed)
+            .padding(.top, SidebarStyle.sectionLabelTopPadding)
+            .padding(.bottom, SidebarStyle.sectionLabelBottomPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The heading text with a chevron; clicking it folds or unfolds its group.
+    private func collapseToggle(_ title: String, isCollapsed: Binding<Bool>) -> some View {
+        Button {
+            isCollapsed.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .rotationEffect(.degrees(isCollapsed.wrappedValue ? 0 : 90))
+            }
             .font(SidebarStyle.rowFont)
             .fontWeight(.regular)
             .foregroundStyle(.secondary)
             .opacity(0.90)
             .offset(x: -SidebarStyle.projectIconOffset)
-            .accessibilityAddTraits(.isHeader)
-//            .font(SidebarStyle.rowFont)
-//            .foregroundStyle(.secondary)
-//            .offset(x: -SidebarStyle.projectIconOffset)
-            .padding(.top, SidebarStyle.sectionLabelTopPadding)
-            .padding(.bottom, SidebarStyle.sectionLabelBottomPadding)
-//            .frame(maxWidth: .infinity, alignment: .leading)
-//            .accessibilityAddTraits(.isHeader)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityLabel("\(title), \(isCollapsed.wrappedValue ? "collapsed" : "expanded")")
+        .help(isCollapsed.wrappedValue ? "Show \(title)" : "Hide \(title)")
     }
 
     /// The refresh action belongs to the project collection, so it sits at the
     /// trailing end of that collection's label instead of occupying a footer row.
     private var projectsSectionLabel: some View {
         HStack(spacing: 8) {
-            Text("Projects")
-                .font(SidebarStyle.rowFont)
-                .fontWeight(.regular)
-                .foregroundStyle(.secondary)
-                .opacity(0.90)
-                .offset(x: -SidebarStyle.projectIconOffset)
-                .accessibilityAddTraits(.isHeader)
+            collapseToggle("Projects", isCollapsed: $isProjectsCollapsed)
 
             Spacer(minLength: 0)
 
@@ -451,7 +465,7 @@ struct SidebarView: View {
             Button {
                 Task { await state.refreshIndex() }
             } label: {
-                IconsaxIcon(name: "refresh")
+                HugeIcon(name: "refresh")
                     .foregroundStyle(.white)
             }
             .buttonStyle(.borderless)
@@ -575,7 +589,7 @@ struct ProjectRow: View {
             state.toggleCollapsed(project: project)
         } label: {
             HStack(spacing: SidebarStyle.iconTextSpacing) {
-                IconsaxIcon(name: state.isCollapsed(project: project) ? "folder-2" : "folder-open")
+                HugeIcon(name: state.isCollapsed(project: project) ? "folder-02" : "folder-open")
                     .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
                     // Fixed height as well as width: a taller glyph would make the
                     // row taller than a chat row and change the rhythm below it.
@@ -591,7 +605,7 @@ struct ProjectRow: View {
                     .opacity(SidebarStyle.rowTextOpacity)
                     .accessibilityAddTraits(.isHeader)
                 if showsPin && project.isPinned {
-                    IconsaxIcon(name: "bookmark-2")
+                    HugeIcon(name: "bookmark-02")
                         .imageScale(.small)
                         .foregroundStyle(.tertiary)
                 }
@@ -617,7 +631,7 @@ struct ProjectRow: View {
                     // a text-wrapped one draws. Measured in a render lab: the
                     // same menu beside the same sidebar list shows nothing with
                     // an `Image` label and a visible glyph with this one.
-                    Text(iconsaxImage("more"))
+                    Text(hugeIconImage("more-horizontal"))
                         .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
                         .frame(
                             width: SidebarStyle.topBarButtonSize,
@@ -637,7 +651,7 @@ struct ProjectRow: View {
                 Button {
                     Task { await state.startNewSession(projectPath: project.path) }
                 } label: {
-                    IconsaxIcon(name: "edit-2")
+                    HugeIcon(name: "edit-02")
                         .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
                         .frame(
                             width: SidebarStyle.topBarButtonSize,
@@ -741,7 +755,7 @@ struct SessionRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 if session.isPinned {
-                    IconsaxIcon(name: "bookmark-2")
+                    HugeIcon(name: "bookmark-02")
                         .imageScale(.small)
                         .foregroundStyle(.tertiary)
                 } else if isEphemeral {
@@ -769,7 +783,7 @@ struct SessionRow: View {
                     // a text-wrapped one draws. Measured in a render lab: the
                     // same menu beside the same sidebar list shows nothing with
                     // an `Image` label and a visible glyph with this one.
-                    Text(iconsaxImage("more"))
+                    Text(hugeIconImage("more-horizontal"))
                         .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
                         .frame(
                             width: SidebarStyle.topBarButtonSize,
@@ -796,7 +810,7 @@ struct SessionRow: View {
                         state.sessionPendingDeletion = session
                         state.run(.deleteSession)
                     } label: {
-                        IconsaxIcon(name: "trash")
+                        HugeIcon(name: "delete-01")
                             .font(.system(size: SidebarStyle.projectIconSize, weight: .regular))
                             .frame(
                                 width: SidebarStyle.topBarButtonSize,

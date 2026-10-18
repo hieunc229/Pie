@@ -83,11 +83,11 @@ struct HarnessesSettingsView: View {
                     updateStatus(for: descriptor.id)
                     Text(installation.version).foregroundStyle(.secondary)
                     if case .available = updates.status(for: descriptor.id) {
-                        Button(state.installs.isInstalling(descriptor.id) ? "Updating…" : "Update") {
+                        Button(state.updatingHarnesses.contains(descriptor.id) || state.installs.isInstalling(descriptor.id) ? "Updating…" : "Update") {
                             Task { await state.updateHarness(descriptor) }
                         }
                         .buttonStyle(.settingsPillProminent)
-                        .disabled(state.installs.isInstalling(descriptor.id))
+                        .disabled(state.updatingHarnesses.contains(descriptor.id) || state.installs.isInstalling(descriptor.id))
                     }
                 }
             }
@@ -189,6 +189,7 @@ private struct AddHarnessSheet: View {
                 Text("Add Harness").font(.headline)
                 Spacer(minLength: 0)
                 Button("Close") { dismiss() }
+                    .buttonStyle(.settingsPill)
             }
 
             Text("Choose a supported harness and installation method.")
@@ -208,6 +209,7 @@ private struct AddHarnessSheet: View {
                                     Button("Install with \(method.label)") {
                                         onInstall(descriptor, method)
                                     }
+                                    .buttonStyle(.settingsPillProminent)
                                     CopyButton(text: method.command, help: "Copy \(method.label) install command")
                                 }
                             }
@@ -238,8 +240,10 @@ private struct InstallLogSheet: View {
                 if state.installs.isInstalling(harnessID) {
                     ProgressView().controlSize(.small)
                     Button("Cancel") { state.installs.cancel(harnessID) }
+                        .buttonStyle(.settingsPill)
                 }
                 Button("Close") { onClose() }
+                    .buttonStyle(.settingsPill)
             }
             .padding(12)
             Divider()
@@ -271,12 +275,72 @@ extension AppState {
     /// Re-runs the harness's own install command (npm preferred), which installs
     /// the newest release, then refreshes what is installed.
     func updateHarness(_ descriptor: HarnessDescriptor) async {
-        guard let method = descriptor.installMethods.first(where: { $0.kind == .npm })
-                ?? descriptor.installMethods.first else { return }
-        _ = await installs.install(descriptor, using: method)
-        await harnesses.refresh(descriptor.id)
-        synchronizeProviders()
-        await checkHarnessUpdates()
+        guard let method = HarnessUpdateChecker.updateMethod(
+            for: descriptor,
+            installation: harnesses.installation(for: descriptor.id),
+            tag: harnessUpdates.tags[descriptor.id]
+        ) else { return }
+        // Joins an update already running instead of starting a second one.
+        if let running = updateTasks[descriptor.id] { await running.value; return }
+        updatingHarnesses.insert(descriptor.id)
+        // The work runs in a task the app owns, so it survives the view that
+        // asked for it going away (switching tabs, closing Settings).
+        let task = Task { @MainActor [self] in
+            _ = await installs.install(descriptor, using: method)
+            await harnesses.refresh(descriptor.id)
+            synchronizeProviders()
+            await checkHarnessUpdates()
+            updatingHarnesses.remove(descriptor.id)
+            updateTasks[descriptor.id] = nil
+        }
+        updateTasks[descriptor.id] = task
+        await task.value
+    }
+
+    /// True while a harness update or an app self-update is running; drives the
+    /// rail's Settings glyph.
+    var isUpdatingAnything: Bool {
+        !updatingHarnesses.isEmpty || installs.runs.values.contains { $0.isRunning }
+            || !providersRefreshing.isEmpty || updater.isBusy
+    }
+
+    private static let modelRefreshInterval: TimeInterval = 24 * 3600
+
+    /// Fetches the provider's current model list from its endpoint the first time
+    /// it is chosen after launch, and again once the last fetch is a day old.
+    /// New models are merged in; existing entries keep their settings.
+    /// Returns true when the registry changed.
+    @discardableResult
+    func refreshProviderModelsIfStale(_ providerID: String) async -> Bool {
+        if let last = providerModelRefreshes[providerID],
+           Date().timeIntervalSince(last) < Self.modelRefreshInterval { return false }
+        guard !providersRefreshing.contains(providerID),
+              let provider = ProviderRegistry.providers().first(where: { $0.id == providerID }),
+              let baseURL = provider.baseURL, let api = provider.api else { return false }
+        providersRefreshing.insert(providerID)
+        defer { providersRefreshing.remove(providerID) }
+        do {
+            let result = try await PiProviderDiscovery.discover(
+                baseURL: baseURL, api: api, apiKey: HarnessProviderCatalog.apiKey(provider))
+            providerModelRefreshes[providerID] = Date()
+            var all = ProviderRegistry.providers()
+            guard let index = all.firstIndex(where: { $0.id == providerID }) else { return false }
+            let known = Set(all[index].models.map(\.id))
+            let added = result.models.filter { !known.contains($0.id) }
+            guard !added.isEmpty else { return false }
+            all[index].models += added.map {
+                ProviderModelConfiguration(id: $0.id, name: $0.name, reasoning: $0.reasoning,
+                                           acceptsImages: $0.acceptsImages,
+                                           contextWindow: $0.contextWindow, maxTokens: $0.maxTokens)
+            }
+            try ProviderRegistry.save(all)
+            synchronizeProviders()
+            showToast("\(providerID): \(added.count) new model(s). Restart a session to use them.")
+            return true
+        } catch {
+            // Offline or unsupported endpoint: keep the saved list, retry next selection.
+            return false
+        }
     }
 
     var harnessesWithUpdates: [HarnessDescriptor] {
@@ -297,7 +361,7 @@ struct UpdateAllHarnessesButton: View {
 
     var body: some View {
         let pending = state.harnessesWithUpdates
-        let isUpdating = pending.contains { state.installs.isInstalling($0.id) }
+        let isUpdating = pending.contains { state.updatingHarnesses.contains($0.id) || state.installs.isInstalling($0.id) }
         if !pending.isEmpty {
             Button(isUpdating ? "Updating…" : "Update all (\(pending.count))") {
                 Task { await state.updateAllHarnesses() }

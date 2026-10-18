@@ -42,7 +42,7 @@ struct ExtensionDialogView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
-                IconsaxIcon(name: icon)
+                HugeIcon(name: icon)
                     .foregroundStyle(.tint)
                 Text(dialog.title)
                     .font(.headline)
@@ -87,10 +87,11 @@ struct ExtensionDialogView: View {
 
             HStack {
                 Button("Cancel") { controller.cancel(dialog) }
+                    .buttonStyle(.settingsPill)
                     .keyboardShortcut(.cancelAction)
                 Spacer(minLength: 0)
                 Button(confirmTitle) { confirm() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.settingsPillProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canConfirm)
             }
@@ -118,7 +119,7 @@ struct ExtensionDialogView: View {
                     selection = option
                 } label: {
                     HStack(spacing: 8) {
-                        IconsaxIcon(name: selection == option ? "record-circle" : "record")
+                        HugeIcon(name: selection == option ? "radio-button" : "circle")
                             .foregroundStyle(selection == option ? Color.accentColor : Color.secondary)
                         Text(option)
                             .multilineTextAlignment(.leading)
@@ -141,11 +142,11 @@ struct ExtensionDialogView: View {
 
     private var icon: String {
         switch dialog.request.method {
-        case .select: return "task"
+        case .select: return "task-01"
         case .confirm: return "message-question"
-        case .input: return "edit-2"
-        case .editor: return "edit-2"
-        default: return "category-2"
+        case .input: return "edit-02"
+        case .editor: return "edit-02"
+        default: return "puzzle"
         }
     }
 

@@ -64,7 +64,7 @@ struct ToolCallCard: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            IconsaxIcon(name: toolIcon)
+            HugeIcon(name: toolIcon)
                 .imageScale(.medium)
                 .foregroundStyle(statusTint)
 
@@ -85,7 +85,7 @@ struct ToolCallCard: View {
                 Button {
                     isInputExpanded.toggle()
                 } label: {
-                    IconsaxIcon(name: isInputExpanded ? "arrow-up-2" : "arrow-down-2")
+                    HugeIcon(name: isInputExpanded ? "arrow-up-01" : "arrow-down-01")
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
                 }
@@ -97,7 +97,7 @@ struct ToolCallCard: View {
                 Button {
                     isDetailsExpanded.toggle()
                 } label: {
-                    IconsaxIcon(name: "code")
+                    HugeIcon(name: "code")
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
                 }
@@ -113,15 +113,15 @@ struct ToolCallCard: View {
     private var statusPill: some View {
         switch item.toolStatus {
         case .pending:
-            StatusPill(text: "Queued", systemImage: "clock", tint: .secondary)
+            StatusPill(text: "Queued", systemImage: "clock-01", tint: .secondary)
         case .running:
             StatusPill(text: "Running", systemImage: "refresh", tint: .accentColor, isProminent: true)
         case .success:
-            StatusPill(text: "Done", systemImage: "tick-circle", tint: .green)
+            StatusPill(text: "Done", systemImage: "checkmark-circle-01", tint: .green)
         case .failure:
-            StatusPill(text: "Failed", systemImage: "close-circle", tint: .red, isProminent: true)
+            StatusPill(text: "Failed", systemImage: "cancel-circle", tint: .red, isProminent: true)
         case .cancelled:
-            StatusPill(text: "Cancelled", systemImage: "forbidden-2", tint: .orange)
+            StatusPill(text: "Cancelled", systemImage: "slash", tint: .orange)
         }
     }
 
@@ -156,11 +156,11 @@ struct ToolCallCard: View {
 
     private var toolIcon: String {
         switch (item.toolName ?? "").lowercased() {
-        case "grep", "glob", "search", "find": return "search-normal"
-        case "webfetch", "websearch", "fetch": return "global"
-        case "task", "agent", "subagent": return "profile-2user"
-        case "todo", "todoread", "todowrite": return "task-square"
-        default: return "setting-4"
+        case "grep", "glob", "search", "find": return "search-01"
+        case "webfetch", "websearch", "fetch": return "globe"
+        case "task", "agent", "subagent": return "user-multiple"
+        case "todo", "todoread", "todowrite": return "list-checks"
+        default: return "wrench-01"
         }
     }
 

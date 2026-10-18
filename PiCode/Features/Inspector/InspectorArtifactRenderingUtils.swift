@@ -19,7 +19,7 @@ enum InspectorArtifactRendering {
         }
 
         if !item.editBlocks.isEmpty {
-            return .diff(ToolDiff.unified(item.editBlocks))
+            return .diff(numberedEditDiff(for: item))
         }
 
         if let output, looksLikeDiff(output) {
@@ -92,6 +92,26 @@ enum InspectorArtifactRendering {
         // takes precedence over a SwiftUI `.font` modifier at the call site.
         highlighted.font = Typography.inspectorCode
         return highlighted
+    }
+
+    /// An edit's diff with real file line numbers where Pi gives them. Pi's `edit`
+    /// result carries a unified `patch` whose hunk headers name the offsets into the
+    /// file; the arguments alone do not, so they are only the fallback. The file
+    /// header is dropped because the panel already names the file. A `write` has no
+    /// patch but is the whole file, so its lines are numbered from 1.
+    private static func numberedEditDiff(for item: TranscriptItem) -> String {
+        if let patch = item.toolDetails?.string("patch"), patch.contains("\n@@ ") || patch.hasPrefix("@@ ") {
+            let lines = patch.split(separator: "\n", omittingEmptySubsequences: false)
+            let body = lines.drop { !$0.hasPrefix("@@") }
+            return body.joined(separator: "\n").trimmingCharacters(in: .newlines)
+        }
+        let blocks = item.editBlocks
+        let unified = ToolDiff.unified(blocks)
+        if blocks.count == 1, blocks[0].old.isEmpty {
+            let count = unified.split(separator: "\n", omittingEmptySubsequences: false).count
+            return "@@ -0,0 +1,\(count) @@\n" + unified
+        }
+        return unified
     }
 
     private static func looksLikeDiff(_ text: String) -> Bool {

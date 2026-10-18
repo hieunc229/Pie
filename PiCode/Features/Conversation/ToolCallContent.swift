@@ -43,7 +43,7 @@ struct ToolCallContent: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(item.fileChanges) { change in
                         HStack(spacing: 8) {
-                            IconsaxIcon(name: change.kind.systemImage)
+                            HugeIcon(name: change.kind.systemImage)
                                 .imageScale(.small)
                                 .foregroundStyle(tint(for: change.kind))
                             // Selecting the row opens the diff for that file; the
@@ -65,7 +65,7 @@ struct ToolCallContent: View {
                             Button {
                                 WorkspaceLauncher.reveal(resolved(change.path))
                             } label: {
-                                IconsaxIcon(name: "export")
+                                HugeIcon(name: "arrow-up-right-01")
                                     .imageScale(.small)
                                     .foregroundStyle(.secondary)
                             }
@@ -90,7 +90,7 @@ struct ToolCallContent: View {
 
             if let path = item.fullOutputPath {
                 HStack(spacing: 6) {
-                    IconsaxIcon(name: "document-text")
+                    HugeIcon(name: "note-01")
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
                     Text("Pi truncated this output. Full text saved at \(path.abbreviatingHomeDirectory).")

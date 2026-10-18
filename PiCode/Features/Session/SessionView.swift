@@ -26,12 +26,35 @@ private struct ComposerHeightKey: PreferenceKey {
     }
 }
 
+/// Where the composer's top edge sits in the pane, so the first prompt of a new
+/// chat can take off from the box it was typed in.
+private struct ComposerTopKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 struct SessionView: View {
     @Bindable var state: AppState
     var controller: PiSessionController
     var composerFocusTick: Int
 
     @State private var composerHeight: CGFloat = 0
+    @State private var composerTop: CGFloat = 0
+    /// Whether the empty-chat landing is drawn: the question with the composer
+    /// right under it, both centred in the pane. It trails `isLanding` so the
+    /// change can be animated (or not) depending on what caused it.
+    @State private var showsLanding: Bool?
+    /// The controller `showsLanding` was last synced for; a landing change that
+    /// comes with a different controller is a session switch, not a send.
+    @State private var landingControllerID: ObjectIdentifier?
+    /// The first prompt of a new chat while it flies from the composer to the
+    /// top of the transcript. The transcript is hidden until it lands.
+    @State private var flyingPrompt: FlyingPrompt?
+
+    private static let paneSpace = "picode-session-pane"
+    private static let landingAnimation = Animation.spring(response: 0.5, dampingFraction: 0.86)
 
     /// The transcript's own backdrop, so the fade under the composer hides
     /// scrolled-away rows in the colour they were already drawn on.
@@ -48,33 +71,113 @@ struct SessionView: View {
             ConversationView(state: state, controller: controller,
                              bottomInset: composerHeight + 16)
                 .id(ObjectIdentifier(controller))
-                .overlay(alignment: .bottom) { floatingComposer }
+                // Hidden, not removed, while the landing shows and while the
+                // first prompt is in flight: the transcript keeps measuring
+                // itself, and its first row appears exactly where the flying
+                // copy lands.
+                .opacity(isShowingLanding || flyingPrompt != nil ? 0 : 1)
+                .overlay(alignment: .bottom) { composerFade }
+                .overlay { composerLayer }
+                .overlay(alignment: .top) { promptFlight }
+                .coordinateSpace(name: Self.paneSpace)
         }
         // Notifications no longer float over the transcript: the content header's
         // bell opens them in the right panel, where the list has the full height
         // of the column and cannot cover the conversation.
         .animation(.easeInOut(duration: 0.18), value: controller.trustState)
+        .onAppear { syncLanding() }
+        .onChange(of: isLanding) { wasLanding, landing in
+            syncLanding(sent: wasLanding && !landing)
+        }
+    }
+
+    // MARK: - Landing
+
+    /// An empty chat with nothing left to load: the question and the composer
+    /// sit together in the middle of the pane until the first prompt is sent.
+    private var isLanding: Bool {
+        let waitingForOpen = state.sessionOpeningKey == state.selectedSessionKey
+            && state.sessionOpenRevision != state.sessionOpenCompletedRevision
+        return controller.items.isEmpty
+            && !controller.isLoadingTranscriptHistory
+            && !waitingForOpen
+    }
+
+    private var isShowingLanding: Bool { showsLanding ?? isLanding }
+
+    /// Follows `isLanding`. Sending the first prompt animates: the composer
+    /// drops to the bottom while the prompt flies from it to the top of the
+    /// transcript. Anything else — opening another session, a failed send
+    /// putting the chat back to empty — just changes the layout.
+    private func syncLanding(sent: Bool = false) {
+        let controllerID = ObjectIdentifier(controller)
+        defer { landingControllerID = controllerID }
+        guard landingControllerID == controllerID, showsLanding != nil else {
+            showsLanding = isLanding
+            return
+        }
+
+        if sent, controller.items.count == 1,
+           let first = controller.items.first, first.kind == .user {
+            let flight = FlyingPrompt(text: first.text, from: composerTop + 8)
+            flyingPrompt = flight
+            withAnimation(Self.landingAnimation) { showsLanding = false }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(550))
+                guard flyingPrompt?.id == flight.id else { return }
+                withAnimation(.easeOut(duration: 0.15)) { flyingPrompt = nil }
+            }
+        } else {
+            flyingPrompt = nil
+            withAnimation(Self.landingAnimation) { showsLanding = isLanding }
+        }
+    }
+
+    /// The composer, at the bottom of the pane in a conversation and under the
+    /// question in the middle of it in an empty chat. It is the same view in
+    /// both places (only the spacers around it come and go), so it keeps its
+    /// focus and draft while it moves.
+    private var composerLayer: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            if isShowingLanding {
+                BuildPromptHero(projectName: controller.projectName)
+                    .padding(.bottom, 6)
+                    .transition(.opacity.combined(with: .offset(y: -16)))
+            }
+            ConversationColumn { composerStack }
+                .onPreferenceChange(ComposerHeightKey.self) { composerHeight = $0 }
+                .onPreferenceChange(ComposerTopKey.self) { composerTop = $0 }
+            if isShowingLanding {
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var promptFlight: some View {
+        if let flyingPrompt {
+            FlyingPromptBubble(prompt: flyingPrompt, to: 12, animation: Self.landingAnimation)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
     }
 
     // MARK: - Floating composer
 
-    /// The gradient and the composer share one bottom-aligned stack so the fade
-    /// sits *behind* the box, in the same colours, and clicks anywhere on it go
-    /// through to the transcript.
+    /// The fade sits *behind* the box, in the transcript's colours, and clicks
+    /// anywhere on it go through to the transcript. The landing has nothing
+    /// under the box to fade, so it is drawn only in a conversation.
     ///
     /// The box is put in `ConversationColumn`, the same column the transcript's
     /// rows are in, so it is exactly as wide as the text it floats over instead
     /// of as wide as the pane.
-    private var floatingComposer: some View {
-        ZStack(alignment: .bottom) {
-            LinearGradient(colors: [backdrop.opacity(0), backdrop],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(height: composerHeight + 28)
-                .allowsHitTesting(false)
-
-            ConversationColumn { composerStack }
-                .onPreferenceChange(ComposerHeightKey.self) { composerHeight = $0 }
-        }
+    private var composerFade: some View {
+        LinearGradient(colors: [backdrop.opacity(0), backdrop],
+                       startPoint: .top, endPoint: .bottom)
+            .frame(height: composerHeight + 28)
+            .opacity(isShowingLanding ? 0 : 1)
+            .allowsHitTesting(false)
     }
 
     /// The widgets an extension set. Both placements are drawn above the box:
@@ -92,7 +195,10 @@ struct SessionView: View {
         .padding(.top, 8)
         .padding(.bottom, 16)
         .background(GeometryReader { proxy in
-            Color.clear.preference(key: ComposerHeightKey.self, value: proxy.size.height)
+            Color.clear
+                .preference(key: ComposerHeightKey.self, value: proxy.size.height)
+                .preference(key: ComposerTopKey.self,
+                            value: proxy.frame(in: .named(Self.paneSpace)).minY)
         })
     }
 
@@ -143,7 +249,7 @@ struct SessionView: View {
     private var queuedPrompts: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                IconsaxIcon(name: "additem")
+                HugeIcon(name: "task-add-01")
                     .imageScale(.small)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
@@ -211,14 +317,14 @@ struct SessionView: View {
     private func queueActions(for message: QueuedPrompt) -> some View {
         HStack(spacing: 2) {
             if message.kind == .followUp {
-                queueButton("export", help: "Steer into the current turn") {
+                queueButton("arrow-up-right-01", help: "Steer into the current turn") {
                     Task { await controller.act(on: .steer, message: message.text) }
                 }
             }
-            queueButton("edit-2", help: "Edit in the composer") {
+            queueButton("edit-02", help: "Edit in the composer") {
                 Task { await controller.act(on: .edit, message: message.text) }
             }
-            queueButton("trash", help: "Remove from the queue") {
+            queueButton("delete-01", help: "Remove from the queue") {
                 Task { await controller.act(on: .remove, message: message.text) }
             }
         }
@@ -230,7 +336,7 @@ struct SessionView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            IconsaxIcon(name: systemImage)
+            HugeIcon(name: systemImage)
                 .imageScale(.small)
         }
         .buttonStyle(.borderless)
@@ -298,6 +404,48 @@ struct SessionView: View {
         case .failed(let message): return message
         case .disconnected: return "The session transcript is still shown. Restart to continue working in this session."
         default: return nil
+        }
+    }
+}
+
+// MARK: - First prompt flight
+
+struct FlyingPrompt: Equatable {
+    let id = UUID()
+    var text: String
+    /// The composer's text line, in the pane's coordinates.
+    var from: CGFloat
+}
+
+/// A copy of the first prompt that travels from where it was typed — leading
+/// edge, in the composer — to where the transcript draws it: a bubble on the
+/// trailing edge at the top. It is drawn like `TranscriptRowView`'s user row so
+/// the hand-off to the real row is invisible.
+private struct FlyingPromptBubble: View {
+    var prompt: FlyingPrompt
+    var to: CGFloat
+    var animation: Animation
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var landed = false
+
+    var body: some View {
+        ConversationColumn {
+            Text(prompt.text)
+                .font(TranscriptStyle.text)
+                .lineSpacing(TranscriptStyle.lineSpacing)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(TranscriptStyle.userBubbleFill(colorScheme).opacity(landed ? 1 : 0),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(maxWidth: 520, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: landed ? .trailing : .leading)
+        }
+        .offset(y: landed ? to : prompt.from)
+        .onAppear {
+            withAnimation(animation) { landed = true }
         }
     }
 }

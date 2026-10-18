@@ -314,6 +314,8 @@ final class PiSessionController {
         }
 
         self.client = client
+        await client.prepare()
+        guard self.client === client else { return }
 
         do {
             try client.start()
@@ -1653,8 +1655,20 @@ final class PiSessionController {
 
     private func rebuildVisibleTranscript() {
         var start = max(0, allBaseItems.count - visibleTranscriptItemLimit)
-        if start > 0, let userStart = allBaseItems[...start].lastIndex(where: { $0.kind == .user }) {
-            start = userStart
+        if start > 0 {
+            // Start the window on a row boundary so the first loaded run is not
+            // cut in half: the turn's own prompt when it is near, otherwise the
+            // nearest note Pi wrote between calls. The search is bounded by a
+            // page — an agent turn can be thousands of steps, and snapping back
+            // to its prompt used to lay the whole of it out on open and again
+            // on every streaming flush.
+            let floor = max(0, start - transcriptPageItemCount)
+            let candidates = allBaseItems[floor...start]
+            if let userStart = candidates.lastIndex(where: { $0.kind == .user }) {
+                start = userStart
+            } else if let noteStart = candidates.lastIndex(where: { !TranscriptRows.isProcess($0) }) {
+                start = noteStart
+            }
         }
         baseItems = Array(allBaseItems[start...])
         hasEarlierTranscript = start > 0
@@ -1719,10 +1733,12 @@ final class PiSessionController {
         }
 
         appendUnique(baseItems)
+        // A sent prompt that the harness has not echoed back yet is older than
+        // the response streaming for it, so it goes before the live rows.
+        appendUnique(optimisticUserItems)
         var live = liveItems()
         applyToolRuntime(to: &live)
         appendUnique(live)
-        appendUnique(optimisticUserItems)
         items = result
         recomputeRows()
     }
@@ -1731,7 +1747,7 @@ final class PiSessionController {
     /// place grouping happens, so the view's body is a read rather than a walk.
     private func recomputeRows() {
         rows = TranscriptRows.group(items, isWorking: isStreaming).filter { row in
-            guard case .group(let items, _) = row else { return true }
+            guard case .group(let items, _, _) = row else { return true }
             // Reasoning is hidden, so a one-step run that is only reasoning would
             // be a line that opens onto nothing.
             return items.contains { $0.kind != .thinking }
@@ -1941,6 +1957,22 @@ extension PiSessionController {
         guard let index = allBaseItems.lastIndex(where: { $0.kind == .assistant }) else { return }
         allBaseItems[index].text += chunk
         rebuildVisibleTranscript()
+    }
+
+    /// Times the model half of a transcript update — what a message boundary
+    /// (`rebuildBaseItems`) and a streaming flush (`recomposeItems`) cost
+    /// before SwiftUI sees anything. Used by the streaming benchmark only.
+    func debugTimeModelPipeline(repeats: Int = 10) -> String {
+        func time(_ body: () -> Void) -> Double {
+            let start = ProcessInfo.processInfo.systemUptime
+            for _ in 0..<repeats { body() }
+            return (ProcessInfo.processInfo.systemUptime - start) * 1000 / Double(repeats)
+        }
+        let rebuild = time { rebuildBaseItems() }
+        let recompose = time { recomposeItems() }
+        let rows = time { recomputeRows() }
+        return String(format: "messages %d items %d visible %d rows %d  rebuildBaseItems %.2fms  recomposeItems %.2fms  recomputeRows %.2fms",
+                      baseMessages.count, allBaseItems.count, items.count, self.rows.count, rebuild, recompose, rows)
     }
 }
 #endif

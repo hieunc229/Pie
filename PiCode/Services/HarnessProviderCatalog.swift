@@ -22,7 +22,7 @@ enum HarnessProviderCatalog {
                 return provider.api == "anthropic-messages"
             case .codex:
                 return provider.api == "openai-responses"
-            case .opencode:
+            case .opencode, .museCode:
                 return false
             }
         }
@@ -74,9 +74,9 @@ enum HarnessProviderCatalog {
         case .claudeCode: nativeProvider = "anthropic"
         case .codex: nativeProvider = "openai"
         case .pi, .ohMyPi: return true
-        case .opencode: nativeProvider = nil
+        case .opencode, .museCode: nativeProvider = nil
         }
-        if harness == .opencode { return true }
+        if harness == .opencode || harness == .museCode { return true }
         if providerID == nativeProvider { return true }
         return providers(for: harness).contains { $0.id == providerID }
     }

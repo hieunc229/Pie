@@ -36,10 +36,17 @@ protocol AgentRuntime: AnyObject, Sendable {
     var onPayloadRecord: ((String) -> Void)? { get set }
     var recordsPayloads: Bool { get set }
 
+    /// Work to finish before `start`, off the main actor — reading a resumed
+    /// chat's saved history, which for a long session is megabytes of JSON.
+    func prepare() async
     func start() throws
     func stop()
     func send(_ command: RPCCommand, timeout: TimeInterval) async throws -> RPCResponse
     func sendRaw(_ payload: JSONValue)
+}
+
+extension AgentRuntime {
+    func prepare() async {}
 }
 
 enum AgentRuntimeError: LocalizedError, Equatable {
@@ -112,6 +119,17 @@ enum AgentRuntimeFactory {
             )
         case .deepseekHarness:
             return DeepSeekRuntime(
+                descriptor: descriptor,
+                installation: installation,
+                projectPath: projectPath,
+                sessionFile: sessionFile,
+                systemPrompt: systemPrompt,
+                model: model,
+                extraArguments: extraArguments,
+                environment: environment
+            )
+        case .museCode:
+            return MuseRuntime(
                 descriptor: descriptor,
                 installation: installation,
                 projectPath: projectPath,

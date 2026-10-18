@@ -20,7 +20,7 @@ enum HarnessLaunch {
             // The SDK profile owns the JSON-RPC server. `headless` is one-shot;
             // `sdk` is the long-lived session server.
             return ["--profile", "sdk"]
-        case .claudeCode, .codex, .opencode:
+        case .claudeCode, .codex, .opencode, .museCode:
             // These adapters build their own argv from their own launch profile.
             return []
         }

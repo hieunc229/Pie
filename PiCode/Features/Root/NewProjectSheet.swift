@@ -51,10 +51,11 @@ struct NewProjectSheet: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        Picker("Agent runtime", selection: $harnessID) {
-                            ForEach(state.harnesses.usableHarnesses) { descriptor in
-                                Text(descriptor.displayName).tag(descriptor.id)
-                            }
+                        LabeledContent("Agent runtime") {
+                            Dropdown(
+                                selection: $harnessID,
+                                options: state.harnesses.usableHarnesses.map { .init(label: $0.displayName, value: $0.id) }
+                            )
                         }
                         Text(selectedDescriptor?.tagline ?? "")
                             .font(.caption)
@@ -64,22 +65,23 @@ struct NewProjectSheet: View {
 
                 if supportsPrelaunchProviderConfiguration {
                     Section("Provider") {
-                        Picker("Provider", selection: $provider) {
-                            Text("Automatic").tag("")
-                            if !providerOptions.isEmpty { Divider() }
-                            ForEach(providerOptions, id: \.self) { id in
-                                Text(id).tag(id)
-                            }
+                        LabeledContent("Provider") {
+                            Dropdown(
+                                selection: $provider,
+                                options: [.init(label: "Automatic", value: "")]
+                                    + providerOptions.map { .init(label: $0, value: $0) }
+                            )
                         }
                     }
 
                     Section("Model") {
                         if !modelOptions.isEmpty {
-                            Picker("Model", selection: $model) {
-                                Text("Automatic").tag("")
-                                ForEach(modelOptions, id: \.self) { id in
-                                    Text(id).tag(id)
-                                }
+                            LabeledContent("Model") {
+                                Dropdown(
+                                    selection: $model,
+                                    options: [.init(label: "Automatic", value: "")]
+                                        + modelOptions.map { .init(label: $0, value: $0) }
+                                )
                             }
                         } else {
                             TextField("Model", text: $modelText, prompt: Text("provider/model"))
@@ -103,8 +105,9 @@ struct NewProjectSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { onDone() }
+                    .buttonStyle(.settingsPill)
                 Button("Create Chat") { create() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.settingsPillProminent)
                     .disabled(selectedDescriptor == nil)
             }
             .padding(12)

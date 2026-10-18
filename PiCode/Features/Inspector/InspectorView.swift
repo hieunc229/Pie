@@ -29,7 +29,7 @@ struct InspectorView: View {
                 }
             } else {
                 EmptyStateView(
-                    systemImage: "sidebar-right",
+                    systemImage: "layout-align-right",
                     title: "Nothing selected",
                     message: "Click a change, a file, a command, or a tool result in the conversation to open it here."
                 )
@@ -63,7 +63,7 @@ struct NotificationsPanel: View {
     /// and actions right on the same titlebar-height row.
     private var header: some View {
         HStack(spacing: 8) {
-            IconsaxIcon(name: "notification")
+            HugeIcon(name: "notification-01")
                 .imageScale(.small)
                 .foregroundStyle(.secondary)
                 .frame(width: 16, alignment: .center)
@@ -114,7 +114,7 @@ struct NotificationsPanel: View {
 
     private func row(_ notification: ExtensionNotification) -> some View {
         HStack(alignment: .top, spacing: 9) {
-            IconsaxIcon(name: notification.level.systemImage)
+            HugeIcon(name: notification.level.systemImage)
                 .imageScale(.small)
                 .foregroundStyle(tint(notification.level))
                 .frame(width: 16, alignment: .center)
@@ -140,7 +140,7 @@ struct NotificationsPanel: View {
             Button {
                 controller?.dismissNotification(notification.id)
             } label: {
-                IconsaxIcon(name: "close-circle")
+                HugeIcon(name: "cancel-circle")
                     .font(.caption2)
             }
             .buttonStyle(.borderless)
@@ -172,7 +172,7 @@ struct ArtifactHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            IconsaxIcon(name: systemImage)
+            HugeIcon(name: systemImage)
                 .imageScale(.small)
                 .foregroundStyle(.secondary)
                 .frame(width: 16, alignment: .center)
@@ -187,10 +187,10 @@ struct ArtifactHeader: View {
 
             Menu {
                 Toggle(isOn: $wrapsText) {
-                    Label("Text Wrap", iconsax: "textalign-left")
+                    Label("Text Wrap", huge: "text-align-left")
                 }
             } label: {
-                IconsaxIcon(name: "setting-2")
+                HugeIcon(name: "settings-02")
                     .imageScale(.medium)
                     .contentShape(Rectangle())
             }
@@ -237,11 +237,11 @@ struct ArtifactHeader: View {
 
     private var systemImage: String {
         switch artifact {
-        case .change: return "edit-2"
-        case .file: return "document-text"
+        case .change: return "edit-02"
+        case .file: return "note-01"
         case .tool(let id):
-            guard let item = item(id) else { return "setting-4" }
-            return QuietFamily.of(item)?.systemImage ?? "setting-4"
+            guard let item = item(id) else { return "wrench-01" }
+            return QuietFamily.of(item)?.systemImage ?? "wrench-01"
         }
     }
 
@@ -327,7 +327,7 @@ struct ChangeArtifactView: View {
                 DiffView(diff: diff, wrapsText: wrapsText)
             } else {
                 EmptyStateView(
-                    systemImage: "document-text",
+                    systemImage: "note-01",
                     title: "No text diff",
                     message: "This file is binary, untracked, or unchanged on disk. Open the edit call itself to see the change Pi made."
                 )
@@ -403,7 +403,7 @@ struct ChangesPane: View {
 
             HStack(spacing: 8) {
                 if let branch = controller.git.branch {
-                    Label(branch, iconsax: "hierarchy-2")
+                    Label(branch, huge: "git-branch")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -412,7 +412,7 @@ struct ChangesPane: View {
                 Button {
                     Task { await refresh() }
                 } label: {
-                    IconsaxIcon(name: "refresh")
+                    HugeIcon(name: "refresh")
                 }
                 .buttonStyle(.borderless)
                 .help("Refresh changes")
@@ -426,7 +426,7 @@ struct ChangesPane: View {
     private var content: some View {
         if changes.isEmpty {
             EmptyStateView(
-                systemImage: showsSessionChanges ? "tick-circle" : "tick-circle",
+                systemImage: showsSessionChanges ? "checkmark-circle-01" : "checkmark-circle-01",
                 title: showsSessionChanges ? "No files touched yet" : "Working tree clean",
                 message: showsSessionChanges
                     ? "Files Pi edits during this session appear here."
@@ -463,7 +463,7 @@ struct ChangesPane: View {
                     Button {
                         state.openInInspector(path: absolutePath(for: change))
                     } label: {
-                        IconsaxIcon(name: "document-text")
+                        HugeIcon(name: "note-01")
                     }
                     .buttonStyle(.borderless)
                     .help("Show this file in the Files tab")
@@ -593,7 +593,7 @@ struct ChangeRow: View {
             Spacer(minLength: 0)
             DiffStatView(additions: change.additions, deletions: change.deletions)
             if change.isStaged {
-                IconsaxIcon(name: "verify")
+                HugeIcon(name: "seal")
                     .imageScale(.small)
                     .foregroundStyle(.tertiary)
                     .help("Staged")

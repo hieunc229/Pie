@@ -21,7 +21,7 @@ struct ComposerReasoningSlider: View {
 
             if levels.isEmpty {
                 HStack(spacing: 9) {
-                    IconsaxIcon(name: "lamp-on")
+                    HugeIcon(name: "bulb")
                         .foregroundStyle(.tertiary)
                         .frame(width: 16)
                     Text("Reasoning effort unavailable")
@@ -30,7 +30,7 @@ struct ComposerReasoningSlider: View {
                 .padding(.vertical, 8)
             } else {
                 HStack(spacing: 9) {
-                    IconsaxIcon(name: "lamp-on")
+                    HugeIcon(name: "bulb")
                         .foregroundStyle(.secondary)
                         .frame(width: 16)
                     Text("Reasoning effort")

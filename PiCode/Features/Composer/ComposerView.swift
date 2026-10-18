@@ -214,7 +214,7 @@ struct ComposerView: View {
             HStack(spacing: 6) {
                 ForEach(attachments) { attachment in
                     HStack(spacing: 6) {
-                        IconsaxIcon(name: attachment.systemImage)
+                        HugeIcon(name: attachment.systemImage)
                             .imageScale(.small)
                             .foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 0) {
@@ -228,7 +228,7 @@ struct ComposerView: View {
                         Button {
                             attachments.removeAll { $0.id == attachment.id }
                         } label: {
-                            IconsaxIcon(name: "close-circle")
+                            HugeIcon(name: "cancel-circle")
                                 .imageScale(.small)
                                 .foregroundStyle(.tertiary)
                         }
@@ -252,7 +252,7 @@ struct ComposerView: View {
     /// or lives on the stop button's own shortcut.
     private var controlRow: some View {
         HStack(spacing: 10) {
-            iconButton("add", size: 16, help: "Attach images or text files — drag and drop works too") {
+            iconButton("add-01", size: 16, help: "Attach images or text files — drag and drop works too") {
                 chooseAttachments()
             }
 
@@ -265,7 +265,7 @@ struct ComposerView: View {
             // attachment controls and with a clear gap between them.
             HStack(spacing: 12) {
                 modelThinkingMenu
-                iconButton("microphone", size: 15, help: "Dictate (uses macOS Dictation)") {
+                iconButton("mic-01", size: 15, help: "Dictate (uses macOS Dictation)") {
                     startDictation()
                 }
                 primaryActionButton
@@ -286,7 +286,7 @@ struct ComposerView: View {
 
     private func iconButton(_ systemImage: String, size: CGFloat = 12.5, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            IconsaxIcon(name: systemImage)
+            HugeIcon(name: systemImage)
                 .font(.system(size: size, weight: .regular))
                 .foregroundStyle(.secondary)
                 .frame(width: 24, height: 24)
@@ -310,7 +310,7 @@ struct ComposerView: View {
                     text = controller.drafts.text(for: controller.draftKey)
                 }
             } label: {
-                IconsaxIcon(name: "stop")
+                HugeIcon(name: "stop")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 28, height: 28)
@@ -323,7 +323,7 @@ struct ComposerView: View {
             Button {
                 send(delivery: .automatic)
             } label: {
-                IconsaxIcon(name: "arrow-up")
+                HugeIcon(name: "arrow-up-01")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white.opacity(canSend ? 1 : 0.55))
                     .frame(width: 28, height: 28)
@@ -351,7 +351,7 @@ struct ComposerView: View {
                     Text(effort.capitalized)
                         .foregroundStyle(.secondary)
                 }
-                IconsaxIcon(name: "arrow-down-2")
+                HugeIcon(name: "arrow-down-01")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 2)
@@ -397,13 +397,19 @@ struct ComposerView: View {
         let outgoing = text
         let outgoingAttachments = attachments
         isSending = true
+        // Cleared now rather than once Pi answers, so the prompt leaves the box
+        // the moment it appears in the transcript (a new chat's first prompt
+        // visibly flies out of it). A failed send puts it back, unless the user
+        // has started typing something else meanwhile.
+        text = ""
+        attachments = []
+        fileMatches = []
         Task {
             let delivered = await controller.send(text: outgoing, attachments: outgoingAttachments, delivery: delivery)
             isSending = false
-            if delivered {
-                text = ""
-                attachments = []
-                fileMatches = []
+            if !delivered, text.isEmpty, attachments.isEmpty {
+                text = outgoing
+                attachments = outgoingAttachments
             }
         }
     }
@@ -564,7 +570,7 @@ struct ComposerSuggestion: Identifiable, Equatable {
         title = command.invocation
         subtitle = command.description.isEmpty ? command.sourceLabel : command.description
         insertion = command.invocation + " "
-        systemImage = command.source == .skill ? "magic-star" : "forbidden-2"
+        systemImage = command.source == .skill ? "magic-wand-01" : "slash"
     }
 
     init?(node: FileNode, root: String) {
@@ -575,7 +581,7 @@ struct ComposerSuggestion: Identifiable, Equatable {
         title = relative
         subtitle = node.byteSize > 0 ? ByteCountFormatter.string(fromByteCount: Int64(node.byteSize), countStyle: .file) : nil
         insertion = "@" + relative + " "
-        systemImage = "document-text"
+        systemImage = "note-01"
     }
 }
 
@@ -592,7 +598,7 @@ struct ComposerSuggestionList: View {
                     onSelect(suggestion)
                 } label: {
                     HStack(spacing: 8) {
-                        IconsaxIcon(name: suggestion.systemImage)
+                        HugeIcon(name: suggestion.systemImage)
                             .imageScale(.small)
                             .foregroundStyle(.secondary)
                             .frame(width: 16)

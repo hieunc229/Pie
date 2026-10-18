@@ -64,15 +64,29 @@ class BufferedAgentRuntime: AgentRuntime, @unchecked Sendable {
         self.modelOverride = model
         self.extraArguments = extraArguments
         self.environment = environment
-        if let sessionFile, descriptor.id == .claudeCode || descriptor.id == .codex {
-            messages = HarnessSessionIndex.history(id: sessionFile, harness: descriptor.id)
-            stateFields.sessionId = sessionFile
-            stateFields.sessionFile = sessionFile
-            stateFields.messageCount = messages.count
-        }
     }
 
     // MARK: Lifecycle (subclasses override)
+
+    /// Reads a resumed chat's history into the buffer. It used to happen in
+    /// `init` (Claude Code, Codex) and `start` (DeepSeek), both on the main
+    /// actor: a long DeepSeek log is a zstd stream of thousands of JSON events,
+    /// and decoding it froze the window for seconds while the chat opened.
+    func prepare() async {
+        guard let sessionFile, messages.isEmpty else { return }
+        let harness = descriptor.id
+        guard harness == .claudeCode || harness == .codex || harness == .deepseekHarness else { return }
+        let loaded = await Task.detached(priority: .userInitiated) {
+            harness == .deepseekHarness
+                ? DeepSeekSessionHistory.load(sessionId: sessionFile)
+                : HarnessSessionIndex.history(id: sessionFile, harness: harness)
+        }.value
+        guard messages.isEmpty else { return }
+        messages = loaded
+        stateFields.sessionId = sessionFile
+        stateFields.sessionFile = sessionFile
+        stateFields.messageCount = messages.count
+    }
 
     func start() throws {
         throw AgentRuntimeError.unsupported(command: "start", harness: descriptor.displayName)

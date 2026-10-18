@@ -15,24 +15,21 @@ struct LocalHarnessAccountSettingsView: View {
     @State private var isLoading = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Divider()
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Subscription & local account")
-                    .font(.caption.weight(.semibold))
-                Spacer(minLength: 0)
+                SettingsLabel(
+                    "Subscription & local account",
+                    detail: status?.detail ?? "Checking the account owned by \(descriptor.displayName)…"
+                )
+                .textSelection(.enabled)
+                Spacer(minLength: 12)
                 if isLoading { ProgressView().controlSize(.mini) }
                 if let status {
-                    Label(status.title, iconsax: statusIcon(status.kind))
+                    Label(status.title, huge: statusIcon(status.kind))
                         .font(.caption.weight(.medium))
                         .foregroundStyle(statusColor(status.kind))
                 }
             }
-
-            Text(status?.detail ?? "Checking the account owned by \(descriptor.displayName)…")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
 
             HStack(spacing: 8) {
                 Button(status?.kind == .signedOut ? "Sign In…" : "Manage Account…") {
@@ -40,7 +37,7 @@ struct LocalHarnessAccountSettingsView: View {
                     _ = WorkspaceLauncher.openTerminal(at: NSHomeDirectory())
                     state.showToast("Run `\(command)` in the terminal.")
                 }
-                .controlSize(.small)
+                .buttonStyle(.settingsPillProminent)
 
                 CopyButton(
                     text: LocalHarnessAccountService.loginCommand(for: descriptor.id),
@@ -48,13 +45,13 @@ struct LocalHarnessAccountSettingsView: View {
                 )
 
                 Button("Refresh") { Task { await reload() } }
-                    .controlSize(.small)
+                    .buttonStyle(.settingsPill)
                     .disabled(isLoading)
             }
 
             Text("PiCode asks the installed CLI for status and launches it normally. Tokens remain in the CLI's own credential store.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 13, weight: .light))
+                .foregroundStyle(.secondary)
         }
         .task(id: installation?.version) { await reload() }
     }
@@ -80,10 +77,10 @@ struct LocalHarnessAccountSettingsView: View {
 
     private func statusIcon(_ kind: LocalHarnessAccountStatus.Kind) -> String {
         switch kind {
-        case .subscription: return "verify"
-        case .localCredentials: return "key"
-        case .apiKey: return "key"
-        case .signedOut: return "profile-circle"
+        case .subscription: return "seal"
+        case .localCredentials: return "key-01"
+        case .apiKey: return "key-01"
+        case .signedOut: return "user-circle"
         case .unavailable: return "message-question"
         }
     }

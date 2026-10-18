@@ -73,7 +73,7 @@ struct ComposerModelPicker: View {
             VStack(alignment: .leading, spacing: 0) {
                 pickerRow(title: "Harness",
                           value: controller.harness.displayName,
-                          systemImage: "box") {
+                          systemImage: "package") {
                     navigate(to: .harness)
                 }
 
@@ -142,6 +142,11 @@ struct ComposerModelPicker: View {
                         ) {
                             providerFilter = provider
                             navigate(to: .model)
+                            Task {
+                                if await state.refreshProviderModelsIfStale(provider) {
+                                    await controller.refreshModels()
+                                }
+                            }
                         }
                     }
                 }
@@ -153,13 +158,13 @@ struct ComposerModelPicker: View {
     private var modelList: some View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
-                IconsaxIcon(name: "search-normal")
+                HugeIcon(name: "search-01")
                     .foregroundStyle(.tertiary)
                 TextField("Search models", text: $query)
                     .textFieldStyle(.plain)
                 if !query.isEmpty {
                     Button { query = "" } label: {
-                        IconsaxIcon(name: "close-circle").foregroundStyle(.tertiary)
+                        HugeIcon(name: "cancel-circle").foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -174,7 +179,7 @@ struct ComposerModelPicker: View {
                     if filteredModels.isEmpty {
                         ContentUnavailableView(
                             query.isEmpty ? "No models available" : "No matching models",
-                            systemImage: "search-normal",
+                            systemImage: "search-01",
                             description: Text(emptyDescription)
                         )
                         .frame(maxWidth: .infinity)
@@ -214,7 +219,7 @@ struct ComposerModelPicker: View {
     private func backRow(title: String) -> some View {
         Button { goBack() } label: {
             HStack(spacing: 9) {
-                IconsaxIcon(name: "arrow-left-2")
+                HugeIcon(name: "arrow-left-01")
                     .font(.system(size: 11, weight: .semibold))
                     .frame(width: 16)
                 Text("Back")
@@ -237,7 +242,7 @@ struct ComposerModelPicker: View {
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 9) {
-                IconsaxIcon(name: systemImage)
+                HugeIcon(name: systemImage)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .frame(width: 16)
@@ -246,7 +251,7 @@ struct ComposerModelPicker: View {
                 Text(value)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                IconsaxIcon(name: "arrow-right-2")
+                HugeIcon(name: "arrow-right-01")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
@@ -264,7 +269,7 @@ struct ComposerModelPicker: View {
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                IconsaxIcon(name: "tick-circle")
+                HugeIcon(name: "checkmark-circle-01")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .opacity(isSelected ? 1 : 0)
@@ -293,10 +298,10 @@ struct ComposerModelPicker: View {
         AnyView(
             HStack(spacing: 6) {
                 if model.reasoning {
-                    IconsaxIcon(name: "lamp-on").foregroundStyle(.tertiary)
+                    HugeIcon(name: "bulb").foregroundStyle(.tertiary)
                 }
                 if model.supportsImages {
-                    IconsaxIcon(name: "gallery").foregroundStyle(.tertiary)
+                    HugeIcon(name: "image-01").foregroundStyle(.tertiary)
                 }
             }
         )

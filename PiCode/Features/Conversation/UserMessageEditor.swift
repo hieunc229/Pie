@@ -25,6 +25,7 @@ struct UserMessageEditor: View {
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel)
+                    .buttonStyle(.settingsPill)
                     .disabled(isSending)
                 Button(isSending ? "Sending…" : "Send") {
                     isSending = true
@@ -39,7 +40,7 @@ struct UserMessageEditor: View {
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.settingsPillProminent)
                 .disabled(isSending || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                           || controller.runtime.isBusy || controller.isChangingBranch)
             }

@@ -71,10 +71,10 @@ enum QuietFamily: String, CaseIterable {
 
     var systemImage: String {
         switch self {
-        case .command: return "command-square"
-        case .edit: return "edit-2"
-        case .read: return "document-text"
-        case .thinking: return "lamp-on"
+        case .command: return "terminal"
+        case .edit: return "edit-02"
+        case .read: return "note-01"
+        case .thinking: return "bulb"
         }
     }
 
@@ -135,9 +135,14 @@ enum QuietFamily: String, CaseIterable {
 /// of calls can all be finished while the turn is not: Pi may be thinking, or
 /// writing the answer, and a finished sub-run must not claim “Worked for 2s” in
 /// the middle of the work. Only a completed turn earns the duration line (§11).
+///
+/// `workedFor` is that line: the whole turn's duration, set on the *last* visible
+/// run of a completed turn and on no other. The other runs of a finished turn are
+/// tasks, not the response, so they keep the family list — "Ran commands, edited
+/// files" — rather than each claiming a slice of the turn's time.
 enum TranscriptRow: Identifiable, Equatable {
     case item(TranscriptItem)
-    case group([TranscriptItem], isLiveTurn: Bool = false)
+    case group([TranscriptItem], isLiveTurn: Bool = false, workedFor: TimeInterval? = nil)
 
     var id: String {
         switch self {
@@ -146,7 +151,7 @@ enum TranscriptRow: Identifiable, Equatable {
         // Keyed by the group's *first* item, not its contents: appending another
         // call to a run must not change the row's identity, or a turn that is still
         // streaming would fold the row back up while the user is reading it.
-        case .group(let items, _):
+        case .group(let items, _, _):
             return "group-\(items.first?.id ?? "empty")"
         }
     }
@@ -154,7 +159,7 @@ enum TranscriptRow: Identifiable, Equatable {
     var items: [TranscriptItem] {
         switch self {
         case .item(let item): return [item]
-        case .group(let items, _): return items
+        case .group(let items, _, _): return items
         }
     }
 
@@ -162,7 +167,15 @@ enum TranscriptRow: Identifiable, Equatable {
     var isLiveTurn: Bool {
         switch self {
         case .item: return false
-        case .group(_, let isLiveTurn): return isLiveTurn
+        case .group(_, let isLiveTurn, _): return isLiveTurn
+        }
+    }
+
+    /// The completed turn's duration, when this run is the one that reports it.
+    var workedFor: TimeInterval? {
+        switch self {
+        case .item: return nil
+        case .group(_, _, let workedFor): return workedFor
         }
     }
 
@@ -247,15 +260,13 @@ enum TranscriptRow: Identifiable, Equatable {
         }
     }
 
-    /// The line the transcript draws for this run: what it cost once the *turn* is
-    /// over — “Worked for 1m 12s” — and the family list while it is still going,
-    /// because a duration that is still growing is a clock rather than a result.
-    ///
-    /// The test is the turn's liveness, not the run's: while Pi is still working
-    /// the line names the families, so it never claims a duration the turn has not
-    /// earned.
+    /// The line the transcript draws for this run: what the turn cost once the
+    /// response is complete — “Worked for 1m 12s”, on the turn's last run only —
+    /// and the family list otherwise: while the turn is still going, because a
+    /// duration that is still growing is a clock rather than a result, and on a
+    /// finished turn's earlier runs, which are tasks rather than the response.
     var headline: String {
-        if !isLiveTurn, let duration = workedDuration {
+        if !isLiveTurn, let duration = workedFor {
             return "Worked for \(Format.duration(duration))"
         }
         return groupTitle
@@ -330,8 +341,21 @@ enum TranscriptRows {
     /// interruptions allow, and Pi's own words left in the open as ordinary rows.
     /// A note between two calls is prose, not process, so it breaks the fold where
     /// it was actually written; the last word is not lifted out and re-appended.
+    ///
+    /// Only the last run with a visible step says “Worked for”, timed over the
+    /// whole turn: that line reports the response, and the runs before it are
+    /// tasks, so they keep their family titles. A run that is only reasoning is
+    /// not drawn, so it cannot carry the line.
     private static func completedRows(_ turn: [TranscriptItem]) -> [TranscriptRow] {
-        foldableRows(turn)
+        var rows = foldableRows(turn)
+        guard let index = rows.lastIndex(where: { row in
+            guard case .group(let items, _, _) = row else { return false }
+            return items.contains { $0.kind != .thinking }
+        }), case .group(let items, let isLiveTurn, _) = rows[index],
+              let duration = TranscriptRow.group(turn).workedDuration
+        else { return rows }
+        rows[index] = .group(items, isLiveTurn: isLiveTurn, workedFor: duration)
+        return rows
     }
 
     /// Fold every run of foldable items into one row, leaving the rest as rows.
@@ -396,7 +420,7 @@ extension TranscriptItem {
     }
 }
 
-private extension String {
+extension String {
     /// "run commands" → "Run commands". Only ever applied to the head of a list.
     var capitalizedFirst: String {
         guard let first = first else { return self }

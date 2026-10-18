@@ -37,7 +37,7 @@ enum ProviderRegistry {
                             with harnesses: Set<HarnessID>) throws {
         let providers = ProviderModelCapabilities.normalized(providers)
         if harnesses.contains(.pi) {
-            try ProviderConfigurationStore.save(providers, to: PiPaths.modelsFile)
+            try PiProviderService.saveCustomProviders(providers)
         }
         if harnesses.contains(.ohMyPi) {
             try OMPProviderService.saveCustomProviders(providers)

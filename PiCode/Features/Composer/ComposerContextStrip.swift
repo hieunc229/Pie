@@ -19,13 +19,13 @@ struct ComposerContextStrip: View {
 
     var body: some View {
         HStack(spacing: 22) {
-            chip("folder-2", controller.projectName, help: controller.projectPath.abbreviatingHomeDirectory) {
+            chip("folder-02", controller.projectName, help: controller.projectPath.abbreviatingHomeDirectory) {
                 showsProjects.toggle()
             }
             .popover(isPresented: $showsProjects, arrowEdge: .top) { projectPicker }
 
             if controller.git.isRepository, let branch = controller.git.branch {
-                chip("hierarchy-2", branch, help: "Current git branch") {
+                chip("git-branch", branch, help: "Current git branch") {
                     showsBranches.toggle()
                 }
                 .popover(isPresented: $showsBranches, arrowEdge: .top) { branchPicker(current: branch) }
@@ -45,7 +45,7 @@ struct ComposerContextStrip: View {
         let current = CanonicalPath.of(controller.projectPath)
         return state.projects
             .filter { $0.path == current || $0.sessions.contains { $0.harnessID == harnessID } }
-            .map { ContextPickerItem(id: $0.path, title: $0.name, systemImage: "folder-2",
+            .map { ContextPickerItem(id: $0.path, title: $0.name, systemImage: "folder-02",
                                      isSelected: $0.path == current) }
     }
 
@@ -54,7 +54,7 @@ struct ComposerContextStrip: View {
             searchPrompt: "Search projects",
             heading: nil,
             items: projectItems,
-            actions: [ContextPickerAction(title: "New project", systemImage: "add") {
+            actions: [ContextPickerAction(title: "New project", systemImage: "add-01") {
                 Task { await state.addProject() }
             }],
             onSelect: { item in
@@ -73,7 +73,7 @@ struct ComposerContextStrip: View {
             ContextPickerItem(
                 id: name, title: name,
                 subtitle: name == current && dirty > 0 ? "Uncommitted: \(dirty) file\(dirty == 1 ? "" : "s")" : nil,
-                systemImage: "hierarchy-2",
+                systemImage: "git-branch",
                 isSelected: name == current)
         }
         return ContextPickerPopover(
@@ -96,7 +96,7 @@ struct ComposerContextStrip: View {
     private func chip(_ systemImage: String, _ title: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                IconsaxIcon(name: systemImage)
+                HugeIcon(name: systemImage)
                     .font(.system(size: 12.5, weight: .regular))
                 Text(title)
                     .font(.system(size: 13.5))

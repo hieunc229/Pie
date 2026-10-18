@@ -13,10 +13,15 @@ enum TranscriptResponseUtils {
             guard let lastAssistant else { return }
             let response = text.joined(separator: "\n\n")
             for id in rowIDs {
+                // Only the turn's last row draws the footer that copies the
+                // reply. Every row is compared on every update, so handing each
+                // one the whole turn's text made a long turn compare its reply
+                // once per row on every streaming flush.
+                let endsTurn = id == rowIDs.last
                 result[id] = TranscriptResponseMetadata(
-                    text: response, entryID: lastAssistant.forkEntryId,
+                    text: endsTurn ? response : "", entryID: lastAssistant.forkEntryId,
                     hoverID: lastAssistant.forkEntryId ?? lastAssistant.id,
-                    timestamp: lastAssistant.timestamp, endsTurn: id == rowIDs.last,
+                    timestamp: lastAssistant.timestamp, endsTurn: endsTurn,
                     isLastTurn: isLastTurn)
             }
         }

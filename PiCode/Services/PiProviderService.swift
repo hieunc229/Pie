@@ -349,7 +349,23 @@ enum PiProviderService {
     /// Replaces the `providers` map while preserving the rest of the file,
     /// including per-model fields this UI does not edit.
     static func saveCustomProviders(_ providers: [CustomProvider], at url: URL = PiPaths.modelsFile) throws {
-        try ProviderConfigurationStore.save(providers, to: url)
+        try ProviderConfigurationStore.save(providers, to: url, modelTransform: ensureCost)
+    }
+
+    /// Gives a model without pricing a zero `cost`, keeping one the user set.
+    /// Pi only fills the default in on its own `models.json` load; a provider
+    /// re-registered through an extension's `registerProvider` (for example
+    /// pi-setup-custom-providers, which replays this file) keeps the entry as
+    /// written, and Pi's usage accounting then fails every reply with
+    /// `Cannot read properties of undefined (reading 'tiers')`.
+    static func ensureCost(_ model: ProviderModelConfiguration, _ object: inout [String: JSONValue]) {
+        guard object["cost"]?.objectValue == nil else { return }
+        object["cost"] = .object([
+            "input": .number(0),
+            "output": .number(0),
+            "cacheRead": .number(0),
+            "cacheWrite": .number(0)
+        ])
     }
 
     /// Problems Pi will complain about when it loads models.json. Pi reports

@@ -78,7 +78,7 @@ extension MarkdownBlockView {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     if tasks {
-                        IconsaxIcon(name: item.isChecked == true ? "tick-square" : "task-square")
+                        HugeIcon(name: item.isChecked == true ? "checkmark-square-01" : "list-checks")
                             .imageScale(.small)
                             .foregroundStyle(item.isChecked == true ? Color.accentColor : Color.secondary)
                     } else {

@@ -37,35 +37,31 @@ struct WelcomeView: View {
                     Task { await state.addProject() }
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.settingsPillProminent)
             .controlSize(.large)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // With a folder to work in, there is nothing to ask: go straight to an
+        // empty chat there. The button stays for the case with no folder yet.
+        .task {
+            guard state.selectedSessionKey == nil, let path = state.landingProjectPath else { return }
+            await state.startNewSession(projectPath: path)
+        }
     }
 }
 
-/// The landing line of an empty chat: the app's mark over one question that
-/// names the project the chat runs in.
+/// The landing line of an empty chat: one question that names the project the
+/// chat runs in.
 struct BuildPromptHero: View {
     var projectName: String?
 
     var body: some View {
-        VStack(spacing: 26) {
-            ZStack {
-                IconsaxIcon(name: "award", size: 58)
-                Text(">_")
-                    .font(.system(size: 17, weight: .medium, design: .monospaced))
-            }
-            .foregroundStyle(.secondary)
-            .accessibilityHidden(true)
-
-            title
-                .font(.system(size: 28, weight: .regular))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
-        }
-        .padding(.horizontal, 24)
+        title
+            .font(.system(size: 21, weight: .medium))
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.7)
+            .padding(.horizontal, 24)
     }
 
     private var title: Text {
@@ -85,7 +81,7 @@ struct PiSetupView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("Pi was not found", iconsax: "warning-2")
+                    Label("Pi was not found", huge: "alert-01")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.orange)
                     Text("PiCode is a client for Pi Coding Agent. It does not bundle Pi, and it never installs or updates it for you.")
@@ -105,7 +101,7 @@ struct PiSetupView: View {
                 InspectorSection(
                     title: "Install Pi",
                     subtitle: "Any of these put `pi` on your PATH.",
-                    systemImage: "arrow-circle-down"
+                    systemImage: "arrow-down-01"
                 ) {
                     VStack(alignment: .leading, spacing: 8) {
                         CommandLineRow(command: "npm install -g --ignore-scripts @earendil-works/pi-coding-agent")
@@ -116,7 +112,7 @@ struct PiSetupView: View {
                 InspectorSection(
                     title: "How PiCode looks for Pi",
                     subtitle: "It asks your login shell first, then falls back to common install locations.",
-                    systemImage: "search-normal"
+                    systemImage: "search-01"
                 ) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Login shell: `command -v pi` in your shell, with your shell's PATH.")
@@ -153,7 +149,7 @@ struct PiSetupView: View {
                             Text("Check again")
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.settingsPillProminent)
                     .disabled(isChecking)
 
                     Button("Open Terminal in Home") {

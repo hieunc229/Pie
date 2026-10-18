@@ -79,6 +79,10 @@ final class PreferencesStore {
     var expandedProjects: Set<String>
     var lastProjectPath: String?
     var reducedMotionOverride: Bool?
+    /// How many screens of transcript stay built above and below the viewport.
+    /// Rows further away are swapped for empty space of the same height.
+    var transcriptOffscreenScreens: Int
+    static let transcriptOffscreenScreenChoices = [2, 3, 4, 5, 6, 8]
     /// PiCode-only per-project settings (name, launch folder, system prompt),
     /// keyed by canonical project path. Stored as JSON in `UserDefaults` rather
     /// than as three parallel arrays so the three fields can never drift apart.
@@ -112,6 +116,7 @@ final class PreferencesStore {
         expandedProjects = Set(defaults.stringArray(forKey: Keys.expandedProjects) ?? [])
         lastProjectPath = defaults.string(forKey: Keys.lastProject)
         reducedMotionOverride = defaults.object(forKey: Keys.reducedMotion) as? Bool
+        transcriptOffscreenScreens = defaults.object(forKey: Keys.transcriptOffscreenScreens) as? Int ?? 2
         if let data = defaults.data(forKey: Keys.projectSettings) {
             projectSettingsByPath = (try? JSONDecoder.piCode.decode([String: ProjectSettings].self, from: data)) ?? [:]
         } else {
@@ -138,6 +143,7 @@ final class PreferencesStore {
         defaults.set(Array(hiddenSessions), forKey: Keys.hiddenSessions)
         defaults.set(Array(expandedProjects), forKey: Keys.expandedProjects)
         defaults.set(lastProjectPath, forKey: Keys.lastProject)
+        defaults.set(transcriptOffscreenScreens, forKey: Keys.transcriptOffscreenScreens)
         defaults.set(reducedMotionOverride, forKey: Keys.reducedMotion)
         if projectSettingsByPath.isEmpty {
             defaults.removeObject(forKey: Keys.projectSettings)
@@ -187,6 +193,7 @@ final class PreferencesStore {
         static let expandedProjects = "expandedProjects"
         static let lastProject = "lastProjectPath"
         static let reducedMotion = "reducedMotionOverride"
+        static let transcriptOffscreenScreens = "transcriptKeptScreens"
         static let projectSettings = "projectSettings"
     }
 }

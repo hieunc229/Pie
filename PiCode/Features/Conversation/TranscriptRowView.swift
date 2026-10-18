@@ -57,6 +57,28 @@ enum TranscriptStyle {
     /// action glyphs and the timestamp beside them.
     static let actionRowHeight: CGFloat = 18
 
+    /// The start of a message too long to lay out whole, or `nil` when it is
+    /// short enough to draw as is. Stops at `lineLimit` lines or `byteLimit`
+    /// UTF-8 bytes, whichever comes first, and never reads further than that.
+    static func collapsedPreview(of text: String, lineLimit: Int = 24, byteLimit: Int = 4_000) -> String? {
+        let utf8 = text.utf8
+        var index = utf8.startIndex
+        var scanned = 0
+        var newlines = 0
+        while index < utf8.endIndex, scanned < byteLimit {
+            if utf8[index] == UInt8(ascii: "\n") {
+                newlines += 1
+                if newlines == lineLimit { break }
+            }
+            index = utf8.index(after: index)
+            scanned += 1
+        }
+        guard index < utf8.endIndex else { return nil }
+        // A UTF-8 offset can land inside a character; slicing rounds it down to
+        // the character's start.
+        return String(text[..<index])
+    }
+
     static func userBubbleFill(_ scheme: ColorScheme) -> Color {
         switch scheme {
         case .dark: return Color(.sRGB, red: 0.20, green: 0.42, blue: 0.68, opacity: 0.40)
@@ -73,6 +95,7 @@ struct TranscriptRowView: View {
     @State private var isHovering = false
     @State private var hoveredAction: String?
     @State private var isEditing = false
+    @State private var isShowingFullUserText = false
 
     var body: some View {
         Group {
@@ -114,8 +137,9 @@ struct TranscriptRowView: View {
     /// affect; edit uses Pi's fork operation, so submitting the changed prompt adds
     /// a new branch instead of rewriting session history.
     private var userRow: some View {
-        VStack(alignment: .trailing, spacing: 0) {
-            Text(item.text)
+        let preview = isShowingFullUserText ? nil : TranscriptStyle.collapsedPreview(of: item.text)
+        return VStack(alignment: .trailing, spacing: 0) {
+            Text(preview.map { $0 + "…" } ?? item.text)
                 .font(TranscriptStyle.text)
                 .lineSpacing(TranscriptStyle.lineSpacing)
                 .textSelection(.enabled)
@@ -129,6 +153,23 @@ struct TranscriptRowView: View {
                 // so the bubble hugs its text and is capped rather than spanning
                 // the transcript.
                 .frame(maxWidth: 520, alignment: .trailing)
+
+            // A pasted log or file can be tens of thousands of characters, and the
+            // transcript lays out every loaded row eagerly: one selectable `Text`
+            // that size is a long main-thread layout on open and on every resize.
+            // It is drawn folded, with the whole message one click away.
+            if preview != nil || isShowingFullUserText {
+                Button {
+                    isShowingFullUserText.toggle()
+                } label: {
+                    Label(isShowingFullUserText ? "Show less" : "Show full message",
+                          huge: isShowingFullUserText ? "arrow-up-01" : "arrow-down-01")
+                        .font(Typography.body)
+                        .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.light)
+                .padding(.top, 6)
+            }
 
             // The actions are built only while the pointer is on the message,
             // in a line of fixed height so showing them moves nothing. Built and
@@ -148,7 +189,7 @@ struct TranscriptRowView: View {
                         Button {
                             WorkspaceLauncher.copyToPasteboard(item.text)
                         } label: {
-                            IconsaxIcon(name: "document-copy")
+                            HugeIcon(name: "copy-01")
                                 .font(.system(size: 13))
                         }
                         .foregroundStyle(hoveredAction == "copy" ? Color.white : Color.secondary)
@@ -160,7 +201,7 @@ struct TranscriptRowView: View {
                             Button {
                                 isEditing = true
                             } label: {
-                                IconsaxIcon(name: "edit-2")
+                                HugeIcon(name: "edit-02")
                                     .font(.system(size: 13))
                             }
                             .foregroundStyle(hoveredAction == "edit" ? Color.white : Color.secondary)
@@ -208,7 +249,7 @@ struct TranscriptRowView: View {
     private var toolResultRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                IconsaxIcon(name: "setting-4")
+                HugeIcon(name: "wrench-01")
                     .font(Typography.notice)
                     .foregroundStyle(.secondary)
                 Text("Tool result\(item.toolName.map { ": \($0)" } ?? "")")
@@ -226,7 +267,7 @@ struct TranscriptRowView: View {
 
     private var systemRow: some View {
         HStack(alignment: .top, spacing: 12) {
-            IconsaxIcon(name: "info-circle")
+            HugeIcon(name: "information-circle")
                 .font(Typography.notice)
                 .foregroundStyle(.secondary)
                 .padding(.top, 1)
@@ -249,7 +290,7 @@ struct TranscriptRowView: View {
 
     private var errorRow: some View {
         HStack(alignment: .top, spacing: 12) {
-            IconsaxIcon(name: "warning-2")
+            HugeIcon(name: "alert-01")
                 .font(Typography.notice)
                 .foregroundStyle(AppTheme.errorCardIcon)
                 .padding(.top, 1)
@@ -281,7 +322,7 @@ struct TranscriptRowView: View {
     private var compactionRow: some View {
         let kind = item.summaryKind ?? .compaction
         return HStack(spacing: 8) {
-            IconsaxIcon(name: kind.systemImage)
+            HugeIcon(name: kind.systemImage)
                 .imageScale(.small)
                 .foregroundStyle(.secondary)
             Text(kind.label)
@@ -296,7 +337,7 @@ struct TranscriptRowView: View {
 
     private var retryRow: some View {
         HStack(spacing: 8) {
-            IconsaxIcon(name: "refresh")
+            HugeIcon(name: "refresh")
                 .imageScale(.small)
                 .foregroundStyle(.orange)
             Text(item.text)

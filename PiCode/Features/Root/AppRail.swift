@@ -3,8 +3,8 @@
 //  PiCode
 //
 //  The narrow icon rail on the window's leading edge: the app's destinations
-//  (home, history, packages, terminal), then the panel the session's changes live
-//  in, and the user's own badge at the bottom, which opens Settings.
+//  (home, history, packages, more), and the user's own badge at the bottom,
+//  which opens Settings.
 //
 //  It is drawn on the window chrome rather than inside the content card, so it
 //  reads as the window's frame and stays put when the sidebar folds away.
@@ -25,37 +25,24 @@ struct AppRail: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            RailButton(systemImage: "home", help: "Home", isSelected: !state.isPackagesVisible && !state.isSettingsPresented) {
+            RailButton(systemImage: "home-07", help: "Home", isSelected: !state.isPackagesVisible && !state.isSettingsPresented) {
                 state.hidePackages()
             }
-            RailButton(systemImage: "clock", help: "Search history (⇧⌘P)", isSelected: false, action: onOpenPalette)
-            RailButton(systemImage: "box", help: "Packages", isSelected: state.isPackagesVisible && !state.isSettingsPresented) {
+            RailButton(systemImage: "clock-01", help: "Search history (⇧⌘P)", isSelected: false, action: onOpenPalette)
+            RailButton(systemImage: "package", help: "Packages", isSelected: state.isPackagesVisible && !state.isSettingsPresented) {
                 state.showPackages()
             }
             moreMenu
-
-            Rectangle()
-                .fill(AppTheme.cardStroke)
-                .frame(width: 22, height: 1)
-                .padding(.vertical, 6)
-
-            RailButton(
-                systemImage: "hierarchy-2",
-                help: "Changes and context (⌥⌘I)",
-                isSelected: state.isInspectorVisible && !state.isNotificationsVisible
-            ) {
-                state.toggleInspector()
-            }
-            .disabled(state.activeController == nil)
 
             Spacer(minLength: 0)
 
             UpdateButton(updater: state.updater)
 
             RailButton(
-                systemImage: "setting-2",
-                help: "Settings",
+                systemImage: "settings-02",
+                help: state.isUpdatingAnything ? "Settings — updating…" : "Settings",
                 isSelected: state.isSettingsPresented,
+                isLoading: state.isUpdatingAnything,
                 action: onOpenSettings
             )
             .padding(.bottom, 14)
@@ -78,7 +65,7 @@ struct AppRail: View {
         } label: {
             // A menu's label is snapshotted as a template image, so the glyph is
             // wrapped in `Text` to survive it (see `ProjectRow`).
-            Text(iconsaxImage("more"))
+            Text(hugeIconImage("more-horizontal"))
                 .font(.system(size: AppRailMetrics.iconSize, weight: .regular))
                 .frame(width: AppRailMetrics.buttonSize, height: AppRailMetrics.buttonSize)
                 .contentShape(Rectangle())
@@ -92,7 +79,7 @@ struct AppRail: View {
 }
 
 /// Shown above Settings when a newer release exists: a white download glyph on a
-/// blue square. Click downloads, installs and relaunches.
+/// blue circle. Click downloads, installs and relaunches.
 struct UpdateButton: View {
     var updater: AppUpdater
 
@@ -100,7 +87,7 @@ struct UpdateButton: View {
         if let release = updater.release {
             Button(action: updater.install) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.blue)
+                    Circle().fill(Color.blue)
                     switch updater.state {
                     case .downloading(_, let progress):
                         Circle()
@@ -111,12 +98,12 @@ struct UpdateButton: View {
                     case .installing:
                         ProgressView().controlSize(.small).colorScheme(.dark)
                     default:
-                        IconsaxIcon(name: "arrow-down", size: AppRailMetrics.iconSize)
+                        HugeIcon(name: "arrow-down-01", size: AppRailMetrics.iconSize)
                             .foregroundStyle(.white)
                     }
                 }
                 .frame(width: AppRailMetrics.buttonSize, height: AppRailMetrics.buttonSize)
-                .contentShape(Rectangle())
+                .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .disabled(updater.isBusy)
@@ -142,6 +129,8 @@ struct RailButton: View {
     var systemImage: String
     var help: String
     var isSelected: Bool
+    /// Swaps the glyph for a spinner while background work runs.
+    var isLoading = false
     var action: () -> Void
 
     @State private var isHovering = false
@@ -149,7 +138,13 @@ struct RailButton: View {
 
     var body: some View {
         Button(action: action) {
-            IconsaxIcon(name: systemImage, size: AppRailMetrics.iconSize)
+            Group {
+                if isLoading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    HugeIcon(name: systemImage, size: AppRailMetrics.iconSize)
+                }
+            }
                 .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                 .frame(width: AppRailMetrics.buttonSize, height: AppRailMetrics.buttonSize)
                 .background(

@@ -11,8 +11,6 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var state: AppState
 
-    @State private var query = ""
-
     var body: some View {
         HStack(spacing: 0) {
             menu
@@ -26,38 +24,13 @@ struct SettingsView: View {
 
     // MARK: - Left menu
 
-    private var visibleTabs: [SettingsTab] {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return SettingsTab.allCases }
-        return SettingsTab.allCases.filter { $0.title.localizedCaseInsensitiveContains(trimmed) }
-    }
-
     private var menu: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
-                Button {
-                    state.isSettingsPresented = false
-                } label: {
-                    HStack(spacing: 8) {
-                        IconsaxIcon(name: "arrow-left-2")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("Back to app")
-                            .font(Typography.body)
-                    }
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 8)
-
-                searchField
-                    .padding(.top, 10)
-                    .padding(.bottom, 10)
+                Color.clear.frame(height: 8)
 
                 ForEach(SettingsTab.Group.allCases) { group in
-                    let tabs = visibleTabs.filter { $0.group == group }
+                    let tabs = SettingsTab.allCases.filter { $0.group == group }
                     if !tabs.isEmpty {
                         Text(group.title)
                             .font(.system(size: 13))
@@ -77,27 +50,13 @@ struct SettingsView: View {
         .background(AppTheme.sidebar)
     }
 
-    private var searchField: some View {
-        HStack(spacing: 8) {
-            IconsaxIcon(name: "search-normal")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-            TextField("Search", text: $query)
-                .textFieldStyle(.plain)
-                .font(Typography.body)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Capsule().fill(AppTheme.railSelection.opacity(0.5)))
-    }
-
     private func settingsMenuRow(_ tab: SettingsTab) -> some View {
         let isSelected = state.settingsTab == tab
         return Button {
             state.settingsTab = tab
         } label: {
             HStack(spacing: 10) {
-                IconsaxIcon(name: tab.systemImage)
+                HugeIcon(name: tab.systemImage)
                     .font(.system(size: 13, weight: .regular))
                     .frame(width: 18)
                 Text(tab.title)
@@ -217,12 +176,12 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
-        case .general: return "setting-2"
-        case .harnesses: return "box"
-        case .providers: return "key"
-        case .composer: return "edit-2"
-        case .sessions: return "messages-2"
-        case .pi: return "health"
+        case .general: return "settings-02"
+        case .harnesses: return "package"
+        case .providers: return "key-01"
+        case .composer: return "edit-02"
+        case .sessions: return "message-multiple-01"
+        case .pi: return "stethoscope"
         }
     }
 }
@@ -236,16 +195,14 @@ struct GeneralSettings: View {
         SettingsPage {
             SettingsSection("Appearance") {
                 SettingsRow("Appearance", detail: "Match the system or force a light or dark window.") {
-                    Picker("", selection: Binding(
-                        get: { state.preferences.appearance },
-                        set: { state.preferences.appearance = $0; state.preferences.persist() }
-                    )) {
-                        ForEach(PreferencesStore.Appearance.allCases) { option in
-                            Text(option.label).tag(option)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
+                    Dropdown(
+                        selection: Binding(
+                            get: { state.preferences.appearance },
+                            set: { state.preferences.appearance = $0; state.preferences.persist() }
+                        ),
+                        values: PreferencesStore.Appearance.allCases,
+                        label: { $0.label }
+                    )
                 }
                 SettingsRow("Reduce motion", detail: "Overrides the system setting for PiCode's animations only.") {
                     Toggle("", isOn: Binding(
@@ -254,6 +211,19 @@ struct GeneralSettings: View {
                     ))
                     .labelsHidden()
                     .toggleStyle(.switch)
+                }
+                SettingsRow(
+                    "Keep transcript built",
+                    detail: "Screens of messages kept above and below the view. Fewer uses less memory in long chats."
+                ) {
+                    Dropdown(
+                        selection: Binding(
+                            get: { state.preferences.transcriptOffscreenScreens },
+                            set: { state.preferences.transcriptOffscreenScreens = $0; state.preferences.persist() }
+                        ),
+                        values: PreferencesStore.transcriptOffscreenScreenChoices,
+                        label: { "\($0) screens" }
+                    )
                 }
                 SettingsRow("Notify when a long turn finishes") {
                     Toggle("", isOn: Binding(
@@ -300,53 +270,46 @@ struct ComposerSettings: View {
         SettingsPage {
             SettingsSection("Sending") {
                 SettingsRow("Send key", detail: "The key that sends a message from the composer.") {
-                    Picker("", selection: Binding(
-                        get: { state.preferences.sendKey },
-                        set: { state.preferences.sendKey = $0; state.preferences.persist() }
-                    )) {
-                        ForEach(PreferencesStore.SendKey.allCases) { option in
-                            Text(option.label).tag(option)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
+                    Dropdown(
+                        selection: Binding(
+                            get: { state.preferences.sendKey },
+                            set: { state.preferences.sendKey = $0; state.preferences.persist() }
+                        ),
+                        values: PreferencesStore.SendKey.allCases,
+                        label: { $0.label }
+                    )
                 }
             }
 
             SettingsSection("Defaults for new sessions") {
                 SettingsRow("Thinking level") {
-                    Picker("", selection: Binding(
-                        get: { state.preferences.defaultThinkingLevel ?? "" },
-                        set: { state.preferences.defaultThinkingLevel = $0.isEmpty ? nil : $0; state.preferences.persist() }
-                    )) {
-                        Text("Pi's default").tag("")
-                        Text("off").tag("off")
-                        Text("low").tag("low")
-                        Text("medium").tag("medium")
-                        Text("high").tag("high")
-                    }
-                    .labelsHidden()
-                    .fixedSize()
+                    Dropdown(
+                        selection: Binding(
+                            get: { state.preferences.defaultThinkingLevel ?? "" },
+                            set: { state.preferences.defaultThinkingLevel = $0.isEmpty ? nil : $0; state.preferences.persist() }
+                        ),
+                        values: ["", "off", "low", "medium", "high"],
+                        label: { $0.isEmpty ? "Pi's default" : $0 }
+                    )
                 }
                 if let controller = state.activeController, !controller.availableModels.isEmpty {
                     SettingsRow("\(controller.harness.displayName) model") {
-                        Picker("", selection: Binding(
-                            get: { state.preferences.defaultModelByHarness[controller.harness.id.rawValue] ?? "" },
-                            set: {
-                                state.preferences.defaultModelByHarness[controller.harness.id.rawValue] = $0.isEmpty ? nil : $0
-                                if controller.harness.id == .pi {
-                                    state.preferences.defaultModelQualifiedID = $0.isEmpty ? nil : $0
+                        Dropdown(
+                            selection: Binding(
+                                get: { state.preferences.defaultModelByHarness[controller.harness.id.rawValue] ?? "" },
+                                set: {
+                                    state.preferences.defaultModelByHarness[controller.harness.id.rawValue] = $0.isEmpty ? nil : $0
+                                    if controller.harness.id == .pi {
+                                        state.preferences.defaultModelQualifiedID = $0.isEmpty ? nil : $0
+                                    }
+                                    state.preferences.persist()
                                 }
-                                state.preferences.persist()
-                            }
-                        )) {
-                            Text("\(controller.harness.displayName)'s default").tag("")
-                            ForEach(controller.availableModels) { model in
-                                Text("\(model.provider)/\(model.id)").tag(model.qualifiedID)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
+                            ),
+                            options: [.init(label: "\(controller.harness.displayName)'s default", value: "")]
+                                + controller.availableModels.map {
+                                    .init(label: "\($0.provider)/\($0.id)", value: $0.qualifiedID)
+                                }
+                        )
                     }
                 } else {
                     SettingsRow(
@@ -511,7 +474,9 @@ struct PayloadLogView: View {
                 Spacer(minLength: 0)
                 CopyButton(text: text, help: "Copy log")
                 Button("Refresh") { text = PiDiagnosticsLog.shared.text() }
+                    .buttonStyle(.settingsPill)
                 Button("Close") { dismiss() }
+                    .buttonStyle(.settingsPill)
             }
             .padding(12)
             Divider()

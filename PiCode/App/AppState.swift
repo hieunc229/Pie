@@ -37,6 +37,13 @@ final class AppState {
     let harnessUpdates = HarnessUpdateChecker()
     /// Checks GitHub Releases for a newer PiCode and installs it in place.
     let updater = AppUpdater()
+    /// Harnesses with an app-owned update in flight. Updates run in tasks owned
+    /// by `AppState`, not by a view, so leaving Settings never interrupts them.
+    var updatingHarnesses: Set<HarnessID> = []
+    /// When each provider's model list was last fetched from its endpoint, this launch.
+    var providerModelRefreshes: [String: Date] = [:]
+    var providersRefreshing: Set<String> = []
+    var updateTasks: [HarnessID: Task<Void, Never>] = [:]
     private let index = SessionIndex()
     /// Fast, rebuildable cache of the session list. The sidebar reads it at
     /// launch so chats appear before the disk scan finishes.
@@ -546,10 +553,6 @@ final class AppState {
 
     func open(session: SessionRef) async {
         if session.isEphemeral, activeController?.harness.id == session.harnessID { return }
-        guard session.harnessID != .deepseekHarness else {
-            present(error: "DeepSeek's installed JSON-RPC adapter cannot resume saved sessions yet. Open this conversation in DeepSeek Harness: \(session.sessionId ?? session.id).")
-            return
-        }
         let harness = HarnessDescriptor.descriptor(for: session.harnessID)
         guard harnesses.isInstalled(harness.id) else {
             present(error: "Install \(harness.displayName) to resume this session.")
@@ -615,7 +618,8 @@ final class AppState {
     /// project at all does this fall back to the folder picker, because a picker is
     /// a different action than the button promises.
     func newChatInCurrentProject() async {
-        if let path = selectedProjectPath ?? selectedProject?.path ?? activeController?.projectPath {
+        if let path = selectedProjectPath ?? selectedProject?.path ?? activeController?.projectPath
+            ?? landingProjectPath {
             await startNewSession(projectPath: path)
         } else {
             await addProject()
@@ -970,15 +974,25 @@ final class AppState {
         await startNewSession(projectPath: canonical)
     }
 
-    private func restoreLastSession() {
-        guard selectedSessionKey == nil else { return }
-        let target = preferences.lastProjectPath.flatMap(project(for:))
-            ?? projects.first(where: { !$0.sessions.isEmpty })
-        guard let project = target else { return }
-        selectedProjectPath = project.path
-        if let mostRecent = project.sessions.first {
-            Task { await open(session: mostRecent) }
+    /// The folder a new chat opens in when nothing else says which: the one the
+    /// previous chat ran in (kept across launches), as long as it still exists,
+    /// otherwise the most recently used project.
+    var landingProjectPath: String? {
+        if let last = preferences.lastProjectPath {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: last, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                return last
+            }
         }
+        return projects.first(where: { !$0.sessions.isEmpty })?.path ?? projects.first?.path
+    }
+
+    /// Launch lands on an empty chat in the last folder — the centred question
+    /// and composer — rather than on the previous conversation.
+    private func restoreLastSession() {
+        guard selectedSessionKey == nil, let path = landingProjectPath else { return }
+        Task { await startNewSession(projectPath: path) }
     }
 
     // MARK: - Command palette

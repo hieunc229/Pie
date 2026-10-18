@@ -57,7 +57,73 @@ enum MarkdownParser {
 
     /// Parses block structure. Safe to call on incomplete streaming text.
     static func parse(_ text: String) -> [MarkdownBlock] {
-        cache.value(forKey: text, cost: text.count) { parseUncached(text) }
+        cache.value(forKey: text, cost: text.utf8.count) { parseUncached(text) }
+    }
+
+    /// Parses a reply that is still growing.
+    ///
+    /// Every flush hands over the whole reply with a few more tokens on the end,
+    /// so a plain `parse` misses the cache every time: it re-walks the full text
+    /// (O(reply) per token) and stores one dead prefix per flush, which pushes the
+    /// rest of the transcript's parses out of the cache. A blank line outside a
+    /// code fence ends every open block, so the text up to the last such line
+    /// parses the same on its own — it is parsed through the cache (and stays a
+    /// hit until the next paragraph closes), and only the tail is walked again.
+    static func parseStreaming(_ text: String) -> [MarkdownBlock] {
+        parseStreaming(text, depth: 0)
+    }
+
+    private static func parseStreaming(_ text: String, depth: Int) -> [MarkdownBlock] {
+        guard let split = stableSplit(text) else { return parseUncached(text) }
+        let prefix = String(text.unicodeScalars[..<split.prefixEnd])
+        let tail = String(text.unicodeScalars[split.tailStart...])
+        // In the steady state the prefix is the one the previous paragraph cached,
+        // so this recurses once. A cold start (a reply first seen mid-stream)
+        // would otherwise cache every paragraph's prefix; past one level the
+        // prefix is parsed whole instead.
+        let head = depth < 1
+            ? cache.value(forKey: prefix, cost: prefix.utf8.count) { parseStreaming(prefix, depth: depth + 1) }
+            : parse(prefix)
+        return head + parseUncached(tail)
+    }
+
+    /// The last blank line that is not inside a code fence: the text before it
+    /// and the text after it parse independently. Mirrors the fence rules in
+    /// `parseUncached`. Walks unicode scalars, not characters, so lines break
+    /// where `components(separatedBy: "\n")` breaks them (a `\r\n` is one
+    /// `Character`).
+    private static func stableSplit(_ text: String) -> (prefixEnd: String.Index, tailStart: String.Index)? {
+        let scalars = text.unicodeScalars
+        var openFence: String?
+        var result: (String.Index, String.Index)?
+        var lineStart = scalars.startIndex
+        while lineStart < scalars.endIndex {
+            let lineEnd = scalars[lineStart...].firstIndex(of: "\n") ?? scalars.endIndex
+            // Only a blank line or one starting with a fence character matters,
+            // so ordinary lines are skipped without building a string.
+            let first = scalars[lineStart..<lineEnd].first { !CharacterSet.whitespaces.contains($0) }
+            guard first == nil || first == "`" || first == "~" else {
+                guard lineEnd < scalars.endIndex else { break }
+                lineStart = scalars.index(after: lineEnd)
+                continue
+            }
+            let trimmed = String(scalars[lineStart..<lineEnd]).trimmingCharacters(in: .whitespaces)
+            if let fence = openFence {
+                if trimmed.hasPrefix(fence),
+                   trimmed.drop(while: { $0 == fence.first }).trimmingCharacters(in: .whitespaces).isEmpty {
+                    openFence = nil
+                }
+            } else if let fence = fenceMarker(trimmed) {
+                openFence = fence.marker
+            } else if trimmed.isEmpty, lineEnd < scalars.endIndex, lineStart > scalars.startIndex {
+                // The prefix ends before this line's leading newline; the tail
+                // starts after its own.
+                result = (scalars.index(before: lineStart), scalars.index(after: lineEnd))
+            }
+            guard lineEnd < scalars.endIndex else { break }
+            lineStart = scalars.index(after: lineEnd)
+        }
+        return result
     }
 
     private static func parseUncached(_ text: String) -> [MarkdownBlock] {

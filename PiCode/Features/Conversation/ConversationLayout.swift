@@ -61,3 +61,77 @@ struct ConversationColumn<Content: View>: View {
             .frame(maxWidth: ConversationLayout.maxColumnWidth)
     }
 }
+
+/// The transcript's row stack: what `VStack(alignment: .leading, spacing:)`
+/// draws, without the parts of `VStack` that scale with the row count.
+///
+/// The transcript lays out every loaded row, and a long agent turn is hundreds
+/// of them. On every streaming flush `VStack` re-ranked all of its children by
+/// flexibility (an insertion sort) and asked each one for its leading
+/// alignment guide, which recurses through the row's own stacks — so one token
+/// cost a walk of the whole loaded history, well over a frame. Rows here are
+/// all full-width and leading, so neither is needed: each row is measured at
+/// the column's width (SwiftUI caches that per row, so an unchanged row is a
+/// lookup) and placed below the previous one.
+struct TranscriptStackLayout: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rowProposal = ProposedViewSize(width: proposal.width, height: nil)
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(rowProposal)
+            width = max(width, size.width)
+            height += size.height
+            if index > subviews.startIndex { height += spacing }
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    /// No guides of its own, and none read from the rows: the transcript is
+    /// top-aligned in its container, and asking hundreds of rows for a guide
+    /// recurses through every one of them.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
+                           subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
+
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
+                           subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rowProposal = ProposedViewSize(width: bounds.width, height: nil)
+        var y = bounds.minY
+        for subview in subviews {
+            let size = subview.sizeThatFits(rowProposal)
+            subview.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading, proposal: rowProposal)
+            y += size.height + spacing
+        }
+    }
+}
+
+/// The transcript's viewport: exactly as big as it is offered, with no
+/// alignment guides of its own.
+///
+/// A scroll view asked for its size — by a stack ranking its children, by an
+/// alignment guide forwarded through a frame, or by the window recomputing its
+/// minimum size, all of which happen on every update — measures its whole
+/// content at that proposal. With hundreds of rows loaded that measuring was
+/// most of a streaming flush. Answering here keeps every such question from
+/// reaching the rows; they are laid out once, at the viewport's real width.
+struct TranscriptViewportLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
+    }
+
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
+                           subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
+
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
+                           subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for subview in subviews {
+            subview.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
+        }
+    }
+}

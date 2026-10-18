@@ -2,7 +2,7 @@
 
 # PiCode
 
-**A native macOS interface for coding agents — [Pi](https://pi.dev/), Oh My Pi, Claude Code, Codex, OpenCode, and DeepSeek.**
+**A native macOS interface for coding agents — [Pi](https://pi.dev/), Oh My Pi, Claude Code, Codex, OpenCode, Muse Code, and DeepSeek.**
 
 PiCode keeps each agent as the runtime and gives it a focused desktop interface for long-running coding sessions. Projects and chats stay close at hand, agent activity remains readable, and files, diffs, and command output open beside the conversation when you need them.
 
@@ -31,6 +31,7 @@ PiCode keeps each agent as the runtime and gives it a focused desktop interface 
 | **Claude Code** | `claude` | `claude --print`, stream-json | Tools stream as content blocks; session tree, fork, and extension dialogs are Pi-only |
 | **Codex** | `codex` | `codex exec --json` | Assistant text arrives per item, not per token; follow-ups resume the same thread |
 | **OpenCode** | `opencode` | `opencode run --format json` | Reuses providers from `opencode auth login`; models from the installed catalog |
+| **Muse Code** | `muse` | `muse exec --json` (MSP records) | One process per turn; follow-ups reuse `--session-id`. Sign in with `muse login` |
 | **DeepSeek Harness** | `dsh` | Newline-delimited JSON-RPC | No per-token stream; saved sessions are listed but cannot be resumed yet |
 
 Capabilities differ per harness, and PiCode hides controls a harness cannot honor. Harness is chosen per project; since each runtime has its own process and session store, switching harness starts a new chat. See [SESSION_STORAGE.md](SESSION_STORAGE.md) for how sessions are discovered and resumed.

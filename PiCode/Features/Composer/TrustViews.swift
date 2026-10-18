@@ -14,7 +14,7 @@ struct ProjectTrustPrompt: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("This project can change how Pi behaves", iconsax: "shield-tick")
+            Label("This project can change how Pi behaves", huge: "shield-01")
                 .font(Typography.noticeSemibold)
 
             Text("\(controller.projectPath.abbreviatingHomeDirectory) contains project resources Pi can load: settings, extensions, skills, prompts, themes, or system prompts. Pi will not load them unless you trust this project.")
@@ -26,21 +26,24 @@ struct ProjectTrustPrompt: View {
                 Button("Trust & Remember") {
                     controller.setTrust(true, remember: true)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.settingsPillProminent)
 
                 Button("Trust for This Session") {
                     controller.setTrust(true, remember: false)
                 }
+                .buttonStyle(.settingsPill)
 
                 Button("Don't Trust") {
                     controller.setTrust(false, remember: false)
                 }
+                .buttonStyle(.settingsPill)
 
                 Spacer(minLength: 0)
 
                 Button("Trust Parent Folder Instead") {
                     controller.trustParentFolder()
                 }
+                .buttonStyle(.settingsPill)
                 .help("Writes a trust decision for the parent directory, which Pi applies to this project by nearest-ancestor lookup.")
             }
         }
@@ -55,7 +58,7 @@ struct UntrustedProjectNotice: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            IconsaxIcon(name: "lock")
+            HugeIcon(name: "lock")
                 .foregroundStyle(.secondary)
             Text("Project resources are not trusted, so Pi is running without them.")
                 .font(Typography.notice)
@@ -78,11 +81,11 @@ struct TrustBadge: View {
     var body: some View {
         switch state {
         case .trusted:
-            StatusPill(text: "Trusted", systemImage: "unlock", tint: .green)
+            StatusPill(text: "Trusted", systemImage: "lock-open", tint: .green)
         case .notRequired:
             StatusPill(text: "No project resources", systemImage: "lock", tint: .secondary)
         case .asked:
-            StatusPill(text: "Trust needed", systemImage: "lock-slash", tint: .orange, isProminent: true)
+            StatusPill(text: "Trust needed", systemImage: "lock-key", tint: .orange, isProminent: true)
         case .untrusted:
             StatusPill(text: "Not trusted", systemImage: "lock", tint: .orange)
         case .unknown:
@@ -104,7 +107,7 @@ struct ComposerAccessControl: View {
             isShowingPopover = true
         } label: {
             HStack(spacing: 5) {
-                IconsaxIcon(name: "warning-2")
+                HugeIcon(name: "alert-01")
                     .font(.system(size: 13))
                 Text(accessLabel)
                     .font(.system(size: 13.5))
@@ -120,7 +123,7 @@ struct ComposerAccessControl: View {
 
     private var popover: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(title, iconsax: symbol)
+            Label(title, huge: symbol)
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(tint)
 
@@ -140,9 +143,11 @@ struct ComposerAccessControl: View {
 
             HStack(spacing: 8) {
                 Button("Trust & Remember") { decide(true, remember: true) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.settingsPillProminent)
                 Button("This Session") { decide(true, remember: false) }
+                    .buttonStyle(.settingsPill)
                 Button("Don't Trust") { decide(false, remember: false) }
+                    .buttonStyle(.settingsPill)
             }
 
             Text("Changing this restarts Pi for this session. Decisions are written to Pi's own trust store, the same file `/trust` writes.")
@@ -192,9 +197,9 @@ struct ComposerAccessControl: View {
 
     private var symbol: String {
         switch controller.trustState {
-        case .trusted: return "unlock"
+        case .trusted: return "lock-open"
         case .notRequired: return "lock"
-        case .asked: return "lock-slash"
+        case .asked: return "lock-key"
         case .untrusted: return "lock"
         case .unknown: return "lock"
         }
