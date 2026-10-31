@@ -274,6 +274,7 @@ final class PiSessionController {
         runtime = .starting
         lastError = nil
         exitReason = nil
+        let isNewSession = sessionFile == nil
 
         let client = AgentRuntimeFactory.make(
             descriptor: harness,
@@ -333,7 +334,19 @@ final class PiSessionController {
         record(kind: .connection, title: "Connected to \(harness.displayName) \(piVersion)")
         beginLocalHistoryLoad()
         await refreshAll()
+        if isNewSession { await applyDefaultThinkingLevel() }
         await refreshGit(immediately: true)
+    }
+
+    /// `--model` restores the last model, but no launch flag carries the
+    /// effort, so a new chat would start at the harness default. Resumed chats
+    /// keep their own level.
+    private func applyDefaultThinkingLevel() async {
+        guard let level = preferences.defaultThinkingLevel,
+              level != thinkingLevel,
+              thinkingLevels.contains(level),
+              (try? await request(.setThinkingLevel(level: level))) != nil else { return }
+        await refreshState()
     }
 
     func stop() {
@@ -983,6 +996,7 @@ final class PiSessionController {
     // MARK: - Refresh
 
     private var refreshTask: Task<Void, Never>?
+    private var catalogFollowUpTask: Task<Void, Never>?
 
     /// Refreshes everything the UI needs after a launch, a session switch, or a
     /// fork. Ordering matters: the cheap calls that fill the transcript come
@@ -1004,6 +1018,22 @@ final class PiSessionController {
         }
         refreshTask = task
         await task.value
+        scheduleCatalogFollowUps()
+    }
+
+    /// Pi's RPC mode answers `get_available_models` from its startup snapshot
+    /// (often empty) and refreshes provider catalogs in the background for up
+    /// to 15s, without notifying. Re-fetch across that window so remotely
+    /// listed models (e.g. new DeepInfra ones) appear.
+    private func scheduleCatalogFollowUps() {
+        catalogFollowUpTask?.cancel()
+        catalogFollowUpTask = Task { [weak self] in
+            for delay in [2, 6, 16] as [UInt64] {
+                try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+                guard !Task.isCancelled, let self, self.connection.isConnected else { return }
+                await self.refreshModels()
+            }
+        }
     }
 
     func refreshState() async {
