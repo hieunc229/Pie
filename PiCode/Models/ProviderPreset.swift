@@ -150,6 +150,16 @@ enum ProviderPresets {
             note: "If the pi-deepinfra extension is installed, it already provides DeepInfra."
         ),
         ProviderPreset(
+            id: "cheaperinference",
+            name: "Cheaper Inference",
+            providerID: "cheaperinference",
+            baseURL: "https://api.cheaperinference.com/v1",
+            api: "openai-completions",
+            modelIDs: [],
+            keyPlaceholder: "$CHEAPER_INFERENCE_API_KEY or ci_live_…",
+            note: "One key, many models. Use Load Models to pull the catalog."
+        ),
+        ProviderPreset(
             id: "ollama",
             name: "Ollama (local)",
             providerID: "ollama",
